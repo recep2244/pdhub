@@ -1,0 +1,64 @@
+# Protein Design Hub - Default Configuration
+
+# Output settings
+output:
+  base_dir: "./outputs"
+  save_all_models: true
+  generate_report: true
+
+# Predictor settings
+predictors:
+  # ColabFold settings
+  colabfold:
+    enabled: true
+    num_models: 5
+    num_recycles: 3
+    use_amber: false
+    use_templates: false
+    msa_mode: "mmseqs2_uniref_env"  # mmseqs2_uniref, mmseqs2_uniref_env, single_sequence
+
+  # Chai-1 settings
+  chai1:
+    enabled: true
+    num_trunk_recycles: 3
+    num_diffusion_timesteps: 200
+    seed: 42
+
+  # Boltz-2 settings
+  boltz2:
+    enabled: true
+    recycling_steps: 3
+    sampling_steps: 200
+    diffusion_samples: 1
+
+# Evaluation settings
+evaluation:
+  metrics:
+    - lddt
+    - tm_score
+    - qs_score
+    - rmsd
+  lddt:
+    inclusion_radius: 15.0
+    sequence_separation: 0
+  tm_score:
+    tmalign_path: null  # Auto-detect
+
+# Installation settings
+installation:
+  auto_update: false
+  check_updates_on_start: true
+  colabfold_path: null  # Auto-detect
+  tools_dir: "~/.protein_design_hub/tools"
+
+# GPU settings
+gpu:
+  device: "cuda:0"
+  clear_cache_between_jobs: true
+  memory_fraction: 0.95
+
+# Web UI settings
+web:
+  host: "localhost"
+  port: 8501
+  theme: "light"
