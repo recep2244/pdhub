@@ -8,7 +8,29 @@ import json
 st.set_page_config(page_title="Compare - Protein Design Hub", page_icon="⚖️", layout="wide")
 
 st.title("⚖️ Compare Predictions")
-st.markdown("Run all predictors and compare results to find the best prediction")
+st.markdown("Run all predictors and compare results with visual analysis")
+
+# Add custom CSS for better layout
+st.markdown("""
+<style>
+.metric-card {
+    background-color: #f0f2f6;
+    border-radius: 10px;
+    padding: 15px;
+    text-align: center;
+    margin: 5px;
+}
+.metric-value {
+    font-size: 24px;
+    font-weight: bold;
+    color: #1f77b4;
+}
+.metric-label {
+    font-size: 12px;
+    color: #666;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # Sidebar
 st.sidebar.header("Settings")
@@ -239,6 +261,116 @@ if st.button("🚀 Run Comparison", type="primary", use_container_width=True):
             import traceback
             st.code(traceback.format_exc())
 
+# Structure Viewer Section
+st.markdown("---")
+st.subheader("🔬 Structure Viewer")
+
+# Check for existing results
+existing_results = st.text_input("Load existing results (path to job directory)", key="load_results")
+
+if existing_results and Path(existing_results).exists():
+    job_path = Path(existing_results)
+
+    # Find structure files
+    structure_files = list(job_path.glob("**/*.pdb")) + list(job_path.glob("**/*.cif"))
+
+    if structure_files:
+        selected_structure = st.selectbox(
+            "Select structure to view",
+            structure_files,
+            format_func=lambda x: f"{x.parent.name}/{x.name}"
+        )
+
+        if selected_structure:
+            # Try to use py3Dmol for 3D visualization
+            try:
+                import py3Dmol
+                import stmol
+
+                with open(selected_structure) as f:
+                    structure_content = f.read()
+
+                file_ext = selected_structure.suffix.lower()
+                mol_format = "cif" if file_ext == ".cif" else "pdb"
+
+                viewer = py3Dmol.view(width=700, height=500)
+                viewer.addModel(structure_content, mol_format)
+                viewer.setStyle({'cartoon': {'color': 'spectrum'}})
+                viewer.setBackgroundColor('white')
+                viewer.zoomTo()
+
+                stmol.showmol(viewer, height=500, width=700)
+
+            except ImportError:
+                st.warning("Install py3Dmol and stmol for 3D visualization: `pip install py3Dmol stmol`")
+
+                # Fallback: show structure info
+                st.markdown("**Structure Info:**")
+                st.code(f"File: {selected_structure.name}")
+
+                # Try to parse basic info
+                try:
+                    from Bio.PDB import PDBParser, MMCIFParser
+
+                    if selected_structure.suffix.lower() == '.pdb':
+                        parser = PDBParser(QUIET=True)
+                        structure = parser.get_structure('structure', str(selected_structure))
+                    else:
+                        parser = MMCIFParser(QUIET=True)
+                        structure = parser.get_structure('structure', str(selected_structure))
+
+                    num_chains = len(list(structure.get_chains()))
+                    num_residues = len(list(structure.get_residues()))
+                    num_atoms = len(list(structure.get_atoms()))
+
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        st.metric("Chains", num_chains)
+                    with col_b:
+                        st.metric("Residues", num_residues)
+                    with col_c:
+                        st.metric("Atoms", num_atoms)
+
+                except Exception as e:
+                    st.text(f"Could not parse structure: {e}")
+
+            # Download button
+            with open(selected_structure, 'rb') as f:
+                st.download_button(
+                    f"📥 Download {selected_structure.name}",
+                    data=f.read(),
+                    file_name=selected_structure.name,
+                    mime="chemical/x-pdb" if selected_structure.suffix == '.pdb' else "chemical/x-cif"
+                )
+
+    # Load summary if exists
+    summary_file = job_path / "prediction_summary.json"
+    if summary_file.exists():
+        with open(summary_file) as f:
+            summary = json.load(f)
+
+        st.markdown("### Results Summary")
+
+        for pred_name, pred_info in summary.get('predictors', {}).items():
+            with st.expander(f"**{pred_name.upper()}**"):
+                col_1, col_2, col_3 = st.columns(3)
+                with col_1:
+                    status = "✓ Success" if pred_info.get('success') else "✗ Failed"
+                    st.markdown(f"**Status:** {status}")
+                with col_2:
+                    st.markdown(f"**Structures:** {pred_info.get('num_structures', 0)}")
+                with col_3:
+                    runtime = pred_info.get('runtime_seconds', 0)
+                    st.markdown(f"**Runtime:** {runtime:.1f}s")
+
+                if pred_info.get('structure_paths'):
+                    st.markdown("**Structure files:**")
+                    for path in pred_info['structure_paths']:
+                        st.text(f"  - {Path(path).name}")
+
+else:
+    st.info("Enter a path to load existing results, or run a new comparison above.")
+
 # Info section
 with st.expander("ℹ️ About Comparison"):
     st.markdown("""
@@ -253,9 +385,19 @@ with st.expander("ℹ️ About Comparison"):
     - **With reference**: Ranking by lDDT score
     - **Without reference**: Ranking by pLDDT (predicted confidence)
 
+    ### Evaluation Metrics
+
+    | Metric | Description | Range |
+    |--------|-------------|-------|
+    | **lDDT** | Local Distance Difference Test | 0-1 (higher is better) |
+    | **TM-score** | Template Modeling score | 0-1 (higher is better) |
+    | **RMSD** | Root Mean Square Deviation | 0-∞ Å (lower is better) |
+    | **QS-score** | Quality Score for oligomers | 0-1 (higher is better) |
+
     ### Tips
 
     - Provide a reference structure when available for more accurate comparison
     - Longer sequences take more time to predict
     - Each predictor runs sequentially to manage GPU memory
+    - Use Chai-1 or Boltz-2 for protein-ligand complexes
     """)

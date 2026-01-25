@@ -37,8 +37,11 @@ class ColabFoldInstaller(ToolInstaller):
         if which_result:
             return Path(which_result)
 
-        # Check common installation locations
+        # Check common installation locations (including new pixi-based install)
         common_paths = [
+            # New pixi-based LocalColabFold installation
+            Path.home() / "localcolabfold" / ".pixi" / "envs" / "default" / "bin" / "colabfold_batch",
+            # Legacy conda-based installation
             Path.home() / "localcolabfold" / "colabfold-conda" / "bin" / "colabfold_batch",
             Path.home() / ".local" / "bin" / "colabfold_batch",
             Path("/usr/local/bin/colabfold_batch"),
