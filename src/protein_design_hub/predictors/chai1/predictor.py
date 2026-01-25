@@ -57,14 +57,24 @@ class Chai1Predictor(BasePredictor):
 
         config = self.settings.predictors.chai1
 
+        # Create separate directories for input files and chai_lab output
+        input_dir = output_dir / "input"
+        input_dir.mkdir(exist_ok=True)
+        chai_output_dir = output_dir / "chai_output"
+        # Ensure chai_output_dir is clean (chai_lab requires empty directory)
+        if chai_output_dir.exists():
+            import shutil
+            shutil.rmtree(chai_output_dir)
+        chai_output_dir.mkdir(exist_ok=True)
+
         # Prepare FASTA input for Chai-1
-        fasta_path = output_dir / "input.fasta"
+        fasta_path = input_dir / "input.fasta"
         self._write_chai_fasta(input_data, fasta_path)
 
         # Prepare constraint file if constraints provided
         constraint_path = None
         if input_data.constraints:
-            constraint_path = output_dir / "constraints.json"
+            constraint_path = input_dir / "constraints.json"
             self._write_constraints(input_data.constraints, constraint_path)
         elif config.constraint_path:
             constraint_path = config.constraint_path
@@ -72,7 +82,7 @@ class Chai1Predictor(BasePredictor):
         # Prepare MSA directory if MSA provided
         msa_directory = None
         if input_data.msa:
-            msa_directory = output_dir / "msa"
+            msa_directory = input_dir / "msa"
             msa_directory.mkdir(exist_ok=True)
             self._write_msa(input_data.msa, msa_directory)
         elif config.msa_directory:
@@ -81,7 +91,7 @@ class Chai1Predictor(BasePredictor):
         # Prepare template hits if templates provided
         template_hits_path = None
         if input_data.templates:
-            template_hits_path = output_dir / "templates"
+            template_hits_path = input_dir / "templates"
             template_hits_path.mkdir(exist_ok=True)
             self._prepare_templates(input_data.templates, template_hits_path)
         elif config.template_hits_path:
@@ -96,7 +106,7 @@ class Chai1Predictor(BasePredictor):
             # Run inference with all parameters
             candidates = run_inference(
                 fasta_file=fasta_path,
-                output_dir=output_dir,
+                output_dir=chai_output_dir,
                 # ESM embeddings
                 use_esm_embeddings=config.use_esm_embeddings,
                 # MSA settings
@@ -121,8 +131,8 @@ class Chai1Predictor(BasePredictor):
                 low_memory=config.low_memory,
             )
 
-            # Parse results
-            structure_paths, scores = self._parse_results(output_dir, candidates)
+            # Parse results from chai_output_dir
+            structure_paths, scores = self._parse_results(chai_output_dir, candidates)
 
             return PredictionResult(
                 job_id=input_data.job_id,
@@ -160,8 +170,8 @@ class Chai1Predictor(BasePredictor):
             else:
                 entity_type = "protein"
 
-            # Chai-1 FASTA format: >ID|entity_type
-            header = f">{seq.id}|{entity_type}"
+            # Chai-1 FASTA format: >entity_type|entity_name
+            header = f">{entity_type}|{seq.id}"
             lines.append(header)
             lines.append(seq.sequence)
 

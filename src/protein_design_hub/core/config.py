@@ -132,8 +132,8 @@ class Boltz2Config(BaseModel):
     )
     seed: Optional[int] = Field(default=None, description="Random seed")
 
-    # MSA settings
-    use_msa_server: bool = Field(default=False, description="Use MMSeqs2 server for MSA")
+    # MSA settings (required for Boltz-2, so enabled by default)
+    use_msa_server: bool = Field(default=True, description="Use MMSeqs2 server for MSA")
     msa_server_url: Optional[str] = Field(default=None, description="MSA server URL")
     msa_pairing_strategy: Literal["greedy", "complete"] = Field(
         default="greedy",
@@ -165,7 +165,7 @@ class Boltz2Config(BaseModel):
     accelerator: Literal["gpu", "cpu", "tpu"] = Field(default="gpu", description="Accelerator type")
     num_workers: int = Field(default=2, description="Number of dataloader workers")
     preprocessing_threads: int = Field(default=1, description="Preprocessing threads")
-    no_kernels: bool = Field(default=False, description="Disable optimized kernels")
+    no_kernels: bool = Field(default=True, description="Disable optimized kernels (set False if cuequivariance_torch is installed)")
 
     # Checkpoints
     checkpoint: Optional[Path] = Field(default=None, description="Custom model checkpoint")

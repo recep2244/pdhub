@@ -65,28 +65,72 @@ class Boltz2Predictor(BasePredictor):
             raise PredictionError(self.name, str(e), original_error=e)
 
     def _write_boltz_input(self, input_data: PredictionInput, yaml_path: Path) -> None:
-        """Write Boltz input YAML file."""
+        """Write Boltz input YAML file.
+
+        Boltz expects format with simple chain IDs (A, B, C, etc.):
+        version: 1
+        sequences:
+          - protein:
+              id: A
+              sequence: "MADQLTEEQIAEFKEAFSLF"
+          - ligand:
+              id: B
+              smiles: "CCO"
+        """
         import yaml
+        import string
+
+        # Generate simple chain IDs (A, B, C, ... AA, AB, etc.)
+        def get_chain_id(index: int) -> str:
+            if index < 26:
+                return string.ascii_uppercase[index]
+            else:
+                # For more than 26 chains, use two letters
+                return string.ascii_uppercase[index // 26 - 1] + string.ascii_uppercase[index % 26]
+
+        # Store mapping for later use
+        self._chain_id_map = {}
 
         entities = []
-        for seq in input_data.sequences:
-            entity = {"id": seq.id}
+        for i, seq in enumerate(input_data.sequences):
+            chain_id = get_chain_id(i)
+            self._chain_id_map[chain_id] = seq.id  # Map back to original ID
 
             if seq.molecule_type == MoleculeType.PROTEIN:
-                entity["type"] = "protein"
-                entity["sequence"] = seq.sequence
+                entity = {
+                    "protein": {
+                        "id": chain_id,
+                        "sequence": seq.sequence,
+                    }
+                }
             elif seq.molecule_type == MoleculeType.DNA:
-                entity["type"] = "dna"
-                entity["sequence"] = seq.sequence
+                entity = {
+                    "dna": {
+                        "id": chain_id,
+                        "sequence": seq.sequence,
+                    }
+                }
             elif seq.molecule_type == MoleculeType.RNA:
-                entity["type"] = "rna"
-                entity["sequence"] = seq.sequence
+                entity = {
+                    "rna": {
+                        "id": chain_id,
+                        "sequence": seq.sequence,
+                    }
+                }
             elif seq.molecule_type == MoleculeType.LIGAND:
-                entity["type"] = "ligand"
-                entity["smiles"] = seq.sequence  # For ligands, sequence is SMILES
+                entity = {
+                    "ligand": {
+                        "id": chain_id,
+                        "smiles": seq.sequence,  # For ligands, sequence is SMILES
+                    }
+                }
             else:
-                entity["type"] = "protein"
-                entity["sequence"] = seq.sequence
+                entity = {
+                    "protein": {
+                        "id": chain_id,
+                        "sequence": seq.sequence,
+                    }
+                }
 
             entities.append(entity)
 
@@ -218,12 +262,20 @@ class Boltz2Predictor(BasePredictor):
         structure_paths = []
         scores = []
 
-        # Find output CIF/PDB files - Boltz outputs to predictions/ subdirectory
-        predictions_dir = output_dir / "predictions"
-        if predictions_dir.exists():
-            search_dir = predictions_dir
+        # Boltz outputs to boltz_results_<input_name>/predictions/<name>/
+        # Find the boltz_results_* directory first
+        search_dir = output_dir
+        for boltz_dir in output_dir.glob("boltz_results_*"):
+            if boltz_dir.is_dir():
+                predictions_dir = boltz_dir / "predictions"
+                if predictions_dir.exists():
+                    search_dir = predictions_dir
+                    break
         else:
-            search_dir = output_dir
+            # Fallback to checking for predictions directly
+            predictions_dir = output_dir / "predictions"
+            if predictions_dir.exists():
+                search_dir = predictions_dir
 
         # Look for structure files
         for pattern in ["**/*.cif", "**/*.pdb"]:
