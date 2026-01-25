@@ -30,8 +30,8 @@ A unified platform for protein structure prediction and evaluation, integrating 
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/protein-design-hub.git
-cd protein-design-hub
+git clone https://github.com/recep2244/pdhub.git
+cd pdhub
 
 # Run setup script
 chmod +x scripts/setup_environment.sh

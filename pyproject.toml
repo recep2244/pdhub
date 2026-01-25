@@ -50,9 +50,9 @@ dev = [
 pdhub = "protein_design_hub.cli.main:app"
 
 [project.urls]
-Homepage = "https://github.com/protein-design-hub/protein-design-hub"
-Documentation = "https://github.com/protein-design-hub/protein-design-hub#readme"
-Repository = "https://github.com/protein-design-hub/protein-design-hub"
+Homepage = "https://github.com/recep2244/pdhub"
+Documentation = "https://github.com/recep2244/pdhub#readme"
+Repository = "https://github.com/recep2244/pdhub"
 
 [tool.setuptools.packages.find]
 where = ["src"]
