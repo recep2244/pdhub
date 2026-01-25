@@ -1,4 +1,4 @@
-"""Chai-1 predictor implementation."""
+"""Chai-1 predictor implementation with comprehensive parameters."""
 
 from pathlib import Path
 from typing import List, Optional
@@ -20,14 +20,24 @@ from protein_design_hub.core.exceptions import PredictionError
 
 @PredictorRegistry.register("chai1")
 class Chai1Predictor(BasePredictor):
-    """Chai-1 predictor for multi-molecule structure prediction."""
+    """
+    Chai-1 predictor for multi-molecule structure prediction.
+
+    Chai-1 supports:
+    - Proteins, DNA, RNA, and small molecule ligands
+    - Multi-chain complexes
+    - Diffusion-based structure generation
+    - ESM embeddings for improved accuracy
+
+    Parameters are configured via settings.predictors.chai1
+    """
 
     name = "chai1"
     predictor_type = PredictorType.CHAI1
     description = "Multi-molecule structure prediction from Chai Discovery"
     supports_multimer = True
-    supports_templates = False
-    supports_msa = False
+    supports_templates = True
+    supports_msa = True
     output_format = "cif"
 
     def __init__(self, settings=None):
@@ -39,7 +49,7 @@ class Chai1Predictor(BasePredictor):
         return self._installer
 
     def _predict(self, input_data: PredictionInput, output_dir: Path) -> PredictionResult:
-        """Run Chai-1 prediction."""
+        """Run Chai-1 prediction with all available parameters."""
         try:
             from chai_lab.chai1 import run_inference
         except ImportError as e:
@@ -51,16 +61,64 @@ class Chai1Predictor(BasePredictor):
         fasta_path = output_dir / "input.fasta"
         self._write_chai_fasta(input_data, fasta_path)
 
+        # Prepare constraint file if constraints provided
+        constraint_path = None
+        if input_data.constraints:
+            constraint_path = output_dir / "constraints.json"
+            self._write_constraints(input_data.constraints, constraint_path)
+        elif config.constraint_path:
+            constraint_path = config.constraint_path
+
+        # Prepare MSA directory if MSA provided
+        msa_directory = None
+        if input_data.msa:
+            msa_directory = output_dir / "msa"
+            msa_directory.mkdir(exist_ok=True)
+            self._write_msa(input_data.msa, msa_directory)
+        elif config.msa_directory:
+            msa_directory = config.msa_directory
+
+        # Prepare template hits if templates provided
+        template_hits_path = None
+        if input_data.templates:
+            template_hits_path = output_dir / "templates"
+            template_hits_path.mkdir(exist_ok=True)
+            self._prepare_templates(input_data.templates, template_hits_path)
+        elif config.template_hits_path:
+            template_hits_path = config.template_hits_path
+
+        # Determine device
+        device = config.device
+        if device is None:
+            device = self.settings.gpu.device if self._check_gpu() else "cpu"
+
         try:
-            # Run inference
+            # Run inference with all parameters
             candidates = run_inference(
                 fasta_file=fasta_path,
                 output_dir=output_dir,
+                # ESM embeddings
+                use_esm_embeddings=config.use_esm_embeddings,
+                # MSA settings
+                use_msa_server=config.use_msa_server,
+                msa_server_url=config.msa_server_url,
+                msa_directory=msa_directory,
+                recycle_msa_subsample=config.recycle_msa_subsample,
+                # Template settings
+                use_templates_server=config.use_templates_server,
+                template_hits_path=template_hits_path,
+                # Constraint settings
+                constraint_path=constraint_path,
+                # Core prediction parameters
                 num_trunk_recycles=config.num_trunk_recycles,
-                num_diffn_timesteps=config.num_diffusion_timesteps,
+                num_diffn_timesteps=config.num_diffn_timesteps,
+                num_diffn_samples=config.num_diffn_samples,
+                num_trunk_samples=config.num_trunk_samples,
+                # Random seed
                 seed=config.seed,
-                device=self.settings.gpu.device if self._check_gpu() else "cpu",
-                use_esm_embeddings=True,
+                # Device and memory
+                device=device,
+                low_memory=config.low_memory,
             )
 
             # Parse results
@@ -73,6 +131,13 @@ class Chai1Predictor(BasePredictor):
                 scores=scores,
                 runtime_seconds=0,  # Set by base class
                 success=True,
+                metadata={
+                    "num_trunk_recycles": config.num_trunk_recycles,
+                    "num_diffn_timesteps": config.num_diffn_timesteps,
+                    "num_diffn_samples": config.num_diffn_samples,
+                    "use_esm_embeddings": config.use_esm_embeddings,
+                    "device": device,
+                },
             )
 
         except Exception as e:
@@ -101,6 +166,39 @@ class Chai1Predictor(BasePredictor):
             lines.append(seq.sequence)
 
         fasta_path.write_text("\n".join(lines))
+
+    def _write_constraints(self, constraints: list, constraint_path: Path) -> None:
+        """Write constraints file for Chai-1."""
+        # Chai-1 constraint format
+        constraint_data = []
+        for c in constraints:
+            constraint_data.append({
+                "residue_i": c.residue1,
+                "residue_j": c.residue2,
+                "chain_i": c.chain1,
+                "chain_j": c.chain2,
+                "distance_min": c.distance_min,
+                "distance_max": c.distance_max,
+            })
+
+        with open(constraint_path, "w") as f:
+            json.dump(constraint_data, f, indent=2)
+
+    def _write_msa(self, msa, msa_directory: Path) -> None:
+        """Write MSA files for Chai-1."""
+        from protein_design_hub.io.parsers.a3m import A3MParser
+
+        parser = A3MParser()
+        msa_path = msa_directory / f"{msa.query_id}.a3m"
+        parser.write(msa, msa_path)
+
+    def _prepare_templates(self, templates: list, template_dir: Path) -> None:
+        """Prepare template structures for Chai-1."""
+        import shutil
+
+        for template in templates:
+            dest = template_dir / template.path.name
+            shutil.copy(template.path, dest)
 
     def _parse_results(
         self,
@@ -199,3 +297,52 @@ class Chai1Predictor(BasePredictor):
         checks.append(model_msg)
 
         return True, "; ".join(checks)
+
+    def get_available_parameters(self) -> dict:
+        """Get all available parameters with descriptions."""
+        return {
+            "num_trunk_recycles": {
+                "type": "int",
+                "default": 3,
+                "range": [1, 20],
+                "description": "Number of trunk recycles for structure refinement",
+            },
+            "num_diffn_timesteps": {
+                "type": "int",
+                "default": 200,
+                "range": [50, 1000],
+                "description": "Number of diffusion timesteps",
+            },
+            "num_diffn_samples": {
+                "type": "int",
+                "default": 5,
+                "range": [1, 20],
+                "description": "Number of diffusion samples to generate",
+            },
+            "num_trunk_samples": {
+                "type": "int",
+                "default": 1,
+                "range": [1, 10],
+                "description": "Number of trunk samples",
+            },
+            "use_esm_embeddings": {
+                "type": "bool",
+                "default": True,
+                "description": "Use ESM language model embeddings",
+            },
+            "use_msa_server": {
+                "type": "bool",
+                "default": False,
+                "description": "Use ColabFold MSA server",
+            },
+            "low_memory": {
+                "type": "bool",
+                "default": True,
+                "description": "Use low memory mode for large proteins",
+            },
+            "seed": {
+                "type": "int",
+                "default": None,
+                "description": "Random seed for reproducibility",
+            },
+        }
