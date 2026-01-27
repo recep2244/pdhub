@@ -14,6 +14,10 @@ A unified platform for protein structure prediction and evaluation, integrating 
 - **QS-score** - Quaternary Structure Score for complexes
 - **TM-score** - Template Modeling Score (via TMalign)
 - **RMSD** - Root Mean Square Deviation
+- **Clash score** - Steric clash proxy (heavy-atom contacts)
+- **Contact energy** - Coarse residue-residue contact potential (MJ-style)
+- **SASA** - Solvent accessible surface area (BioPython Shrake-Rupley)
+- **Rosetta energy** - Optional ref2015 total score (requires PyRosetta)
 
 ### Interfaces
 - **CLI** - Full-featured command-line interface

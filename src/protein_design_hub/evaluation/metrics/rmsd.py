@@ -29,17 +29,39 @@ class RMSDMetric(BaseMetric):
                    Options: "CA" (alpha carbons), "backbone", "all", "heavy"
         """
         self.atoms = atoms
+        self._use_runner = False
 
     def is_available(self) -> bool:
-        """Check if computation is possible."""
+        """Check if computation is possible (OpenStructure runner, direct OST, or BioPython)."""
+        # Check micromamba runner
         try:
-            import numpy as np
+            from protein_design_hub.evaluation.ost_runner import get_ost_runner
+            runner = get_ost_runner()
+            if runner.is_available():
+                self._use_runner = True
+                return True
+        except Exception:
+            pass
+
+        # Check direct OpenStructure
+        try:
+            import ost
             return True
         except ImportError:
-            return False
+            pass
+
+        # Check BioPython
+        try:
+            import numpy as np
+            from Bio.PDB import Superimposer
+            return True
+        except ImportError:
+            pass
+
+        return False
 
     def get_requirements(self) -> str:
-        return "NumPy and BioPython (pip install numpy biopython)"
+        return "OpenStructure (via micromamba) or BioPython (pip install biopython)"
 
     def compute(
         self,
@@ -63,7 +85,21 @@ class RMSDMetric(BaseMetric):
         model_path = Path(model_path)
         reference_path = Path(reference_path)
 
-        # Try OpenStructure first
+        # Try using the micromamba runner first (if available)
+        try:
+            from protein_design_hub.evaluation.ost_runner import get_ost_runner
+            runner = get_ost_runner()
+            if runner.is_available():
+                result = runner.compute_rmsd(model_path, reference_path, atoms=self.atoms)
+                if "error" in result:
+                    raise EvaluationError(self.name, result["error"])
+                return result
+        except ImportError:
+            pass
+        except RuntimeError as e:
+            raise EvaluationError(self.name, str(e))
+
+        # Try OpenStructure direct import
         try:
             return self._compute_with_openstructure(model_path, reference_path)
         except ImportError:
@@ -76,7 +112,7 @@ class RMSDMetric(BaseMetric):
             raise EvaluationError(
                 self.name,
                 "Neither OpenStructure nor BioPython available. "
-                "Install one of them."
+                "Install OpenStructure via micromamba or BioPython via pip."
             )
 
     def _compute_with_openstructure(

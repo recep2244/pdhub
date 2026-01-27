@@ -13,6 +13,8 @@ class PredictorType(str, Enum):
     COLABFOLD = "colabfold"
     CHAI1 = "chai1"
     BOLTZ2 = "boltz2"
+    ESMFOLD = "esmfold"
+    ESMFOLD_API = "esmfold_api"
 
 
 class MoleculeType(str, Enum):
@@ -32,6 +34,15 @@ class MetricType(str, Enum):
     QS_SCORE = "qs_score"
     RMSD = "rmsd"
     PLDDT = "plddt"
+    CLASH_SCORE = "clash_score"
+    CONTACT_ENERGY = "contact_energy"
+    ROSETTA_ENERGY = "rosetta_energy"
+    SASA = "sasa"
+    INTERFACE_BSA = "interface_bsa"
+    SALT_BRIDGES = "salt_bridges"
+    OPENMM_GBSA = "openmm_gbsa"
+    ROSETTA_SCORE_JD2 = "rosetta_score_jd2"
+    FOLDX_DDG = "foldx_ddg"
 
 
 @dataclass
@@ -193,6 +204,20 @@ class EvaluationResult:
     rmsd: Optional[float] = None
     gdt_ts: Optional[float] = None
     gdt_ha: Optional[float] = None
+    clash_score: Optional[float] = None
+    clash_count: Optional[int] = None
+    contact_energy: Optional[float] = None
+    contact_energy_per_residue: Optional[float] = None
+    rosetta_total_score: Optional[float] = None
+    sasa_total: Optional[float] = None
+    interface_bsa_total: Optional[float] = None
+    salt_bridge_count: Optional[int] = None
+    salt_bridge_count_interchain: Optional[int] = None
+    openmm_potential_energy_kj_mol: Optional[float] = None
+    openmm_gbsa_energy_kj_mol: Optional[float] = None
+    rosetta_score_jd2_total_score: Optional[float] = None
+    rosetta_cartesian_ddg: Optional[float] = None
+    foldx_ddg_kcal_mol: Optional[float] = None
     metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -206,6 +231,21 @@ class EvaluationResult:
             "rmsd": self.rmsd,
             "gdt_ts": self.gdt_ts,
             "gdt_ha": self.gdt_ha,
+            "clash_score": self.clash_score,
+            "clash_count": self.clash_count,
+            "contact_energy": self.contact_energy,
+            "contact_energy_per_residue": self.contact_energy_per_residue,
+            "rosetta_total_score": self.rosetta_total_score,
+            "sasa_total": self.sasa_total,
+            "interface_bsa_total": self.interface_bsa_total,
+            "salt_bridge_count": self.salt_bridge_count,
+            "salt_bridge_count_interchain": self.salt_bridge_count_interchain,
+            "openmm_potential_energy_kj_mol": self.openmm_potential_energy_kj_mol,
+            "openmm_gbsa_energy_kj_mol": self.openmm_gbsa_energy_kj_mol,
+            "rosetta_score_jd2_total_score": self.rosetta_score_jd2_total_score,
+            "rosetta_cartesian_ddg": self.rosetta_cartesian_ddg,
+            "foldx_ddg_kcal_mol": self.foldx_ddg_kcal_mol,
+            "metadata": self.metadata,
         }
 
 

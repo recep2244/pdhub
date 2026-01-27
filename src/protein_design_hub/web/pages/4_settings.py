@@ -1,19 +1,173 @@
-"""Settings page for Streamlit app."""
+"""Settings page for Streamlit app with comprehensive configuration options."""
 
 import streamlit as st
 from pathlib import Path
+import json
 
 st.set_page_config(page_title="Settings - Protein Design Hub", page_icon="⚙️", layout="wide")
 
-st.title("⚙️ Settings")
-st.markdown("Configure Protein Design Hub and manage installations")
+from protein_design_hub.web.ui import inject_base_css, sidebar_nav, sidebar_system_status
+
+inject_base_css()
+sidebar_nav(current="Settings")
+sidebar_system_status()
+
+# Initialize theme in session state
+if "theme" not in st.session_state:
+    st.session_state.theme = "light"
+
+# Custom CSS based on theme
+theme_css = """
+<style>
+.settings-card {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 10px 0;
+    border: 1px solid #dee2e6;
+}
+.settings-card-dark {
+    background: linear-gradient(135deg, #2d3436 0%, #1e272e 100%);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 10px 0;
+    color: white;
+}
+.status-ok {
+    color: #27ae60;
+    font-weight: bold;
+}
+.status-error {
+    color: #e74c3c;
+    font-weight: bold;
+}
+.status-warning {
+    color: #f39c12;
+    font-weight: bold;
+}
+.metric-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 10px;
+    padding: 15px;
+    text-align: center;
+    color: white;
+    margin: 5px;
+}
+.section-header {
+    border-bottom: 2px solid #667eea;
+    padding-bottom: 5px;
+    margin-bottom: 15px;
+}
+</style>
+"""
+st.markdown(theme_css, unsafe_allow_html=True)
+
+st.title("⚙️ Settings & Configuration")
+st.markdown("Configure Protein Design Hub, manage installations, and customize your experience")
 
 # Tabs
-tab1, tab2, tab3 = st.tabs(["Installation Status", "Install/Update", "Configuration"])
+tabs = st.tabs(
+    [
+        "📊 System Status",
+        "📦 Installations",
+        "🎨 Preferences",
+        "🔧 Configuration",
+        "📁 Cache & Data",
+        "📋 Logs",
+    ]
+)
 
-# Tab 1: Installation Status
-with tab1:
-    st.subheader("🔧 Installation Status")
+# ==================== TAB 1: System Status ====================
+with tabs[0]:
+    st.subheader("System Status Overview")
+
+    # Refresh button
+    col_refresh, col_spacer = st.columns([1, 5])
+    with col_refresh:
+        if st.button("🔄 Refresh", use_container_width=True):
+            st.rerun()
+
+    # GPU Status Section
+    st.markdown("### 🖥️ GPU Status")
+
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            gpu_cols = st.columns(4)
+
+            with gpu_cols[0]:
+                st.markdown(
+                    """
+                <div class="metric-card">
+                    <h3>GPU</h3>
+                    <p style="font-size: 14px;">"""
+                    + torch.cuda.get_device_name(0)
+                    + """</p>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+            with gpu_cols[1]:
+                total_mem = torch.cuda.get_device_properties(0).total_memory / 1e9
+                st.markdown(
+                    f"""
+                <div class="metric-card">
+                    <h3>{total_mem:.1f} GB</h3>
+                    <p style="font-size: 14px;">Total VRAM</p>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+            with gpu_cols[2]:
+                free_mem = (
+                    torch.cuda.get_device_properties(0).total_memory
+                    - torch.cuda.memory_allocated(0)
+                ) / 1e9
+                st.markdown(
+                    f"""
+                <div class="metric-card">
+                    <h3>{free_mem:.1f} GB</h3>
+                    <p style="font-size: 14px;">Available</p>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+            with gpu_cols[3]:
+                cuda_version = torch.version.cuda or "N/A"
+                st.markdown(
+                    f"""
+                <div class="metric-card">
+                    <h3>CUDA {cuda_version}</h3>
+                    <p style="font-size: 14px;">Version</p>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+            # Memory usage bar
+            allocated = torch.cuda.memory_allocated(0) / 1e9
+            total = torch.cuda.get_device_properties(0).total_memory / 1e9
+            usage_pct = (allocated / total) * 100
+
+            st.progress(
+                usage_pct / 100,
+                text=f"VRAM Usage: {allocated:.2f} / {total:.1f} GB ({usage_pct:.1f}%)",
+            )
+
+        else:
+            st.warning("⚠️ No CUDA GPU detected - predictions will use CPU (much slower)")
+
+    except ImportError:
+        st.error("PyTorch not installed")
+
+    st.markdown("---")
+
+    # Predictor Status
+    st.markdown("### 🧬 Predictors Status")
 
     try:
         from protein_design_hub.predictors.registry import PredictorRegistry
@@ -21,100 +175,94 @@ with tab1:
 
         settings = get_settings()
 
-        # Refresh button
-        if st.button("🔄 Refresh Status"):
-            st.rerun()
+        pred_cols = st.columns(3)
 
-        # Predictor status
-        col1, col2, col3 = st.columns(3)
+        predictor_info = {
+            "colabfold": {"icon": "🔬", "name": "ColabFold", "desc": "AlphaFold2 + MMseqs2"},
+            "chai1": {"icon": "🧪", "name": "Chai-1", "desc": "Diffusion-based predictor"},
+            "boltz2": {"icon": "⚡", "name": "Boltz-2", "desc": "Fast diffusion model"},
+            "esmfold": {"icon": "🧠", "name": "ESMFold", "desc": "Fast single-sequence folding"},
+            "esmfold_api": {"icon": "🌐", "name": "ESMFold API", "desc": "Remote folding (no GPU)"},
+        }
 
-        for i, name in enumerate(["colabfold", "chai1", "boltz2"]):
-            col = [col1, col2, col3][i]
-
-            with col:
+        for i, (pred_id, info) in enumerate(predictor_info.items()):
+            with pred_cols[i % 3]:
                 try:
-                    predictor = PredictorRegistry.get(name, settings)
+                    predictor = PredictorRegistry.get(pred_id, settings)
                     status = predictor.get_status()
 
-                    st.markdown(f"### {name.upper()}")
+                    st.markdown(f"#### {info['icon']} {info['name']}")
+                    st.caption(info["desc"])
 
                     if status["installed"]:
-                        st.success("✓ Installed")
-                        st.markdown(f"**Version:** {status.get('version', 'unknown')}")
+                        version = status.get("version", "unknown")
+                        st.success(f"✓ Installed (v{version})")
 
-                        if status.get("latest_version"):
-                            if status.get("needs_update"):
-                                st.warning(f"Update available: {status['latest_version']}")
-                            else:
-                                st.info(f"Latest: {status['latest_version']}")
+                        # Features
+                        features = []
+                        if status.get("supports_multimer"):
+                            features.append("🔗 Multimer")
+                        if status.get("supports_templates"):
+                            features.append("📄 Templates")
+                        if status.get("supports_msa"):
+                            features.append("📊 MSA")
+                        if status.get("output_format"):
+                            features.append(f"🗂️ {status.get('output_format')}")
+
+                        if features:
+                            st.caption(" | ".join(features))
+
+                        # Update status
+                        if status.get("needs_update"):
+                            st.warning(f"Update available: {status.get('latest_version')}")
                     else:
                         st.error("✗ Not Installed")
-
-                    # Features
-                    st.markdown("**Features:**")
-                    features = []
-                    if status.get("supports_multimer"):
-                        features.append("Multimer")
-                    if status.get("supports_templates"):
-                        features.append("Templates")
-                    if status.get("supports_msa"):
-                        features.append("MSA")
-                    st.caption(", ".join(features) if features else "Basic prediction")
 
                 except Exception as e:
                     st.error(f"Error: {e}")
 
-        # GPU Status
-        st.markdown("---")
-        st.subheader("🖥️ GPU Status")
+    except Exception as e:
+        st.error(f"Error loading predictor status: {e}")
 
-        try:
-            import torch
-            if torch.cuda.is_available():
-                col1, col2, col3 = st.columns(3)
+    st.markdown("---")
 
-                with col1:
-                    st.metric("Device", torch.cuda.get_device_name(0))
+    # Evaluation Tools Status
+    st.markdown("### 📊 Evaluation Tools")
 
-                with col2:
-                    total_mem = torch.cuda.get_device_properties(0).total_memory / 1e9
-                    st.metric("Total Memory", f"{total_mem:.1f} GB")
-
-                with col3:
-                    allocated = torch.cuda.memory_allocated(0) / 1e9
-                    st.metric("Allocated", f"{allocated:.2f} GB")
-
-                st.success("GPU is available for predictions")
-            else:
-                st.warning("No GPU available - predictions will be slow")
-
-        except ImportError:
-            st.error("PyTorch not installed")
-
-        # Evaluation tools
-        st.markdown("---")
-        st.subheader("📊 Evaluation Tools")
-
+    try:
         from protein_design_hub.evaluation.composite import CompositeEvaluator
 
         metrics_info = CompositeEvaluator.list_all_metrics()
 
-        for metric in metrics_info:
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.markdown(f"**{metric['name'].upper()}** - {metric['description']}")
-            with col2:
+        eval_cols = st.columns(3)
+
+        for i, metric in enumerate(metrics_info):
+            with eval_cols[i % 3]:
                 if metric["available"]:
-                    st.success("Available")
+                    st.success(f"✓ {metric['name'].upper()}")
+                    st.caption(metric["description"])
                 else:
-                    st.error("Missing")
-                    st.caption(metric.get("requirements", ""))
+                    st.error(f"✗ {metric['name'].upper()}")
+                    st.caption(metric.get("requirements", "Not available"))
+
+        # OpenStructure check
+        st.markdown("**OpenStructure Integration:**")
+        try:
+            from protein_design_hub.evaluation.ost_runner import get_ost_runner
+
+            runner = get_ost_runner()
+            if runner.is_available():
+                st.success("✓ OpenStructure available (comprehensive metrics enabled)")
+            else:
+                st.warning("OpenStructure not found - install for advanced metrics")
+        except Exception:
+            st.warning("OpenStructure integration not available")
 
     except Exception as e:
-        st.error(f"Error loading status: {e}")
+        st.error(f"Error loading evaluation tools: {e}")
 
-# Tab 2: Install/Update
-with tab2:
+# ==================== TAB 2: Installations ====================
+with tabs[1]:
     st.subheader("📦 Install & Update Tools")
 
     try:
@@ -123,100 +271,230 @@ with tab2:
 
         settings = get_settings()
 
-        # Install section
-        st.markdown("### Install Predictors")
+        # Individual predictors
+        st.markdown("### Predictors")
 
-        col1, col2, col3 = st.columns(3)
-
-        for i, name in enumerate(["colabfold", "chai1", "boltz2"]):
-            col = [col1, col2, col3][i]
-
-            with col:
-                predictor = PredictorRegistry.get(name, settings)
+        for pred_id, info in predictor_info.items():
+            with st.expander(f"{info['icon']} {info['name']}", expanded=False):
+                predictor = PredictorRegistry.get(pred_id, settings)
                 is_installed = predictor.installer.is_installed()
 
-                st.markdown(f"**{name.upper()}**")
+                col1, col2 = st.columns([2, 1])
 
-                if is_installed:
-                    st.info(f"Installed v{predictor.installer.get_installed_version() or 'unknown'}")
-                    if st.button(f"Update {name}", key=f"update_{name}"):
-                        with st.spinner(f"Updating {name}..."):
-                            success = predictor.installer.update()
-                            if success:
-                                st.success("Updated!")
-                            else:
-                                st.error("Update failed")
-                else:
-                    st.warning("Not installed")
-                    if st.button(f"Install {name}", key=f"install_{name}"):
-                        with st.spinner(f"Installing {name}..."):
-                            success = predictor.installer.install()
-                            if success:
-                                st.success("Installed!")
-                                st.rerun()
-                            else:
-                                st.error("Installation failed")
+                with col1:
+                    if is_installed:
+                        version = predictor.installer.get_installed_version()
+                        st.info(f"Currently installed: v{version or 'unknown'}")
+                        st.markdown(f"**Location:** `{predictor.installer.get_install_path()}`")
+                    else:
+                        st.warning("Not currently installed")
+
+                    # Installation requirements
+                    st.markdown("**Requirements:**")
+                    st.caption(predictor.installer.get_requirements())
+
+                with col2:
+                    if is_installed:
+                        if st.button("🔄 Update", key=f"update_{pred_id}", use_container_width=True):
+                            with st.spinner(f"Updating {info['name']}..."):
+                                success = predictor.installer.update()
+                                if success:
+                                    st.success("Updated!")
+                                    st.rerun()
+                                else:
+                                    st.error("Update failed")
+
+                        if st.button(
+                            "🗑️ Uninstall", key=f"uninstall_{pred_id}", use_container_width=True
+                        ):
+                            st.warning("This will remove the installation. Proceed?")
+                            if st.button("Confirm Uninstall", key=f"confirm_{pred_id}"):
+                                with st.spinner("Uninstalling..."):
+                                    success = predictor.installer.uninstall()
+                                    if success:
+                                        st.success("Uninstalled!")
+                                        st.rerun()
+                    else:
+                        if st.button(
+                            "📥 Install",
+                            key=f"install_{pred_id}",
+                            type="primary",
+                            use_container_width=True,
+                        ):
+                            with st.spinner(f"Installing {info['name']}..."):
+                                success = predictor.installer.install()
+                                if success:
+                                    st.success("Installed!")
+                                    st.rerun()
+                                else:
+                                    st.error("Installation failed - check logs")
 
         # Batch operations
         st.markdown("---")
         st.markdown("### Batch Operations")
 
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
 
         with col1:
-            if st.button("📥 Install All", use_container_width=True):
+            if st.button("📥 Install All Missing", use_container_width=True, type="primary"):
                 progress = st.progress(0)
-                predictors = PredictorRegistry.list_available()
+                status = st.empty()
 
+                predictors = PredictorRegistry.list_available()
                 for i, name in enumerate(predictors):
-                    st.write(f"Installing {name}...")
+                    status.text(f"Checking {name}...")
                     predictor = PredictorRegistry.get(name, settings)
                     if not predictor.installer.is_installed():
+                        status.text(f"Installing {name}...")
                         predictor.installer.install()
                     progress.progress((i + 1) / len(predictors))
 
-                st.success("All predictors installed!")
+                status.text("Complete!")
+                st.success("All predictors processed!")
 
         with col2:
             if st.button("🔄 Update All", use_container_width=True):
                 progress = st.progress(0)
-                predictors = PredictorRegistry.list_available()
+                status = st.empty()
 
+                predictors = PredictorRegistry.list_available()
                 for i, name in enumerate(predictors):
-                    st.write(f"Updating {name}...")
+                    status.text(f"Updating {name}...")
                     predictor = PredictorRegistry.get(name, settings)
                     if predictor.installer.is_installed():
                         predictor.installer.update()
                     progress.progress((i + 1) / len(predictors))
 
+                status.text("Complete!")
                 st.success("All predictors updated!")
 
-        # Verification
+        with col3:
+            if st.button("🧪 Verify All", use_container_width=True):
+                for name in PredictorRegistry.list_available():
+                    predictor = PredictorRegistry.get(name, settings)
+
+                    if not predictor.installer.is_installed():
+                        st.warning(f"{name}: Not installed")
+                        continue
+
+                    with st.spinner(f"Verifying {name}..."):
+                        success, message = predictor.verify_installation()
+
+                        if success:
+                            st.success(f"{name}: {message}")
+                        else:
+                            st.error(f"{name}: {message}")
+
+        # Evaluation tools installation
         st.markdown("---")
-        st.markdown("### Verify Installation")
+        st.markdown("### Evaluation Tools")
 
-        if st.button("🧪 Run Verification Tests"):
-            for name in PredictorRegistry.list_available():
-                predictor = PredictorRegistry.get(name, settings)
+        col1, col2 = st.columns(2)
 
-                if not predictor.installer.is_installed():
-                    st.warning(f"{name}: Not installed")
-                    continue
+        with col1:
+            st.markdown("**TMalign**")
+            st.caption("For TM-score computation")
+            if st.button("Install TMalign", key="install_tmalign"):
+                st.info("Run: `conda install -c bioconda tmalign`")
 
-                with st.spinner(f"Verifying {name}..."):
-                    success, message = predictor.verify_installation()
-
-                    if success:
-                        st.success(f"{name}: {message}")
-                    else:
-                        st.error(f"{name}: {message}")
+        with col2:
+            st.markdown("**OpenStructure**")
+            st.caption("For comprehensive metrics (lDDT, DockQ, etc.)")
+            if st.button("Install OpenStructure", key="install_ost"):
+                st.info("Run: `micromamba create -n ost -c conda-forge -c bioconda openstructure`")
 
     except Exception as e:
         st.error(f"Error: {e}")
+        import traceback
 
-# Tab 3: Configuration
-with tab3:
-    st.subheader("⚙️ Configuration")
+        st.code(traceback.format_exc())
+
+# ==================== TAB 3: Preferences ====================
+with tabs[2]:
+    st.subheader("🎨 User Preferences")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("### Display Settings")
+
+        # Theme selection (placeholder - Streamlit theming is limited)
+        theme_option = st.selectbox(
+            "Theme",
+            options=["Light", "Dark", "System"],
+            index=0,
+            help="Note: Full dark mode requires Streamlit config changes",
+        )
+
+        if theme_option == "Dark":
+            st.info("To enable dark mode, add to `.streamlit/config.toml`:")
+            st.code(
+                """[theme]
+base="dark"
+primaryColor="#667eea"
+backgroundColor="#1e1e1e"
+secondaryBackgroundColor="#2d2d2d"
+textColor="#ffffff"
+"""
+            )
+
+        # Results display
+        st.markdown("### Results Display")
+        show_confidence = st.checkbox("Show confidence regions in plots", value=True)
+        default_colorscheme = st.selectbox(
+            "Default structure coloring",
+            options=["pLDDT", "Chain", "Residue type", "B-factor"],
+            index=0,
+        )
+        default_style = st.selectbox(
+            "Default structure style", options=["Cartoon", "Stick", "Sphere", "Surface"], index=0
+        )
+
+    with col2:
+        st.markdown("### Prediction Defaults")
+
+        default_predictor = st.selectbox(
+            "Default predictor", options=["ColabFold", "Chai-1", "Boltz-2"], index=0
+        )
+
+        default_num_models = st.number_input(
+            "Default number of models", min_value=1, max_value=5, value=5
+        )
+
+        default_num_recycles = st.number_input(
+            "Default number of recycles", min_value=1, max_value=48, value=3
+        )
+
+        st.markdown("### Notification Settings")
+        notify_on_complete = st.checkbox("Browser notification on completion", value=False)
+        play_sound = st.checkbox("Play sound on completion", value=False)
+
+    # Save preferences
+    st.markdown("---")
+
+    if st.button("💾 Save Preferences", type="primary"):
+        preferences = {
+            "theme": theme_option,
+            "show_confidence": show_confidence,
+            "default_colorscheme": default_colorscheme,
+            "default_style": default_style,
+            "default_predictor": default_predictor,
+            "default_num_models": default_num_models,
+            "default_num_recycles": default_num_recycles,
+            "notify_on_complete": notify_on_complete,
+            "play_sound": play_sound,
+        }
+
+        # Save to file
+        prefs_path = Path.home() / ".pdhub" / "preferences.json"
+        prefs_path.parent.mkdir(parents=True, exist_ok=True)
+        prefs_path.write_text(json.dumps(preferences, indent=2))
+
+        st.success(f"Preferences saved to {prefs_path}")
+
+# ==================== TAB 4: Configuration ====================
+with tabs[3]:
+    st.subheader("🔧 Advanced Configuration")
 
     try:
         from protein_design_hub.core.config import get_settings
@@ -224,62 +502,132 @@ with tab3:
 
         settings = get_settings()
 
-        # Display current config
-        st.markdown("### Current Configuration")
-
-        config_dict = settings.model_dump()
-        config_yaml = yaml.dump(config_dict, default_flow_style=False)
-
-        st.code(config_yaml, language="yaml")
-
-        # Edit configuration
-        st.markdown("---")
-        st.markdown("### Edit Configuration")
-
         col1, col2 = st.columns(2)
 
         with col1:
-            st.markdown("**Output Settings**")
-            output_dir = st.text_input("Output directory", value=str(settings.output.base_dir))
-            save_all = st.checkbox("Save all models", value=settings.output.save_all_models)
-            gen_report = st.checkbox("Generate HTML report", value=settings.output.generate_report)
+            st.markdown("### Output Settings")
+
+            output_dir = st.text_input(
+                "Base output directory",
+                value=str(settings.output.base_dir),
+                help="Default directory for prediction outputs",
+            )
+
+            save_all = st.checkbox(
+                "Save all models",
+                value=settings.output.save_all_models,
+                help="Save all generated models, not just the best",
+            )
+
+            gen_report = st.checkbox(
+                "Generate HTML report",
+                value=settings.output.generate_report,
+                help="Auto-generate HTML summary report",
+            )
+
+            st.markdown("### Evaluation Settings")
+
+            eval_metrics = st.multiselect(
+                "Default metrics",
+                options=["lddt", "tm_score", "rmsd", "qs_score", "lddt_pli"],
+                default=settings.evaluation.metrics,
+            )
+
+            lddt_radius = st.number_input(
+                "lDDT inclusion radius (Å)",
+                min_value=5.0,
+                max_value=20.0,
+                value=float(settings.evaluation.lddt.inclusion_radius),
+                help="Distance cutoff for lDDT calculation",
+            )
 
         with col2:
-            st.markdown("**GPU Settings**")
-            gpu_device = st.text_input("GPU device", value=settings.gpu.device)
-            clear_cache = st.checkbox("Clear cache between jobs", value=settings.gpu.clear_cache_between_jobs)
-            mem_fraction = st.slider("Memory fraction", 0.5, 1.0, settings.gpu.memory_fraction)
+            st.markdown("### GPU Settings")
 
-        if st.button("💾 Save Configuration"):
-            try:
-                settings.output.base_dir = Path(output_dir)
-                settings.output.save_all_models = save_all
-                settings.output.generate_report = gen_report
-                settings.gpu.device = gpu_device
-                settings.gpu.clear_cache_between_jobs = clear_cache
-                settings.gpu.memory_fraction = mem_fraction
+            gpu_device = st.text_input(
+                "GPU device", value=settings.gpu.device, help="e.g., 'cuda:0' or 'cuda:1'"
+            )
 
-                # Save to file
-                config_path = Path.home() / ".protein_design_hub" / "config.yaml"
-                config_path.parent.mkdir(parents=True, exist_ok=True)
-                settings.to_yaml(config_path)
+            mem_fraction = st.slider(
+                "Memory fraction",
+                min_value=0.5,
+                max_value=1.0,
+                value=settings.gpu.memory_fraction,
+                help="Fraction of GPU memory to use",
+            )
 
-                st.success(f"Configuration saved to {config_path}")
-            except Exception as e:
-                st.error(f"Error saving configuration: {e}")
+            clear_cache = st.checkbox(
+                "Clear cache between jobs",
+                value=settings.gpu.clear_cache_between_jobs,
+                help="Free GPU memory between predictions",
+            )
+
+            st.markdown("### Network Settings")
+
+            msa_server = st.text_input(
+                "MSA Server URL",
+                value="https://api.colabfold.com",
+                help="ColabFold MSA server endpoint",
+            )
+
+            request_timeout = st.number_input(
+                "Request timeout (seconds)", min_value=30, max_value=600, value=120
+            )
+
+        # Save configuration
+        st.markdown("---")
+
+        col_save, col_reset = st.columns(2)
+
+        with col_save:
+            if st.button("💾 Save Configuration", type="primary", use_container_width=True):
+                try:
+                    # Update settings
+                    settings.output.base_dir = Path(output_dir)
+                    settings.output.save_all_models = save_all
+                    settings.output.generate_report = gen_report
+                    settings.gpu.device = gpu_device
+                    settings.gpu.memory_fraction = mem_fraction
+                    settings.gpu.clear_cache_between_jobs = clear_cache
+                    settings.evaluation.metrics = eval_metrics
+                    settings.evaluation.lddt.inclusion_radius = lddt_radius
+
+                    # Save to file
+                    config_path = Path.home() / ".pdhub" / "config.yaml"
+                    config_path.parent.mkdir(parents=True, exist_ok=True)
+                    settings.to_yaml(config_path)
+
+                    st.success(f"Configuration saved to {config_path}")
+                except Exception as e:
+                    st.error(f"Error saving: {e}")
+
+        with col_reset:
+            if st.button("🔄 Reset to Defaults", use_container_width=True):
+                config_path = Path.home() / ".pdhub" / "config.yaml"
+                if config_path.exists():
+                    config_path.unlink()
+                    st.success("Configuration reset - restart to apply")
+                    st.rerun()
+
+        # View full config
+        with st.expander("View Full Configuration"):
+            config_dict = settings.model_dump()
+            st.code(yaml.dump(config_dict, default_flow_style=False), language="yaml")
 
         # Export/Import
         st.markdown("---")
-        st.markdown("### Export/Import")
+        st.markdown("### Export / Import")
 
         col1, col2 = st.columns(2)
 
         with col1:
+            config_yaml = yaml.dump(settings.model_dump(), default_flow_style=False)
             st.download_button(
                 "📤 Export Configuration",
                 data=config_yaml,
                 file_name="pdhub_config.yaml",
                 mime="text/yaml",
+                use_container_width=True,
             )
 
         with col2:
@@ -289,9 +637,206 @@ with tab3:
                     new_config = yaml.safe_load(uploaded_config.read())
                     st.json(new_config)
                     if st.button("Apply Imported Config"):
-                        st.info("Configuration imported (restart required)")
+                        config_path = Path.home() / ".pdhub" / "config.yaml"
+                        config_path.parent.mkdir(parents=True, exist_ok=True)
+                        config_path.write_text(yaml.dump(new_config))
+                        st.success("Configuration imported - restart to apply")
                 except Exception as e:
                     st.error(f"Error loading config: {e}")
 
     except Exception as e:
         st.error(f"Error loading configuration: {e}")
+        import traceback
+
+        st.code(traceback.format_exc())
+
+# ==================== TAB 5: Cache & Data ====================
+with tabs[4]:
+    st.subheader("📁 Cache & Data Management")
+
+    # Cache locations
+    st.markdown("### Cache Locations")
+
+    cache_dirs = {
+        "PDB Cache": Path.home() / ".pdhub" / "cache" / "pdb",
+        "UniProt Cache": Path.home() / ".pdhub" / "cache" / "uniprot",
+        "AlphaFold Cache": Path.home() / ".pdhub" / "cache" / "alphafold",
+        "MSA Cache": Path.home() / ".pdhub" / "cache" / "msa",
+        "Model Weights": Path.home() / ".cache" / "torch" / "hub",
+        "Job Database": Path.home() / ".pdhub" / "jobs.db",
+    }
+
+    for name, path in cache_dirs.items():
+        col1, col2, col3 = st.columns([2, 1, 1])
+
+        with col1:
+            st.markdown(f"**{name}**")
+            st.caption(str(path))
+
+        with col2:
+            if path.exists():
+                if path.is_file():
+                    size = path.stat().st_size / 1e6
+                    st.caption(f"{size:.1f} MB")
+                else:
+                    # Calculate directory size
+                    try:
+                        size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) / 1e6
+                        st.caption(f"{size:.1f} MB")
+                    except:
+                        st.caption("N/A")
+            else:
+                st.caption("Not created")
+
+        with col3:
+            if path.exists():
+                if st.button("🗑️", key=f"clear_{name}", help=f"Clear {name}"):
+                    try:
+                        if path.is_file():
+                            path.unlink()
+                        else:
+                            import shutil
+
+                            shutil.rmtree(path)
+                        st.success(f"Cleared {name}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+    st.markdown("---")
+
+    # Batch cache operations
+    st.markdown("### Cache Operations")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if st.button("🧹 Clear All Caches", use_container_width=True):
+            import shutil
+
+            cache_root = Path.home() / ".pdhub" / "cache"
+            if cache_root.exists():
+                shutil.rmtree(cache_root)
+                st.success("All caches cleared!")
+
+    with col2:
+        if st.button("🗑️ Clear Job History", use_container_width=True):
+            db_path = Path.home() / ".pdhub" / "jobs.db"
+            if db_path.exists():
+                db_path.unlink()
+                st.success("Job history cleared!")
+
+    with col3:
+        total_size = 0
+        for name, path in cache_dirs.items():
+            if path.exists():
+                if path.is_file():
+                    total_size += path.stat().st_size
+                else:
+                    try:
+                        total_size += sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+                    except:
+                        pass
+
+        st.metric("Total Cache Size", f"{total_size / 1e9:.2f} GB")
+
+    # Output data management
+    st.markdown("---")
+    st.markdown("### Output Data")
+
+    try:
+        from protein_design_hub.core.config import get_settings
+
+        settings = get_settings()
+
+        output_path = settings.output.base_dir
+        if output_path.exists():
+            jobs = list(output_path.iterdir())
+            st.info(f"Output directory: `{output_path}` ({len(jobs)} jobs)")
+
+            if jobs:
+                with st.expander("View Jobs"):
+                    for job_dir in sorted(jobs, reverse=True)[:20]:
+                        if job_dir.is_dir():
+                            col1, col2 = st.columns([3, 1])
+                            with col1:
+                                st.text(job_dir.name)
+                            with col2:
+                                if st.button("🗑️", key=f"del_job_{job_dir.name}"):
+                                    import shutil
+
+                                    shutil.rmtree(job_dir)
+                                    st.rerun()
+        else:
+            st.info(f"Output directory not yet created: `{output_path}`")
+
+    except Exception as e:
+        st.warning(f"Could not load output settings: {e}")
+
+# ==================== TAB 6: Logs ====================
+with tabs[5]:
+    st.subheader("📋 Application Logs")
+
+    log_files = {
+        "Application Log": Path.home() / ".pdhub" / "pdhub.log",
+        "Prediction Log": Path.home() / ".pdhub" / "predictions.log",
+        "Error Log": Path.home() / ".pdhub" / "errors.log",
+    }
+
+    for name, log_path in log_files.items():
+        with st.expander(name, expanded=False):
+            if log_path.exists():
+                content = log_path.read_text()
+                lines = content.split("\n")
+
+                # Show last N lines
+                num_lines = st.slider(f"Show last N lines", 10, 500, 100, key=f"lines_{name}")
+                st.code("\n".join(lines[-num_lines:]), language="log")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.download_button(
+                        f"📥 Download {name}",
+                        data=content,
+                        file_name=log_path.name,
+                        mime="text/plain",
+                    )
+                with col2:
+                    if st.button(f"🗑️ Clear {name}", key=f"clear_log_{name}"):
+                        log_path.write_text("")
+                        st.success("Log cleared")
+                        st.rerun()
+            else:
+                st.info(f"Log file not created yet: `{log_path}`")
+
+    # System info
+    st.markdown("---")
+    st.markdown("### System Information")
+
+    import platform
+    import sys
+
+    sys_info = {
+        "Python Version": sys.version.split()[0],
+        "Platform": platform.platform(),
+        "Processor": platform.processor() or "N/A",
+    }
+
+    try:
+        import torch
+
+        sys_info["PyTorch Version"] = torch.__version__
+        sys_info["CUDA Available"] = str(torch.cuda.is_available())
+        if torch.cuda.is_available():
+            sys_info["CUDA Version"] = torch.version.cuda or "N/A"
+    except ImportError:
+        sys_info["PyTorch"] = "Not installed"
+
+    for key, value in sys_info.items():
+        st.text(f"{key}: {value}")
+
+    # Copy system info
+    sys_info_text = "\n".join(f"{k}: {v}" for k, v in sys_info.items())
+    st.download_button(
+        "📋 Copy System Info", data=sys_info_text, file_name="system_info.txt", mime="text/plain"
+    )

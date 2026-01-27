@@ -2,6 +2,9 @@
 
 import streamlit as st
 
+# Shared UI helpers
+from protein_design_hub.web.ui import inject_base_css, sidebar_nav, sidebar_system_status
+
 # Page configuration
 st.set_page_config(
     page_title="Protein Design Hub",
@@ -11,7 +14,8 @@ st.set_page_config(
 )
 
 # Custom CSS
-st.markdown("""
+st.markdown(
+    """
 <style>
     .main-header {
         font-size: 2.5rem;
@@ -39,47 +43,73 @@ st.markdown("""
         font-weight: bold;
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
+inject_base_css()
+
+sidebar_nav(current="Home")
+sidebar_system_status()
 
 # Main page content
 st.markdown('<p class="main-header">🧬 Protein Design Hub</p>', unsafe_allow_html=True)
 st.markdown(
     '<p class="sub-header">Unified protein structure prediction and evaluation</p>',
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
 # Quick start guide
 st.markdown("---")
 st.markdown("### Quick Start")
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    st.markdown("#### 1️⃣ Predict")
-    st.markdown("""
-    Upload a FASTA file and run structure predictions
-    using ColabFold, Chai-1, or Boltz-2.
-    """)
-    if st.button("Go to Predict", key="go_predict"):
-        st.switch_page("pages/1_predict.py")
+    st.markdown("#### 1️⃣ Predict / Design")
+    st.markdown(
+        """
+    Predict structures from sequences, or design sequences for a fixed backbone.
+    """
+    )
+    col_a, col_b = st.columns(2)
+    with col_a:
+        if st.button("Predict", key="go_predict"):
+            st.switch_page("pages/1_predict.py")
+    with col_b:
+        if st.button("ProteinMPNN", key="go_mpnn"):
+            st.switch_page("pages/6_mpnn.py")
 
 with col2:
     st.markdown("#### 2️⃣ Evaluate")
-    st.markdown("""
+    st.markdown(
+        """
     Analyze predicted structures with quality metrics
     like lDDT, TM-score, QS-score, and RMSD.
-    """)
+    """
+    )
     if st.button("Go to Evaluate", key="go_evaluate"):
         st.switch_page("pages/2_evaluate.py")
 
 with col3:
     st.markdown("#### 3️⃣ Compare")
-    st.markdown("""
+    st.markdown(
+        """
     Run all predictors and compare results to find
     the best prediction for your protein.
-    """)
+    """
+    )
     if st.button("Go to Compare", key="go_compare"):
         st.switch_page("pages/3_compare.py")
+
+with col4:
+    st.markdown("#### 4️⃣ Jobs")
+    st.markdown(
+        """
+    Browse recent outputs and jump back into Evaluate or MPNN.
+    """
+    )
+    if st.button("Go to Jobs", key="go_jobs"):
+        st.switch_page("pages/7_jobs.py")
 
 # System status
 st.markdown("---")
@@ -94,10 +124,11 @@ try:
     # Predictor status
     col1, col2, col3 = st.columns(3)
 
-    predictors = ["colabfold", "chai1", "boltz2"]
-    columns = [col1, col2, col3]
+    predictors = ["colabfold", "chai1", "boltz2", "esmfold", "esmfold_api"]
+    columns = st.columns(3)
 
-    for pred_name, col in zip(predictors, columns):
+    for i, pred_name in enumerate(predictors):
+        col = columns[i % 3]
         with col:
             try:
                 predictor = PredictorRegistry.get(pred_name, settings)
@@ -115,6 +146,7 @@ try:
     st.markdown("#### GPU Status")
     try:
         import torch
+
         if torch.cuda.is_available():
             device_name = torch.cuda.get_device_name(0)
             memory = torch.cuda.get_device_properties(0).total_memory / 1e9
@@ -136,5 +168,5 @@ st.markdown(
         Integrating ColabFold, Chai-1, Boltz-2 & OpenStructure
     </div>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )

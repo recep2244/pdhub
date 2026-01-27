@@ -14,19 +14,16 @@ console = Console()
 def evaluate_run(
     model: Path = typer.Argument(..., help="Model structure file (PDB or CIF)"),
     reference: Optional[Path] = typer.Option(
-        None,
-        "--reference", "-r",
-        help="Reference structure for comparison"
+        None, "--reference", "-r", help="Reference structure for comparison"
     ),
     metrics: Optional[str] = typer.Option(
         "lddt,tm_score,rmsd",
-        "--metrics", "-m",
-        help="Comma-separated list of metrics to compute"
+        "--metrics",
+        "-m",
+        help="Comma-separated list of metrics to compute (e.g. lddt,tm_score,rmsd,clash_score,contact_energy,sasa,interface_bsa,salt_bridges,rosetta_energy)",
     ),
     output: Optional[Path] = typer.Option(
-        None,
-        "--output", "-o",
-        help="Output file for results (JSON)"
+        None, "--output", "-o", help="Output file for results (JSON)"
     ),
 ):
     """Evaluate a structure using various quality metrics."""
@@ -61,7 +58,9 @@ def evaluate_run(
     if unavailable:
         requirements = evaluator.get_metric_requirements()
         for m in unavailable:
-            console.print(f"[yellow]Warning: {m} not available - {requirements.get(m, 'Unknown')}[/yellow]")
+            console.print(
+                f"[yellow]Warning: {m} not available - {requirements.get(m, 'Unknown')}[/yellow]"
+            )
 
     try:
         result = evaluator.evaluate(model, reference)
@@ -85,6 +84,34 @@ def evaluate_run(
 
     if result.rmsd is not None:
         table.add_row("RMSD", f"{result.rmsd:.4f} Å")
+
+    if result.clash_score is not None:
+        table.add_row("Clash score", f"{result.clash_score:.2f} (count={result.clash_count})")
+
+    if result.contact_energy is not None:
+        per_res = (
+            f"{result.contact_energy_per_residue:.3f}"
+            if result.contact_energy_per_residue is not None
+            else "-"
+        )
+        table.add_row("Contact energy", f"{result.contact_energy:.3f} (per_res={per_res})")
+
+    if result.rosetta_total_score is not None:
+        table.add_row("Rosetta total", f"{result.rosetta_total_score:.3f}")
+
+    if result.sasa_total is not None:
+        table.add_row("SASA total", f"{result.sasa_total:.1f} Å²")
+
+    if result.interface_bsa_total is not None:
+        table.add_row("Interface BSA", f"{result.interface_bsa_total:.1f} Å²")
+
+    if result.salt_bridge_count is not None:
+        inter = (
+            f", inter={result.salt_bridge_count_interchain}"
+            if result.salt_bridge_count_interchain is not None
+            else ""
+        )
+        table.add_row("Salt bridges", f"{result.salt_bridge_count}{inter}")
 
     if result.gdt_ts is not None:
         table.add_row("GDT-TS", f"{result.gdt_ts:.4f}")
@@ -143,20 +170,24 @@ def evaluate_batch(
     for f in files:
         try:
             result = evaluator.evaluate(f, reference)
-            results.append({
-                "file": f.name,
-                "lddt": result.lddt,
-                "tm_score": result.tm_score,
-                "rmsd": result.rmsd,
-                "qs_score": result.qs_score,
-            })
+            results.append(
+                {
+                    "file": f.name,
+                    "lddt": result.lddt,
+                    "tm_score": result.tm_score,
+                    "rmsd": result.rmsd,
+                    "qs_score": result.qs_score,
+                }
+            )
             console.print(f"  [green]✓[/green] {f.name}")
         except Exception as e:
             console.print(f"  [red]✗[/red] {f.name}: {e}")
-            results.append({
-                "file": f.name,
-                "error": str(e),
-            })
+            results.append(
+                {
+                    "file": f.name,
+                    "error": str(e),
+                }
+            )
 
     # Display summary
     table = Table(title="Evaluation Summary")
@@ -184,7 +215,9 @@ def evaluate_batch(
         output.parent.mkdir(parents=True, exist_ok=True)
 
         with open(output, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["file", "lddt", "tm_score", "rmsd", "qs_score", "error"])
+            writer = csv.DictWriter(
+                f, fieldnames=["file", "lddt", "tm_score", "rmsd", "qs_score", "error"]
+            )
             writer.writeheader()
             writer.writerows(results)
 

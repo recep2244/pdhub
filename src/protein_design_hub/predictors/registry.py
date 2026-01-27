@@ -55,6 +55,10 @@ class PredictorRegistry:
             "chai-1": "chai1",
             "boltz": "boltz2",
             "boltz-2": "boltz2",
+            "esm": "esmfold",
+            "esm-fold": "esmfold",
+            "esmfold-api": "esmfold_api",
+            "esm-api": "esmfold_api",
         }
 
         resolved_name = aliases.get(name_lower, name_lower)
@@ -133,6 +137,11 @@ def _register_predictors():
 
     try:
         from protein_design_hub.predictors.boltz2 import predictor as _  # noqa: F401
+    except ImportError:
+        pass
+
+    try:
+        from protein_design_hub.predictors.esmfold import predictor as _  # noqa: F401
     except ImportError:
         pass
 

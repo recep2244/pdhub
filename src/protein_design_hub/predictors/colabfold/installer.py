@@ -66,24 +66,60 @@ class ColabFoldInstaller(ToolInstaller):
         if not executable:
             return None
 
+        import re
+
+        # Try multiple approaches to get the version
         try:
+            # Method 1: Try --version flag
             result = subprocess.run(
                 [str(executable), "--version"],
                 capture_output=True,
                 text=True,
                 timeout=30,
             )
-            # Parse version from output
-            output = result.stdout.strip() or result.stderr.strip()
-            # ColabFold version output varies, try to extract version number
-            for line in output.split("\n"):
-                if "colabfold" in line.lower() or "version" in line.lower():
-                    # Try to find version pattern like "1.5.5"
-                    import re
-                    match = re.search(r"(\d+\.\d+\.\d+)", line)
-                    if match:
-                        return match.group(1)
-            return output.split()[0] if output else None
+            output = result.stdout.strip() + " " + result.stderr.strip()
+
+            # Look for version pattern in output
+            match = re.search(r"(\d+\.\d+\.\d+)", output)
+            if match:
+                return match.group(1)
+
+            # Method 2: Try -h flag and look for version in help
+            result = subprocess.run(
+                [str(executable), "-h"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            output = result.stdout.strip() + " " + result.stderr.strip()
+
+            match = re.search(r"(?:version|colabfold)[:\s]+(\d+\.\d+\.\d+)", output, re.IGNORECASE)
+            if match:
+                return match.group(1)
+
+            # Method 3: Check pip package version
+            try:
+                result = subprocess.run(
+                    ["pip", "show", "colabfold"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                for line in result.stdout.split("\n"):
+                    if line.startswith("Version:"):
+                        return line.split(":")[1].strip()
+            except Exception:
+                pass
+
+            # Method 4: Check if LocalColabFold version file exists
+            install_dir = executable.parent.parent.parent
+            version_file = install_dir / "VERSION"
+            if version_file.exists():
+                return version_file.read_text().strip()
+
+            # If nothing worked, return None instead of garbage like "usage:"
+            return None
+
         except Exception:
             return None
 

@@ -7,7 +7,15 @@ from pathlib import Path
 from typing import Optional
 
 from protein_design_hub import __version__
-from protein_design_hub.cli.commands import predict, evaluate, compare, install
+from protein_design_hub.cli.commands import (
+    predict,
+    evaluate,
+    compare,
+    install,
+    design,
+    backbone,
+    energy,
+)
 
 app = typer.Typer(
     name="pdhub",
@@ -22,6 +30,9 @@ app.add_typer(predict.app, name="predict", help="Run structure predictions")
 app.add_typer(evaluate.app, name="evaluate", help="Evaluate predicted structures")
 app.add_typer(compare.app, name="compare", help="Compare predictions from multiple tools")
 app.add_typer(install.app, name="install", help="Install and manage prediction tools")
+app.add_typer(design.app, name="design", help="Sequence design and analysis")
+app.add_typer(backbone.app, name="backbone", help="Backbone generation tools")
+app.add_typer(energy.app, name="energy", help="Energy and scoring tools")
 
 
 @app.command()
@@ -70,6 +81,7 @@ def status():
     console.print("\n[bold]GPU Status:[/bold]")
     try:
         import torch
+
         if torch.cuda.is_available():
             device_name = torch.cuda.get_device_name(0)
             memory = torch.cuda.get_device_properties(0).total_memory / 1e9
@@ -85,9 +97,7 @@ def status():
 @app.command()
 def verify(
     predictor: Optional[str] = typer.Option(
-        None,
-        "--predictor", "-p",
-        help="Specific predictor to verify (or 'all')"
+        None, "--predictor", "-p", help="Specific predictor to verify (or 'all')"
     ),
 ):
     """Run verification tests for installed predictors."""
@@ -144,10 +154,15 @@ def web(
     try:
         subprocess.run(
             [
-                sys.executable, "-m", "streamlit", "run",
+                sys.executable,
+                "-m",
+                "streamlit",
+                "run",
                 str(web_app_path),
-                "--server.address", host,
-                "--server.port", str(port),
+                "--server.address",
+                host,
+                "--server.port",
+                str(port),
             ],
             check=True,
         )

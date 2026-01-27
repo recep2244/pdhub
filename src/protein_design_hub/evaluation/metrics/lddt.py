@@ -36,17 +36,31 @@ class LDDTMetric(BaseMetric):
         self.inclusion_radius = inclusion_radius
         self.sequence_separation = sequence_separation
         self.stereochemistry_check = stereochemistry_check
+        self._use_runner = False
 
     def is_available(self) -> bool:
-        """Check if OpenStructure is available."""
+        """Check if OpenStructure is available (direct or via runner)."""
+        # Try direct import first
         try:
             import ost
             return True
         except ImportError:
-            return False
+            pass
+
+        # Try micromamba runner
+        try:
+            from protein_design_hub.evaluation.ost_runner import get_ost_runner
+            runner = get_ost_runner()
+            if runner.is_available():
+                self._use_runner = True
+                return True
+        except Exception:
+            pass
+
+        return False
 
     def get_requirements(self) -> str:
-        return "OpenStructure (install via conda: conda install -c bioconda openstructure)"
+        return "OpenStructure (install via: micromamba create -n ost -c conda-forge -c bioconda openstructure)"
 
     def compute(
         self,
@@ -67,6 +81,29 @@ class LDDTMetric(BaseMetric):
         if reference_path is None:
             raise EvaluationError(self.name, "Reference structure required for lDDT")
 
+        model_path = Path(model_path)
+        reference_path = Path(reference_path)
+
+        # Try using the micromamba runner first (if available)
+        try:
+            from protein_design_hub.evaluation.ost_runner import get_ost_runner
+            runner = get_ost_runner()
+            if runner.is_available():
+                result = runner.compute_lddt(
+                    model_path,
+                    reference_path,
+                    inclusion_radius=self.inclusion_radius,
+                    sequence_separation=self.sequence_separation,
+                )
+                if "error" in result:
+                    raise EvaluationError(self.name, result["error"])
+                return result
+        except ImportError:
+            pass
+        except RuntimeError as e:
+            raise EvaluationError(self.name, str(e))
+
+        # Fall back to direct import
         try:
             import ost
             from ost.io import LoadPDB, LoadMMCIF
@@ -74,11 +111,8 @@ class LDDTMetric(BaseMetric):
         except ImportError:
             raise EvaluationError(
                 self.name,
-                "OpenStructure not available. Install with: conda install -c bioconda openstructure"
+                "OpenStructure not available. Install with: micromamba create -n ost -c conda-forge -c bioconda openstructure"
             )
-
-        model_path = Path(model_path)
-        reference_path = Path(reference_path)
 
         try:
             # Load structures
