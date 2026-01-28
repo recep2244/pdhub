@@ -1,0 +1,351 @@
+"""ProteinMPNN sequence design page."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+import tempfile
+
+import streamlit as st
+
+from protein_design_hub.analysis.sequence_metrics import compute_sequence_metrics
+from protein_design_hub.web.ui import (
+    get_selected_backbone,
+    inject_base_css,
+    page_header,
+    section_header,
+    info_box,
+    metric_card,
+    progress_steps,
+    set_selected_backbone,
+    sidebar_nav,
+    sidebar_system_status,
+    list_output_structures,
+)
+
+st.set_page_config(page_title="MPNN Design - Protein Design Hub", page_icon="🎯", layout="wide")
+inject_base_css()
+
+# Page-specific styling
+st.markdown("""
+<style>
+.mpnn-input-card {
+    background: var(--pdhub-bg-card);
+    border-radius: var(--pdhub-border-radius-lg);
+    padding: var(--pdhub-space-lg);
+    border: 1px solid var(--pdhub-border);
+    margin-bottom: var(--pdhub-space-md);
+}
+
+.mpnn-settings-card {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: var(--pdhub-border-radius-lg);
+    padding: var(--pdhub-space-lg);
+    border: 1px solid var(--pdhub-border);
+}
+
+.sequence-result {
+    background: var(--pdhub-bg-card);
+    border-radius: var(--pdhub-border-radius-md);
+    padding: var(--pdhub-space-md);
+    margin: var(--pdhub-space-sm) 0;
+    border: 1px solid var(--pdhub-border);
+    transition: var(--pdhub-transition);
+}
+
+.sequence-result:hover {
+    border-color: var(--pdhub-primary-light);
+    box-shadow: var(--pdhub-shadow-sm);
+}
+
+.sequence-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--pdhub-space-sm);
+}
+
+.sequence-id {
+    font-weight: 600;
+    color: var(--pdhub-primary);
+}
+
+.sequence-code {
+    font-family: monospace;
+    font-size: 0.85rem;
+    background: var(--pdhub-bg-light);
+    padding: var(--pdhub-space-sm);
+    border-radius: var(--pdhub-border-radius-sm);
+    word-break: break-all;
+    color: var(--pdhub-text);
+}
+
+.metrics-row {
+    display: flex;
+    gap: var(--pdhub-space-md);
+    margin-top: var(--pdhub-space-md);
+    flex-wrap: wrap;
+}
+
+.mini-metric {
+    background: var(--pdhub-bg-light);
+    padding: 8px 14px;
+    border-radius: var(--pdhub-border-radius-sm);
+    text-align: center;
+    min-width: 80px;
+}
+
+.mini-metric-value {
+    font-weight: 600;
+    color: var(--pdhub-text);
+    font-size: 1rem;
+}
+
+.mini-metric-label {
+    font-size: 0.7rem;
+    color: var(--pdhub-text-secondary);
+    text-transform: uppercase;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Header
+page_header(
+    "ProteinMPNN Design",
+    "Fixed-backbone sequence design using ProteinMPNN neural network",
+    "🎯"
+)
+
+sidebar_nav(current="MPNN Design")
+sidebar_system_status()
+
+# Main content
+col_a, col_b = st.columns([2, 1])
+
+with col_a:
+    section_header("Backbone Structure", "Upload or select a structure file", "🦴")
+
+    try:
+        from protein_design_hub.core.config import get_settings
+
+        _settings = get_settings()
+        recent = list_output_structures(Path(_settings.output.base_dir))
+    except Exception:
+        recent = []
+
+    chosen = None
+    sel = get_selected_backbone()
+
+    if sel is not None and sel.exists():
+        chosen = sel
+        info_box(
+            f"Using selected backbone from Jobs: <code>{sel.name}</code>",
+            variant="success",
+            title="Backbone Selected"
+        )
+        if st.button("Clear selected backbone", key="clear_sel_backbone", type="secondary"):
+            set_selected_backbone(None)
+            st.rerun()
+
+    if recent:
+        st.markdown("**Or choose from recent structures:**")
+        default_index = 0
+        if chosen is not None and chosen in recent:
+            default_index = 1 + recent.index(chosen)
+        chosen = st.selectbox(
+            "Recent structures",
+            options=[None] + recent,
+            format_func=lambda p: "— Select a structure —" if p is None else str(p.name),
+            index=default_index,
+            label_visibility="collapsed"
+        )
+
+    st.markdown("**Or upload a new file:**")
+    backbone_file = st.file_uploader(
+        "Upload backbone (PDB/mmCIF)",
+        type=["pdb", "cif", "mmcif"],
+        label_visibility="collapsed"
+    )
+
+with col_b:
+    section_header("Sampling Settings", "Configure design parameters", "⚙️")
+
+    st.markdown('<div class="mpnn-settings-card">', unsafe_allow_html=True)
+
+    num_seqs = st.number_input(
+        "Number of sequences",
+        min_value=1,
+        max_value=256,
+        value=16,
+        help="How many sequence designs to generate"
+    )
+
+    temperature = st.slider(
+        "Temperature",
+        min_value=0.01,
+        max_value=1.0,
+        value=0.1,
+        step=0.01,
+        help="Lower = more conservative, Higher = more diverse"
+    )
+
+    seed = st.number_input(
+        "Random seed",
+        min_value=0,
+        value=0,
+        help="0 = random seed, or set a specific value for reproducibility"
+    )
+
+    auto_install = st.checkbox(
+        "Auto-install ProteinMPNN",
+        value=False,
+        help="Automatically clone ProteinMPNN if not installed"
+    )
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+st.markdown("---")
+
+# Run button
+if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=True):
+    if backbone_file is None and chosen is None:
+        info_box(
+            "Please upload a backbone structure or select one from recent structures.",
+            variant="error",
+            title="No Structure Selected"
+        )
+    else:
+        try:
+            from protein_design_hub.core.config import get_settings
+            from protein_design_hub.design.registry import get_designer
+            from protein_design_hub.design.types import DesignInput
+
+            settings = get_settings()
+
+            if chosen is not None and backbone_file is None:
+                backbone_path = Path(chosen)
+            else:
+                with tempfile.NamedTemporaryFile(
+                    suffix=Path(backbone_file.name).suffix, delete=False
+                ) as tmp:
+                    tmp.write(backbone_file.read())
+                    backbone_path = Path(tmp.name)
+
+            job_id = f"mpnn_{backbone_path.stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            job_dir = settings.output.base_dir / job_id / "design" / "proteinmpnn"
+            job_dir.mkdir(parents=True, exist_ok=True)
+
+            designer = get_designer("proteinmpnn", settings)
+
+            # Show progress
+            progress_steps(["Initialize", "Design", "Analyze", "Complete"], current_step=1)
+
+            with st.spinner("Running ProteinMPNN sequence design..."):
+                result = designer.design(
+                    DesignInput(
+                        job_id=job_id,
+                        backbone_path=backbone_path,
+                        output_dir=job_dir,
+                        num_sequences=int(num_seqs),
+                        temperature=float(temperature),
+                        seed=None if int(seed) == 0 else int(seed),
+                    ),
+                    auto_install=auto_install,
+                )
+
+            if not result.success:
+                info_box(
+                    result.error_message or "ProteinMPNN failed with unknown error",
+                    variant="error",
+                    title="Design Failed"
+                )
+            else:
+                # Success!
+                progress_steps(["Initialize", "Design", "Analyze", "Complete"], current_step=3)
+
+                info_box(
+                    f"Successfully designed {len(result.sequences)} sequences!",
+                    variant="success",
+                    title="Design Complete"
+                )
+
+                section_header("Results", f"{len(result.sequences)} sequences generated", "📊")
+
+                # Show top sequences + metrics
+                for i, s in enumerate(result.sequences[:20]):
+                    with st.expander(f"**{s.id}**", expanded=(i < 3)):
+                        st.markdown(f'<div class="sequence-code">{s.sequence}</div>', unsafe_allow_html=True)
+
+                        try:
+                            m = compute_sequence_metrics(s.sequence)
+                            st.markdown("""
+                            <div class="metrics-row">
+                                <div class="mini-metric">
+                                    <div class="mini-metric-value">{:.2f}</div>
+                                    <div class="mini-metric-label">pI</div>
+                                </div>
+                                <div class="mini-metric">
+                                    <div class="mini-metric-value">{:.2f}</div>
+                                    <div class="mini-metric-label">Charge pH7</div>
+                                </div>
+                                <div class="mini-metric">
+                                    <div class="mini-metric-value">{:.3f}</div>
+                                    <div class="mini-metric-label">GRAVY</div>
+                                </div>
+                                <div class="mini-metric">
+                                    <div class="mini-metric-value">{:.1f}</div>
+                                    <div class="mini-metric-label">Instability</div>
+                                </div>
+                            </div>
+                            """.format(
+                                m.isoelectric_point,
+                                m.net_charge_ph7,
+                                m.gravy,
+                                m.instability_index
+                            ), unsafe_allow_html=True)
+                        except Exception as e:
+                            st.caption(f"Metrics unavailable: {e}")
+
+                # Download FASTA
+                st.markdown("---")
+                fasta_lines = []
+                for s in result.sequences:
+                    fasta_lines.append(f">{s.id}")
+                    fasta_lines.append(s.sequence)
+
+                st.download_button(
+                    "📥 Download All Sequences (FASTA)",
+                    data="\n".join(fasta_lines) + "\n",
+                    file_name=f"{job_id}_designed.fasta",
+                    mime="text/plain",
+                    use_container_width=True,
+                    type="primary"
+                )
+
+                st.caption(f"Results saved to: `{job_dir}`")
+
+        except Exception as e:
+            info_box(
+                f"An error occurred: {e}",
+                variant="error",
+                title="Error"
+            )
+            import traceback
+            with st.expander("Show traceback"):
+                st.code(traceback.format_exc())
+
+# Tips section
+st.markdown("---")
+with st.expander("💡 Tips for using ProteinMPNN"):
+    st.markdown("""
+    **Temperature Settings:**
+    - **0.1** (default): Conservative designs, high sequence recovery
+    - **0.2-0.3**: Balanced diversity and recovery
+    - **0.5+**: More diverse, novel sequences
+
+    **Best Practices:**
+    - Start with a well-resolved backbone structure (< 2.5 resolution)
+    - Use 16-32 sequences initially, then filter by metrics
+    - Lower temperature for stability, higher for novelty
+    - Consider running multiple rounds with different temperatures
+    """)

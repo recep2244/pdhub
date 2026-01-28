@@ -43,6 +43,9 @@ class MetricType(str, Enum):
     OPENMM_GBSA = "openmm_gbsa"
     ROSETTA_SCORE_JD2 = "rosetta_score_jd2"
     FOLDX_DDG = "foldx_ddg"
+    SEQUENCE_RECOVERY = "sequence_recovery"
+    DISORDER = "disorder"
+    SHAPE_COMPLEMENTARITY = "shape_complementarity"
 
 
 @dataclass
@@ -218,6 +221,17 @@ class EvaluationResult:
     rosetta_score_jd2_total_score: Optional[float] = None
     rosetta_cartesian_ddg: Optional[float] = None
     foldx_ddg_kcal_mol: Optional[float] = None
+    # Sequence recovery metrics
+    sequence_recovery: Optional[float] = None
+    sequence_recovery_per_residue: Optional[list[float]] = None
+    # Disorder metrics
+    disorder_fraction: Optional[float] = None
+    disorder_per_residue: Optional[list[float]] = None
+    disorder_regions: Optional[list[dict]] = None
+    # Shape complementarity metrics
+    shape_complementarity: Optional[float] = None
+    interface_residues_a: Optional[int] = None
+    interface_residues_b: Optional[int] = None
     metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -245,6 +259,9 @@ class EvaluationResult:
             "rosetta_score_jd2_total_score": self.rosetta_score_jd2_total_score,
             "rosetta_cartesian_ddg": self.rosetta_cartesian_ddg,
             "foldx_ddg_kcal_mol": self.foldx_ddg_kcal_mol,
+            "sequence_recovery": self.sequence_recovery,
+            "disorder_fraction": self.disorder_fraction,
+            "shape_complementarity": self.shape_complementarity,
             "metadata": self.metadata,
         }
 

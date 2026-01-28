@@ -17,6 +17,9 @@ from protein_design_hub.evaluation.metrics.interface_bsa import InterfaceBSAMetr
 from protein_design_hub.evaluation.metrics.salt_bridges import SaltBridgeMetric
 from protein_design_hub.evaluation.metrics.openmm_gbsa import OpenMMGBSAMetric
 from protein_design_hub.evaluation.metrics.rosetta_score_jd2 import RosettaScoreJd2Metric
+from protein_design_hub.evaluation.metrics.sequence_recovery import SequenceRecoveryMetric
+from protein_design_hub.evaluation.metrics.disorder import DisorderMetric
+from protein_design_hub.evaluation.metrics.shape_complementarity import ShapeComplementarityMetric
 from protein_design_hub.core.types import EvaluationResult
 from protein_design_hub.core.config import Settings, get_settings
 from protein_design_hub.core.exceptions import EvaluationError
@@ -39,6 +42,9 @@ class CompositeEvaluator:
         "salt_bridges": SaltBridgeMetric,
         "openmm_gbsa": OpenMMGBSAMetric,
         "rosetta_score_jd2": RosettaScoreJd2Metric,
+        "sequence_recovery": SequenceRecoveryMetric,
+        "disorder": DisorderMetric,
+        "shape_complementarity": ShapeComplementarityMetric,
     }
 
     def __init__(
@@ -162,6 +168,17 @@ class CompositeEvaluator:
                     # Keep both: generic field + explicit score_jd2 field.
                     result.rosetta_total_score = metric_result.get("rosetta_total_score")
                     result.rosetta_score_jd2_total_score = metric_result.get("rosetta_total_score")
+                elif metric_name == "sequence_recovery":
+                    result.sequence_recovery = metric_result.get("sequence_recovery")
+                    result.sequence_recovery_per_residue = metric_result.get("per_residue_match")
+                elif metric_name == "disorder":
+                    result.disorder_fraction = metric_result.get("disorder_fraction")
+                    result.disorder_per_residue = metric_result.get("per_residue_disorder")
+                    result.disorder_regions = metric_result.get("disordered_regions")
+                elif metric_name == "shape_complementarity":
+                    result.shape_complementarity = metric_result.get("shape_complementarity")
+                    result.interface_residues_a = metric_result.get("interface_residues_a")
+                    result.interface_residues_b = metric_result.get("interface_residues_b")
 
                 # Store full metric result in metadata
                 if "metadata" not in result.__dict__ or result.metadata is None:

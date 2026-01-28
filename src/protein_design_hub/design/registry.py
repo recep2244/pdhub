@@ -26,6 +26,11 @@ class DesignerRegistry:
         aliases = {
             "proteinmpnn": "proteinmpnn",
             "mpnn": "proteinmpnn",
+            "esmif": "esmif",
+            "esm-if": "esmif",
+            "esm_if": "esmif",
+            "esm-if1": "esmif",
+            "inverse_folding": "esmif",
         }
         resolved = aliases.get(name_lower, name_lower)
         if resolved not in cls._designers:
@@ -45,6 +50,11 @@ def get_designer(name: str, settings: Optional[Settings] = None) -> BaseDesigner
 def _register_designers() -> None:
     try:
         from protein_design_hub.design.proteinmpnn import designer as _  # noqa: F401
+    except Exception:
+        pass
+
+    try:
+        from protein_design_hub.design.esmif import designer as _esmif  # noqa: F401
     except Exception:
         pass
 

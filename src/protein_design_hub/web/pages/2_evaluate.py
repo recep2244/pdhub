@@ -11,12 +11,21 @@ from protein_design_hub.web.ui import (
     get_selected_model,
     inject_base_css,
     list_output_structures,
+    page_header,
     set_selected_model,
     sidebar_nav,
     sidebar_system_status,
 )
 
 inject_base_css()
+
+# Page header
+page_header(
+    "Structure Evaluation",
+    "Comprehensive evaluation with 18+ metrics including lDDT, TM-score, DockQ, and energy calculations",
+    "📊"
+)
+
 sidebar_nav(current="Evaluate")
 sidebar_system_status()
 

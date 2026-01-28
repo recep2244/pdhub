@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  pdhub:
+    build: .
+    container_name: protein_design_hub
+    ports:
+      # Map container port 8501 to host port 8501
+      - "8501:8501"
+    volumes:
+      # Persist outputs
+      - ./outputs:/app/outputs
+      # Mount config for easy editing
+      - ./config:/app/config
+      # Mount source for development (optional, remove for production)
+      - ./src:/app/src
+    environment:
+      - PDHUB_OUTPUT_BASE_DIR=/app/outputs
+    restart: unless-stopped

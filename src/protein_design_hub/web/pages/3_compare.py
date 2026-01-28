@@ -7,34 +7,57 @@ import json
 
 st.set_page_config(page_title="Compare - Protein Design Hub", page_icon="⚖️", layout="wide")
 
-from protein_design_hub.web.ui import inject_base_css, sidebar_nav, sidebar_system_status
+from protein_design_hub.web.ui import (
+    inject_base_css,
+    sidebar_nav,
+    sidebar_system_status,
+    page_header,
+    section_header,
+    info_box,
+)
 
 inject_base_css()
+
+# Page header
+page_header(
+    "Compare Predictions",
+    "Run all predictors and compare results with visual analysis",
+    "⚖️"
+)
+
 sidebar_nav(current="Compare")
 sidebar_system_status()
 
-st.title("⚖️ Compare Predictions")
-st.markdown("Run all predictors and compare results with visual analysis")
-
-# Add custom CSS for better layout
+# Page-specific CSS (uses theme variables)
 st.markdown(
     """
 <style>
-.metric-card {
-    background-color: #f0f2f6;
-    border-radius: 10px;
-    padding: 15px;
+.compare-metric-card {
+    background: var(--pdhub-bg-card);
+    border-radius: var(--pdhub-border-radius-md);
+    padding: var(--pdhub-space-lg);
     text-align: center;
-    margin: 5px;
+    border: 1px solid var(--pdhub-border);
+    transition: var(--pdhub-transition);
 }
-.metric-value {
-    font-size: 24px;
-    font-weight: bold;
-    color: #1f77b4;
+.compare-metric-card:hover {
+    box-shadow: var(--pdhub-shadow-md);
+    border-color: var(--pdhub-primary-light);
 }
-.metric-label {
-    font-size: 12px;
-    color: #666;
+.compare-metric-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    background: var(--pdhub-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.compare-metric-label {
+    font-size: 0.8rem;
+    color: var(--pdhub-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 4px;
 }
 </style>
 """,

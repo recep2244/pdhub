@@ -6,14 +6,19 @@ import tempfile
 
 st.set_page_config(page_title="Predict - Protein Design Hub", page_icon="🔮", layout="wide")
 
-from protein_design_hub.web.ui import inject_base_css, sidebar_nav, sidebar_system_status
+from protein_design_hub.web.ui import inject_base_css, sidebar_nav, sidebar_system_status, page_header
 
 inject_base_css()
+
+# Page header
+page_header(
+    "Structure Prediction",
+    "Run structure prediction with multiple tools, then download results for evaluation and comparison",
+    "🔮"
+)
+
 sidebar_nav(current="Predict")
 sidebar_system_status()
-
-st.title("🔮 Structure Prediction")
-st.markdown("Run structure prediction, then download results for evaluation and comparison.")
 
 # Sidebar - Predictor selection
 st.sidebar.header("Predictor Selection")
