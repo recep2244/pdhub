@@ -394,6 +394,71 @@ def create_per_residue_comparison(
     return fig
 
 
+
+def create_structure_viewer(
+    structure_path: Path,
+    width: int = 800,
+    height: int = 600,
+    style: str = "cartoon",
+    color_by: str = "spectrum",
+    spin: bool = False,
+    background_color: str = "white",
+) -> str:
+    """
+    Create a 3D structure viewer using 3Dmol.js.
+
+    Args:
+        structure_path: Path to the PDB/CIF file.
+        width: Width of the viewer in pixels.
+        height: Height of the viewer in pixels.
+        style: Representation style ('cartoon', 'stick', 'sphere').
+        color_by: Coloring scheme ('spectrum', 'chain', 'residue', 'secondary').
+        spin: Whether to auto-spin the structure.
+        background_color: Background color name or hex code.
+
+    Returns:
+        HTML string containing the viewer.
+    """
+    structure_path = Path(structure_path)
+    model_data = structure_path.read_text()
+    
+    # Determine format
+    file_fmt = "mmcif" if structure_path.suffix == ".cif" else "pdb"
+
+    # Define simple color schemes map for non-standard 3Dmol names if needed
+    # But 3Dmol supports 'spectrum', 'chain', etc. directly.
+    
+    style_spec = {}
+    if style == "cartoon":
+        style_spec = {"cartoon": {"color": color_by}}
+    elif style == "stick":
+        style_spec = {"stick": {}}
+    elif style == "sphere":
+        style_spec = {"sphere": {}}
+    
+    # Clean up string for JS safety
+    model_data = model_data.replace("`", "\`")
+
+    html = f"""
+    <div id="mol_viewer_{structure_path.stem}" style="width: {width}px; height: {height}px; position: relative;"></div>
+    <script src="https://3dmol.org/build/3Dmol-min.js"></script>
+    <script>
+        $(function() {{
+            let element = $("#mol_viewer_{structure_path.stem}");
+            let config = {{ backgroundColor: "{background_color}" }};
+            let viewer = $3Dmol.createViewer(element, config);
+            
+            viewer.addModel(`{model_data}`, "{file_fmt}");
+            viewer.setStyle({{}}, {json.dumps(style_spec)});
+            viewer.zoomTo();
+            viewer.render();
+            {'viewer.spin("y", 1);' if spin else ''}
+        }});
+    </script>
+    """
+    return html
+
+
 def create_structure_comparison_3d(
     model_path: Path,
     reference_path: Optional[Path] = None,
@@ -412,20 +477,23 @@ def create_structure_comparison_3d(
     Returns:
         HTML string for py3Dmol viewer.
     """
+    import uuid
+    
+    unique_id = f"structure_viewer_{uuid.uuid4().hex[:8]}"
     model_path = Path(model_path)
 
     # Read model structure
-    model_pdb = model_path.read_text()
+    model_pdb = model_path.read_text().replace("`", "\`")
 
-    html = """
-    <div id="structure_viewer" style="width: 100%; height: 500px; position: relative;">
+    html = f"""
+    <div id="{unique_id}" style="width: 100%; height: 500px; position: relative;">
     </div>
     <script src="https://3dmol.org/build/3Dmol-min.js"></script>
     <script>
-    $(function() {
-        let viewer = $3Dmol.createViewer("structure_viewer", {
+    $(function() {{
+        let viewer = $3Dmol.createViewer("{unique_id}", {{
             backgroundColor: 'white'
-        });
+        }});
     """
 
     # Add model
@@ -436,7 +504,7 @@ def create_structure_comparison_3d(
 
     if reference_path:
         reference_path = Path(reference_path)
-        ref_pdb = reference_path.read_text()
+        ref_pdb = reference_path.read_text().replace("`", "\`")
 
         html += f"""
         let reference = viewer.addModel(`{ref_pdb}`, "pdb");
@@ -451,6 +519,7 @@ def create_structure_comparison_3d(
     """
 
     return html
+
 
 
 def export_pymol_session(
@@ -796,4 +865,339 @@ def create_ramachandran_plot(
         return fig
 
     except ImportError:
-        raise ImportError("Biopython required. Install with: pip install biopython")
+        fig = go.Figure()
+        fig.update_layout(title="Install Biopython for Ramachandran Plot")
+        return fig
+    except Exception as e:
+        fig = go.Figure()
+        fig.update_layout(title=f"Error: {str(e)}")
+        return fig
+
+
+def create_msa_viewer(
+    alignment: List[str],
+    names: List[str],
+    width: int = 800,
+    height: int = 400,
+    max_sequences: int = 100,
+) -> str:
+    """
+    Create an HTML-based MSA viewer with coloring.
+
+    Args:
+        alignment: List of aligned sequences.
+        names: List of sequence names.
+        width: Widget width.
+        height: Widget height.
+        max_sequences: Limit sequences for performance.
+
+    Returns:
+        HTML string.
+    """
+    # Truncate if too many
+    if len(alignment) > max_sequences:
+        alignment = alignment[:max_sequences]
+        names = names[:max_sequences]
+    
+    # Check length consistency
+    seq_len = len(alignment[0])
+    
+    # Basic Clustal-like colors
+    colors = {
+        'G': '#f79d5c', 'P': '#f79d5c', 'S': '#f79d5c', 'T': '#f79d5c',
+        'C': '#f2d388', 'A': '#95a5a6', 'V': '#95a5a6', 'L': '#95a5a6', 'I': '#95a5a6', 'M': '#95a5a6',
+        'F': '#81ecec', 'W': '#81ecec', 'Y': '#81ecec',
+        'N': '#a29bfe', 'Q': '#a29bfe', 'H': '#a29bfe',
+        'D': '#ff7675', 'E': '#ff7675',
+        'K': '#74b9ff', 'R': '#74b9ff',
+        '-': '#ffffff'
+    }
+    
+    rows_html = []
+    
+    # Header row (ruler)
+    ruler_cells = []
+    for i in range(1, seq_len + 1):
+        label = str(i) if i % 10 == 0 or i == 1 else ""
+        ruler_cells.append(f'<div class="msa-ruler-cell">{label}</div>')
+    
+    rows_html.append(f"""
+    <div class="msa-row">
+        <div class="msa-name"></div>
+        <div class="msa-seq">{''.join(ruler_cells)}</div>
+    </div>
+    """)
+    
+    for name, seq in zip(names, alignment):
+        residues = []
+        for char in seq:
+            c = colors.get(char.upper(), '#ffffff')
+            residues.append(f'<div class="msa-res" style="background-color: {c};">{char}</div>')
+        
+        rows_html.append(f"""
+        <div class="msa-row">
+            <div class="msa-name" title="{name}">{name[:15]}</div>
+            <div class="msa-seq">{''.join(residues)}</div>
+        </div>
+        """)
+    
+    css = """
+    <style>
+    .msa-container {
+        font-family: 'Courier New', monospace;
+        overflow-x: auto;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background: white;
+    }
+    .msa-row {
+        display: flex;
+        height: 20px;
+    }
+    .msa-name {
+        width: 150px;
+        flex-shrink: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        border-right: 1px solid #eee;
+        padding-left: 5px;
+        font-size: 12px;
+        line-height: 20px;
+        background: #f9f9f9;
+        position: sticky;
+        left: 0;
+    }
+    .msa-seq {
+        display: flex;
+    }
+    .msa-res {
+        width: 12px;
+        height: 20px;
+        text-align: center;
+        font-size: 12px;
+        line-height: 20px;
+        color: #333;
+    }
+    .msa-ruler-cell {
+        width: 12px;
+        height: 20px;
+        font-size: 9px;
+        color: #888;
+        border-bottom: 1px solid #ccc;
+    }
+    </style>
+    """
+    
+    html = f"""
+    {css}
+    <div class="msa-container" style="width: 100%; height: {height}px; overflow-y: auto;">
+        {''.join(rows_html)}
+    </div>
+    """
+    return html
+    """
+    Create a Ramachandran plot for a structure.
+
+    Args:
+        structure_path: Path to structure file.
+        title: Plot title.
+
+    Returns:
+        Plotly Figure with Ramachandran plot.
+    """
+    import plotly.graph_objects as go
+    import numpy as np
+
+    try:
+        from Bio.PDB import PDBParser, MMCIFParser
+        from Bio.PDB.Polypeptide import PPBuilder
+
+        structure_path = Path(structure_path)
+        
+        # Determine format (PDB/MMCIF)
+        if structure_path.suffix.lower() in ['.cif', '.mmcif']:
+            parser = MMCIFParser(QUIET=True)
+            structure = parser.get_structure('structure', str(structure_path))
+        else:
+            parser = PDBParser(QUIET=True)
+            structure = parser.get_structure('structure', str(structure_path))
+            
+        builder = PPBuilder()
+        pp = builder.build_peptides(structure)
+        
+        phi_psi = []
+        if pp:
+            for poly in pp:
+                phi_psi.extend(poly.get_phi_psi_list())
+                
+        # Filter None values
+        phi = [pair[0] * 180 / np.pi for pair in phi_psi if pair[0]]
+        psi = [pair[1] * 180 / np.pi for pair in phi_psi if pair[1]]
+        
+        fig = go.Figure(data=go.Scatter(
+            x=phi, 
+            y=psi, 
+            mode='markers',
+            marker=dict(
+                size=5,
+                color='black',
+                opacity=0.5
+            )
+        ))
+        
+        # Add background regions (simplified)
+        # General favored regions
+        fig.add_shape(type="rect", x0=-180, y0=-180, x1=180, y1=180,
+                      line=dict(color="RoyalBlue"), fillcolor="white", opacity=0.1, layer="below")
+        
+        fig.update_layout(
+            title=dict(text=title, x=0.5),
+            xaxis=dict(title="Phi (degrees)", range=[-180, 180], zeroline=True),
+            yaxis=dict(title="Psi (degrees)", range=[-180, 180], zeroline=True),
+            width=600,
+            height=600,
+            shapes=[
+                # Alpha-helix
+                dict(type="rect", x0=-100, x1=-30, y0=-70, y1=-10, 
+                     fillcolor="red", opacity=0.2, line_width=0, layer="below"),
+                # Beta-sheet
+                dict(type="rect", x0=-180, x1=-45, y0=45, y1=180, 
+                     fillcolor="blue", opacity=0.2, line_width=0, layer="below"),
+                 dict(type="rect", x0=-180, x1=-45, y0=-180, y1=-135, # Wrap around
+                     fillcolor="blue", opacity=0.2, line_width=0, layer="below")
+            ]
+        )
+        
+        return fig
+        
+    except ImportError:
+        # Fallback empty figure
+        fig = go.Figure()
+        fig.update_layout(title="Install Biopython for Ramachandran Plot")
+        return fig
+
+
+def create_msa_viewer(
+    alignment: List[str],
+    names: List[str],
+    width: int = 800,
+    height: int = 400,
+    max_sequences: int = 100,
+) -> str:
+    """
+    Create an HTML-based MSA viewer with coloring.
+
+    Args:
+        alignment: List of aligned sequences.
+        names: List of sequence names.
+        width: Widget width.
+        height: Widget height.
+        max_sequences: Limit sequences for performance.
+
+    Returns:
+        HTML string.
+    """
+    # Truncate if too many
+    if len(alignment) > max_sequences:
+        alignment = alignment[:max_sequences]
+        names = names[:max_sequences]
+    
+    # Check length consistency
+    seq_len = len(alignment[0])
+    
+    # Basic Clustal-like colors
+    colors = {
+        'G': '#f79d5c', 'P': '#f79d5c', 'S': '#f79d5c', 'T': '#f79d5c',
+        'C': '#f2d388', 'A': '#95a5a6', 'V': '#95a5a6', 'L': '#95a5a6', 'I': '#95a5a6', 'M': '#95a5a6',
+        'F': '#81ecec', 'W': '#81ecec', 'Y': '#81ecec',
+        'N': '#a29bfe', 'Q': '#a29bfe', 'H': '#a29bfe',
+        'D': '#ff7675', 'E': '#ff7675',
+        'K': '#74b9ff', 'R': '#74b9ff',
+        '-': '#ffffff'
+    }
+    
+    rows_html = []
+    
+    # Header row (ruler)
+    ruler_cells = []
+    for i in range(1, seq_len + 1):
+        label = str(i) if i % 10 == 0 or i == 1 else ""
+        ruler_cells.append(f'<div class="msa-ruler-cell">{label}</div>')
+    
+    rows_html.append(f"""
+    <div class="msa-row">
+        <div class="msa-name"></div>
+        <div class="msa-seq">{''.join(ruler_cells)}</div>
+    </div>
+    """)
+    
+    for name, seq in zip(names, alignment):
+        residues = []
+        for char in seq:
+            c = colors.get(char.upper(), '#ffffff')
+            residues.append(f'<div class="msa-res" style="background-color: {c};">{char}</div>')
+        
+        rows_html.append(f"""
+        <div class="msa-row">
+            <div class="msa-name" title="{name}">{name[:15]}</div>
+            <div class="msa-seq">{''.join(residues)}</div>
+        </div>
+        """)
+    
+    css = """
+    <style>
+    .msa-container {
+        font-family: 'Courier New', monospace;
+        overflow-x: auto;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background: white;
+    }
+    .msa-row {
+        display: flex;
+        height: 20px;
+    }
+    .msa-name {
+        width: 150px;
+        flex-shrink: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        border-right: 1px solid #eee;
+        padding-left: 5px;
+        font-size: 12px;
+        line-height: 20px;
+        background: #f9f9f9;
+        position: sticky;
+        left: 0;
+    }
+    .msa-seq {
+        display: flex;
+    }
+    .msa-res {
+        width: 12px;
+        height: 20px;
+        text-align: center;
+        font-size: 12px;
+        line-height: 20px;
+        color: #333;
+    }
+    .msa-ruler-cell {
+        width: 12px;
+        height: 20px;
+        font-size: 9px;
+        color: #888;
+        border-bottom: 1px solid #ccc;
+    }
+    </style>
+    """
+    
+    html = f"""
+    {css}
+    <div class="msa-container" style="width: 100%; height: {height}px; overflow-y: auto;">
+        {''.join(rows_html)}
+    </div>
+    """
+    return html
+

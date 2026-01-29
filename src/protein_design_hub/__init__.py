@@ -1,6 +1,6 @@
 """Protein Design Hub - Unified protein structure prediction and evaluation."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "Protein Design Hub Team"
 
 from protein_design_hub.core.types import (

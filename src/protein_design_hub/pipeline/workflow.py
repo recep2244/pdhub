@@ -105,6 +105,9 @@ class PredictionWorkflow:
             prediction_input,
             predictors=predictors,
         )
+        
+        # Save prediction summary at root for UI detection
+        self.runner.save_results(prediction_results, job_dir)
 
         # Evaluate structures
         self._report_progress("evaluation", "Evaluating structures", 3, 5)
@@ -169,7 +172,9 @@ class PredictionWorkflow:
 
         self._save_input(prediction_input, job_dir)
 
-        return self.runner.run_all_predictors(prediction_input, predictors=predictors)
+        results = self.runner.run_all_predictors(prediction_input, predictors=predictors)
+        self.runner.save_results(results, job_dir)
+        return results
 
     def run_evaluation_only(
         self,

@@ -167,6 +167,24 @@ with col_a:
         label_visibility="collapsed"
     )
 
+    # Preview Logic
+    if backbone_file or chosen:
+        st.markdown("### 🧬 Backbone Preview")
+        preview_path = None
+        if backbone_file:
+             with tempfile.NamedTemporaryFile(suffix=".pdb", delete=False) as tmp:
+                 tmp.write(backbone_file.read())
+                 backbone_file.seek(0) # Reset
+                 preview_path = Path(tmp.name)
+        elif chosen:
+             preview_path = chosen
+        
+        if preview_path:
+             from protein_design_hub.web.visualizations import create_structure_viewer
+             import streamlit.components.v1 as components
+             html = create_structure_viewer(preview_path, height=300, style="cartoon")
+             components.html(html, height=320)
+
 with col_b:
     section_header("Sampling Settings", "Configure design parameters", "⚙️")
 
@@ -313,14 +331,23 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=
                     fasta_lines.append(f">{s.id}")
                     fasta_lines.append(s.sequence)
 
-                st.download_button(
-                    "📥 Download All Sequences (FASTA)",
-                    data="\n".join(fasta_lines) + "\n",
-                    file_name=f"{job_id}_designed.fasta",
-                    mime="text/plain",
-                    use_container_width=True,
-                    type="primary"
-                )
+                col_d1, col_d2 = st.columns([1, 1])
+                with col_d1:
+                    st.download_button(
+                        "📥 Download All Sequences (FASTA)",
+                        data="\n".join(fasta_lines) + "\n",
+                        file_name=f"{job_id}_designed.fasta",
+                        mime="text/plain",
+                        use_container_width=True,
+                        type="primary"
+                    )
+
+                with col_d2:
+                    st.markdown("**Validation**")
+                    if st.button("🔮 Fold Top Sequence (ESMFold)", use_container_width=True):
+                         st.session_state.predict_sequence = result.sequences[0].sequence
+                         st.session_state.predict_name = f"{result.sequences[0].id}_check"
+                         st.switch_page("pages/1_predict.py")
 
                 st.caption(f"Results saved to: `{job_dir}`")
 

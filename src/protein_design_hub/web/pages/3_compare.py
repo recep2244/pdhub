@@ -387,6 +387,9 @@ existing_results = st.text_input(
     "Load existing results (path to job directory)", key="load_results"
 )
 
+selected_structure = None
+job_path = None
+
 if existing_results and Path(existing_results).exists():
     job_path = Path(existing_results)
 
@@ -394,77 +397,47 @@ if existing_results and Path(existing_results).exists():
     structure_files = list(job_path.glob("**/*.pdb")) + list(job_path.glob("**/*.cif"))
 
     if structure_files:
-        selected_structure = st.selectbox(
-            "Select structure to view",
-            structure_files,
-            format_func=lambda x: f"{x.parent.name}/{x.name}",
-        )
+        col_list, col_view = st.columns([1, 2])
+        
+        with col_list:
+            selected_structure = st.selectbox(
+                "Select structure to view",
+                structure_files,
+                format_func=lambda x: f"{x.parent.name}/{x.name}",
+            )
+            
+            if selected_structure:
+                 with open(selected_structure, "rb") as f:
+                    st.download_button(
+                        f"📥 Download {selected_structure.name}",
+                        data=f.read(),
+                        file_name=selected_structure.name,
+                        mime="chemical/x-pdb" if selected_structure.suffix == ".pdb" else "chemical/x-cif",
+                        use_container_width=True
+                    )
 
-        if selected_structure:
-            # Try to use py3Dmol for 3D visualization
-            try:
-                import py3Dmol
-                import stmol
-
-                with open(selected_structure) as f:
-                    structure_content = f.read()
-
-                file_ext = selected_structure.suffix.lower()
-                mol_format = "cif" if file_ext == ".cif" else "pdb"
-
-                viewer = py3Dmol.view(width=700, height=500)
-                viewer.addModel(structure_content, mol_format)
-                viewer.setStyle({"cartoon": {"color": "spectrum"}})
-                viewer.setBackgroundColor("white")
-                viewer.zoomTo()
-
-                stmol.showmol(viewer, height=500, width=700)
-
-            except ImportError:
-                st.warning(
-                    "Install py3Dmol and stmol for 3D visualization: `pip install py3Dmol stmol`"
+        with col_view:
+            if selected_structure:
+                from protein_design_hub.web.visualizations import create_structure_comparison_3d
+                import streamlit.components.v1 as components
+                
+                # Try to find a reference in the job folder if it exists
+                # Assuming standard structure where input.fasta/reference.pdb might be at root
+                ref_candidate = job_path / "reference.pdb"
+                ref_path = ref_candidate if ref_candidate.exists() else None
+                
+                html_view = create_structure_comparison_3d(
+                    selected_structure, 
+                    ref_path, 
+                    highlight_differences=True
                 )
+                components.html(html_view, height=500)
+                
+                if ref_path:
+                    st.caption(f"Showing alignment with reference: {ref_path.name}")
+                else:
+                    st.caption("No reference found in job folder for alignment")
 
-                # Fallback: show structure info
-                st.markdown("**Structure Info:**")
-                st.code(f"File: {selected_structure.name}")
-
-                # Try to parse basic info
-                try:
-                    from Bio.PDB import PDBParser, MMCIFParser
-
-                    if selected_structure.suffix.lower() == ".pdb":
-                        parser = PDBParser(QUIET=True)
-                        structure = parser.get_structure("structure", str(selected_structure))
-                    else:
-                        parser = MMCIFParser(QUIET=True)
-                        structure = parser.get_structure("structure", str(selected_structure))
-
-                    num_chains = len(list(structure.get_chains()))
-                    num_residues = len(list(structure.get_residues()))
-                    num_atoms = len(list(structure.get_atoms()))
-
-                    col_a, col_b, col_c = st.columns(3)
-                    with col_a:
-                        st.metric("Chains", num_chains)
-                    with col_b:
-                        st.metric("Residues", num_residues)
-                    with col_c:
-                        st.metric("Atoms", num_atoms)
-
-                except Exception as e:
-                    st.text(f"Could not parse structure: {e}")
-
-            # Download button
-            with open(selected_structure, "rb") as f:
-                st.download_button(
-                    f"📥 Download {selected_structure.name}",
-                    data=f.read(),
-                    file_name=selected_structure.name,
-                    mime="chemical/x-pdb"
-                    if selected_structure.suffix == ".pdb"
-                    else "chemical/x-cif",
-                )
 
     # Load summary if exists
     summary_file = job_path / "prediction_summary.json"

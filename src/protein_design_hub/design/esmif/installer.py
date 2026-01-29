@@ -36,6 +36,11 @@ class ESMIFInstaller(ToolInstaller):
         except ImportError:
             return None
 
+    def get_latest_version(self) -> Optional[str]:
+        """Get latest available version."""
+        # TODO: Implement PyPI check
+        return None
+
     def install(self, force: bool = False) -> Tuple[bool, str]:
         """
         Install ESM-IF1.
@@ -93,6 +98,10 @@ class ESMIFInstaller(ToolInstaller):
 
         except Exception as e:
             return False, f"Uninstall failed: {str(e)}"
+
+    def update(self) -> Tuple[bool, str]:
+        """Update to latest version."""
+        return self.install(force=True)
 
     def ensure_installed(self, auto_update: bool = False) -> None:
         """Ensure ESM-IF1 is installed."""

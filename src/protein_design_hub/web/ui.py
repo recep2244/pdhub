@@ -1123,10 +1123,14 @@ def list_jobs(base_dir: Path, limit: int = 50) -> List[Dict[str, Any]]:
             "prediction_summary": p / "prediction_summary.json",
             "design_summary": p / "design_summary.json",
             "comparison_summary": p / "evaluation" / "comparison_summary.json",
+            "evolution_summary": p / "evolution_summary.json",
+            "scan_summary": p / "scan_results.json",
         }
         job["has_prediction"] = job["prediction_summary"].exists()
         job["has_design"] = job["design_summary"].exists()
         job["has_compare"] = job["comparison_summary"].exists()
+        job["has_evolution"] = job["evolution_summary"].exists()
+        job["has_scan"] = job["scan_summary"].exists()
         jobs.append(job)
 
     jobs.sort(key=lambda x: x["mtime"], reverse=True)

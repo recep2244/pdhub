@@ -145,15 +145,17 @@ eval_mode = st.sidebar.radio(
     "Evaluation Mode", ["Comprehensive (All Levels)", "Quick (Global Only)"], index=0
 )
 
-# Main content
-col_upload1, col_upload2 = st.columns(2)
 
-with col_upload1:
-    st.markdown("### 📁 Model Structure")
-    st.caption("Upload a structure, or select one from recent outputs.")
+# Main content
+col_visual, col_upload = st.columns([1, 1])
+
+with col_upload:
+    st.markdown("### 📁 Input Structures")
+    
+    st.caption("Model Structure (Required)")
+    # Model Uploader
     try:
         from protein_design_hub.core.config import get_settings
-
         _settings = get_settings()
         recent = list_output_structures(Path(_settings.output.base_dir))
     except Exception:
@@ -164,7 +166,6 @@ with col_upload1:
     if sel is not None and sel.exists():
         chosen = sel
         st.success("Using selected model from Jobs")
-        st.code(str(chosen))
         if st.button("Clear selected model", key="clear_sel_model"):
             set_selected_model(None)
             st.rerun()
@@ -179,29 +180,72 @@ with col_upload1:
             format_func=lambda p: "—" if p is None else str(p),
             index=default_index,
         )
+    
     model_file = st.file_uploader(
         "Upload model structure",
         type=["pdb", "cif", "mmcif"],
         key="model",
         help="Structure to evaluate",
     )
-    if model_file:
-        st.success(f"✅ {model_file.name}")
-    elif chosen is not None:
-        st.info(f"Using: `{chosen}`")
-
-with col_upload2:
-    st.markdown("### 📁 Reference Structure")
+    
+    st.caption("Reference Structure (Optional)")
     reference_file = st.file_uploader(
         "Upload reference structure",
         type=["pdb", "cif", "mmcif"],
         key="reference",
         help="Ground truth structure for comparison",
     )
+    
     if reference_file:
-        st.success(f"✅ {reference_file.name}")
+        st.success(f"✅ Ref: {reference_file.name}")
     else:
-        st.warning("⚠️ Reference required for lDDT/TM/QS/RMSD; design metrics can run without it.")
+        st.info("ℹ️ Reference needed for lDDT/TM/RMSD")
+
+# Determine active model path for visualization
+active_model_path = None
+active_ref_path = None
+
+if chosen:
+    active_model_path = Path(chosen)
+elif model_file:
+    # Save temp for visualization
+    with tempfile.NamedTemporaryFile(suffix=Path(model_file.name).suffix, delete=False) as tmp:
+        tmp.write(model_file.read())
+        active_model_path = Path(tmp.name)
+        model_file.seek(0) # Reset pointer
+
+if reference_file:
+    with tempfile.NamedTemporaryFile(suffix=Path(reference_file.name).suffix, delete=False) as tmp:
+        tmp.write(reference_file.read())
+        active_ref_path = Path(tmp.name)
+        reference_file.seek(0)
+
+with col_visual:
+    st.markdown("### 🧬 Visual Inspection")
+    if active_model_path:
+        from protein_design_hub.web.visualizations import create_structure_comparison_3d
+        
+        st.caption(f"Visualizing: {active_model_path.name}")
+        html_view = create_structure_comparison_3d(
+            active_model_path, 
+            active_ref_path,
+            highlight_differences=True
+        )
+        import streamlit.components.v1 as components
+        components.html(html_view, height=450)
+    else:
+        st.info("👈 Upload or select a structure to visualize it here.")
+        
+        # Placeholder animation
+        st.markdown("""
+        <div style="border: 2px dashed #ccc; border-radius: 10px; height: 350px; display: flex; align-items: center; justify-content: center; background: #f9f9f9;">
+            <div style="text-align: center; color: #888;">
+                <div style="font-size: 40px; margin-bottom: 10px;">🧬</div>
+                <div>3D Viewer will appear here</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
 
 # Run evaluation
 st.markdown("---")
@@ -271,6 +315,21 @@ if st.button("⚡ Run Quick Evaluation", type="primary", use_container_width=Tru
                 if result.rmsd is not None:
                     st.metric("RMSD", f"{result.rmsd:.2f} Å")
 
+            # Save results if part of a job
+            if chosen:
+                try:
+                    chosen_path = Path(chosen)
+                    # Infer job dir: outputs/job_id/predictor/file.pdb -> outputs/job_id
+                    job_dir = chosen_path.parent.parent
+                    if (job_dir / "prediction_summary.json").exists():
+                        eval_dir = job_dir / "evaluation"
+                        eval_dir.mkdir(exist_ok=True)
+                        with open(eval_dir / "quick_metrics.json", "w") as f:
+                            json.dump(result.to_dict(), f, indent=2)
+                        st.info(f"💾 Evaluation saved to job: {job_dir.name}")
+                except Exception as e:
+                    st.warning(f"Could not save evaluation to job directory: {e}")
+
             st.download_button(
                 "📥 Download JSON",
                 data=json.dumps(result.to_dict(), indent=2),
@@ -338,6 +397,20 @@ if st.button("🚀 Run Comprehensive Evaluation", type="primary", use_container_
 
             # Store results in session state
             st.session_state.eval_results = results
+            
+            # Save results if part of a job
+            if chosen:
+                try:
+                    chosen_path = Path(chosen)
+                    job_dir = chosen_path.parent.parent
+                    if (job_dir / "prediction_summary.json").exists():
+                        eval_dir = job_dir / "evaluation"
+                        eval_dir.mkdir(exist_ok=True)
+                        with open(eval_dir / "comprehensive_metrics.json", "w") as f:
+                            json.dump(results, f, indent=2)
+                        st.info(f"💾 Comprehensive evaluation saved to job: {job_dir.name}")
+                except Exception as e:
+                    st.warning(f"Could not save evaluation to job directory: {e}")
 
             # ========== GLOBAL METRICS ==========
             st.markdown(

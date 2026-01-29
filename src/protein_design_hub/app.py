@@ -314,7 +314,7 @@ st.markdown(
 st.markdown(
     """
 <div class="home-hero">
-    <div class="home-hero-title">🧬 Protein Design Hub</div>
+    <div class="home-hero-title">🧬 Protein Design Hub <span style="font-size: 1rem; opacity: 0.7; vertical-align: middle;">v0.2.0</span></div>
     <div class="home-hero-subtitle">
         Unified platform for protein structure prediction, sequence design, and comprehensive evaluation
     </div>

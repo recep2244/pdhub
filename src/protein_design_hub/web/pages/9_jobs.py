@@ -226,18 +226,14 @@ for job in jobs:
             badges_html = '<div class="artifact-badges">'
             if job['has_prediction']:
                 badges_html += '<span class="artifact-badge artifact-badge-ok">✅ Prediction</span>'
-            else:
-                badges_html += '<span class="artifact-badge artifact-badge-missing">— Prediction</span>'
-
             if job['has_design']:
                 badges_html += '<span class="artifact-badge artifact-badge-ok">✅ Design</span>'
-            else:
-                badges_html += '<span class="artifact-badge artifact-badge-missing">— Design</span>'
-
             if job['has_compare']:
-                badges_html += '<span class="artifact-badge artifact-badge-ok">✅ Compare</span>'
-            else:
-                badges_html += '<span class="artifact-badge artifact-badge-missing">— Compare</span>'
+                badges_html += '<span class="artifact-badge artifact-badge-ok">✅ Evaluation</span>'
+            if job.get('has_evolution'):
+                 badges_html += '<span class="artifact-badge artifact-badge-ok" style="background:#e8f5e9; border-color:#81c784; color:#2e7d32;">✅ Evolution</span>'
+            if job.get('has_scan'):
+                 badges_html += '<span class="artifact-badge artifact-badge-ok" style="background:#f3e5f5; border-color:#ba68c8; color:#7b1fa2;">✅ Scan</span>'
             badges_html += '</div>'
             st.markdown(badges_html, unsafe_allow_html=True)
 
@@ -245,11 +241,18 @@ for job in jobs:
             if inferred_model is not None:
                 st.markdown("**Structure:**")
                 st.code(str(inferred_model.name), language=None)
+            elif job.get('has_evolution'):
+                st.markdown("**Type:**")
+                st.caption("Iterative Optimization")
+            elif job.get('has_scan'):
+                st.markdown("**Type:**")
+                st.caption("Mutation Scan")
             else:
-                st.caption("No structure file detected")
+                st.caption("No details available")
 
         with col3:
             st.markdown("**Actions**")
+            # Prediction/Evaluation paths
             if inferred_model is not None:
                 if st.button("📊 Evaluate", key=f"eval_{job_id}", use_container_width=True):
                     set_selected_model(inferred_model)
@@ -258,5 +261,18 @@ for job in jobs:
                 if st.button("🎯 MPNN Design", key=f"mpnn_{job_id}", use_container_width=True):
                     set_selected_backbone(inferred_model)
                     st.switch_page("pages/8_mpnn.py")
-            else:
+
+            # Evolution path
+            if job.get('has_evolution'):
+                if st.button("🧬 View Evo", key=f"view_evo_{job_id}", use_container_width=True):
+                    st.session_state["evolution_job_to_load"] = str(job["path"])
+                    st.switch_page("pages/4_evolution.py")
+
+            # Scan path
+            if job.get('has_scan'):
+                if st.button("🔬 View Scan", key=f"view_scan_{job_id}", use_container_width=True):
+                    st.session_state["scan_job_to_load"] = str(job["path"])
+                    st.switch_page("pages/10_mutation_scanner.py")
+            
+            if not (inferred_model or job.get('has_evolution') or job.get('has_scan')):
                 st.caption("No actions available")

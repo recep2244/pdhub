@@ -173,18 +173,18 @@ with main_tabs[0]:
             st.metric("Gap %", f"{gap_pct:.1f}%")
 
         # Preview alignment
-        st.markdown("#### Alignment Preview (first 50 positions)")
-
-        preview_length = min(50, len(alignment[0]))
-        preview_seqs = min(10, len(alignment))
-
-        for i in range(preview_seqs):
-            name = names[i][:15].ljust(15)
-            seq = alignment[i][:preview_length]
-            st.text(f"{name} {seq}")
-
-        if len(alignment) > preview_seqs:
-            st.text(f"... and {len(alignment) - preview_seqs} more sequences")
+        st.markdown("#### Alignment Viewer")
+        
+        try:
+            from protein_design_hub.web.visualizations import create_msa_viewer
+            import streamlit.components.v1 as components
+            
+            html = create_msa_viewer(alignment, names, height=300, max_sequences=50)
+            components.html(html, height=320, scrolling=True)
+        except ImportError:
+            st.error("Visualization module (create_msa_viewer) not found")
+        except Exception as e:
+            st.error(f"Error visualizing alignment: {e}")
 
 
 # === CONSERVATION TAB ===

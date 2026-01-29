@@ -3,6 +3,8 @@
 import streamlit as st
 from pathlib import Path
 import json
+from datetime import datetime
+import time
 
 from protein_design_hub.web.ui import (
     inject_base_css,
@@ -72,6 +74,21 @@ if 'evolution_results' not in st.session_state:
     st.session_state.evolution_results = None
 if 'evolution_running' not in st.session_state:
     st.session_state.evolution_running = False
+
+# Handle external job loading
+if st.session_state.get("evolution_job_to_load"):
+    try:
+        job_path = Path(st.session_state["evolution_job_to_load"])
+        summary_path = job_path / "evolution_summary.json"
+        if summary_path.exists():
+            with open(summary_path) as f:
+                st.session_state.evolution_results = json.load(f)
+            st.session_state.evolution_sequence = st.session_state.evolution_results.get("starting_sequence", "")
+            st.success(f"Successfully loaded job: {job_path.name}")
+        # Clear it so it doesn't reload on every rerun
+        st.session_state.pop("evolution_job_to_load")
+    except Exception as e:
+        st.error(f"Error loading job: {e}")
 
 # Title
 st.markdown("""
@@ -340,6 +357,25 @@ with main_tabs[1]:
                         "starting_sequence": st.session_state.evolution_sequence,
                     }
 
+                    # Create Job in outputs
+                    try:
+                        from protein_design_hub.core.config import get_settings
+                        settings = get_settings()
+                        job_id = f"evolution_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                        job_dir = Path(settings.output.base_dir) / job_id
+                        job_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        with open(job_dir / "evolution_summary.json", "w") as f:
+                            json.dump(st.session_state.evolution_results, f, indent=2)
+                        
+                        # Also save a dummy prediction_summary for Job browser detection
+                        with open(job_dir / "prediction_summary.json", "w") as f:
+                            json.dump({"job_id": job_id, "type": "evolution", "status": "complete"}, f)
+                            
+                        st.info(f"💾 Job saved as {job_id}")
+                    except Exception as e:
+                        st.warning(f"Could not save job to outputs: {e}")
+
                     st.success(f"Evolution complete! Best fitness: {generations[-1]['best_fitness']:.4f}")
 
                 except ImportError as e:
@@ -457,10 +493,72 @@ with main_tabs[2]:
             )
 
         with col_dl3:
-            if st.button("🔬 Predict Structure", use_container_width=True):
-                st.session_state.predict_sequence = best_seq
-                st.session_state.predict_name = "evolved_protein"
-                st.info("Go to the Predict page to run structure prediction")
+           st.markdown("**Structure Preview**")
+           
+           # State for evolution structure
+           if 'evo_structure' not in st.session_state:
+               st.session_state.evo_structure = None
+           
+           if st.button("🔮 Fold Best Variant (ESMFold)", use_container_width=True, disabled=st.session_state.get('evo_folding', False)):
+                st.session_state.evo_folding = True
+                with st.spinner("Folding best variant..."):
+                    try:
+                        import requests
+                        if len(best_seq) <= 400:
+                            response = requests.post(
+                                "https://api.esmatlas.com/foldSequence/v1/pdb/",
+                                data=best_seq,
+                                headers={"Content-Type": "text/plain"},
+                                timeout=60,
+                            )
+                            if response.status_code == 200:
+                                st.session_state.evo_structure = response.text
+                                st.success("Folded successfully!")
+                            else:
+                                st.error(f"API Error: {response.status_code}")
+                        else:
+                            st.error("Sequence too long for API demo")
+                    except Exception as e:
+                        st.error(f"Folding failed: {e}")
+                    finally:
+                        st.session_state.evo_folding = False
+                        st.rerun()
+
+    # Structure Viewer Section
+    if st.session_state.get('evo_structure'):
+        st.markdown("---")
+        st.markdown("#### 🧬 Best Variant Structure")
+        
+        col_v1, col_v2 = st.columns([3, 1])
+        
+        with col_v1:
+            from protein_design_hub.web.visualizations import create_structure_viewer
+            import streamlit.components.v1 as components
+            import tempfile
+            
+            with tempfile.NamedTemporaryFile(suffix=".pdb", delete=False, mode="w") as tmp:
+                tmp.write(st.session_state.evo_structure)
+                tmp_path = Path(tmp.name)
+            
+            html_view = create_structure_viewer(
+                tmp_path,
+                height=500,
+                style="cartoon",
+                color_by="spectrum",
+                spin=True
+            )
+            components.html(html_view, height=520)
+            
+        with col_v2:
+            st.info("Structure predicted by ESMFold")
+            st.download_button(
+                "📥 Download PDB",
+                data=st.session_state.evo_structure,
+                file_name=f"evolved_best.pdb",
+                mime="chemical/x-pdb",
+                use_container_width=True
+            )
+
 
 
 # === LIBRARY DESIGN TAB ===
