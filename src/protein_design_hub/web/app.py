@@ -1,9 +1,25 @@
-"""Main Streamlit application for Protein Design Hub."""
+import sys
+from pathlib import Path
+
+PROJECT_SRC = Path(__file__).resolve().parents[2]
+if str(PROJECT_SRC) not in sys.path:
+    sys.path.insert(0, str(PROJECT_SRC))
 
 import streamlit as st
+import torch
 
 # Shared UI helpers
-from protein_design_hub.web.ui import inject_base_css, sidebar_nav, sidebar_system_status
+from protein_design_hub.web.ui import (
+    inject_base_css, 
+    sidebar_nav, 
+    sidebar_system_status,
+    page_header,
+    card_start,
+    card_end,
+    metric_card,
+    status_badge,
+    render_badge
+)
 
 # Page configuration
 st.set_page_config(
@@ -13,159 +29,130 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS
-st.markdown(
-    """
-<style>
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #1E88E5;
-        margin-bottom: 1rem;
-    }
-    .sub-header {
-        font-size: 1.2rem;
-        color: #666;
-        margin-bottom: 2rem;
-    }
-    .metric-card {
-        background-color: #f8f9fa;
-        border-radius: 10px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-    }
-    .status-ok {
-        color: #28a745;
-        font-weight: bold;
-    }
-    .status-error {
-        color: #dc3545;
-        font-weight: bold;
-    }
-</style>
-""",
-    unsafe_allow_html=True,
-)
 inject_base_css()
 
 sidebar_nav(current="Home")
 sidebar_system_status()
 
 # Main page content
-st.markdown('<p class="main-header">🧬 Protein Design Hub</p>', unsafe_allow_html=True)
-st.markdown(
-    '<p class="sub-header">Unified protein structure prediction and evaluation</p>',
-    unsafe_allow_html=True,
+page_header(
+    "PDHUB PRO",
+    "THE SYNTHETIC BIOLOGY COMMAND CENTER // VERSION 0.2.2",
+    ""
 )
 
-# Quick start guide
-st.markdown("---")
-st.markdown("### Quick Start")
+# 1. MISSION CONTROL (Primary Workflow)
+st.markdown("<h2 style='text-align: center; font-weight: 800; letter-spacing: 0.1em; color: #64748b; margin-top: 2rem;'>MISSION CONTROL</h2>", unsafe_allow_html=True)
 
-col1, col2, col3, col4 = st.columns(4)
+col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
 
-with col1:
-    st.markdown("#### 1️⃣ Predict / Design")
-    st.markdown(
-        """
-    Predict structures from sequences, or design sequences for a fixed backbone.
-    """
-    )
-    col_a, col_b = st.columns(2)
-    with col_a:
-        if st.button("Predict", key="go_predict"):
+with col_ctrl1:
+    with st.container(border=True):
+        st.markdown("### 🔮 FOLD")
+        st.caption("AI Structure Prediction")
+        if st.button("LAUNCH PREDICTOR", key="h_fold", type="primary", use_container_width=True):
             st.switch_page("pages/1_predict.py")
-    with col_b:
-        if st.button("ProteinMPNN", key="go_mpnn"):
-            st.switch_page("pages/6_mpnn.py")
 
-with col2:
-    st.markdown("#### 2️⃣ Evaluate")
-    st.markdown(
-        """
-    Analyze predicted structures with quality metrics
-    like lDDT, TM-score, QS-score, and RMSD.
-    """
-    )
-    if st.button("Go to Evaluate", key="go_evaluate"):
-        st.switch_page("pages/2_evaluate.py")
+with col_ctrl2:
+    with st.container(border=True):
+        st.markdown("### 📊 ANALYZE")
+        st.caption("Biophysical Evaluation")
+        if st.button("LAUNCH EVALUATOR", key="h_eval", type="primary", use_container_width=True):
+            st.switch_page("pages/2_evaluate.py")
 
-with col3:
-    st.markdown("#### 3️⃣ Compare")
-    st.markdown(
-        """
-    Run all predictors and compare results to find
-    the best prediction for your protein.
-    """
-    )
-    if st.button("Go to Compare", key="go_compare"):
-        st.switch_page("pages/3_compare.py")
+with col_ctrl3:
+    with st.container(border=True):
+        st.markdown("### 📁 ARCHIVE")
+        st.caption("Project Jobs & History")
+        if st.button("OPEN REPOSITORY", key="h_jobs", type="primary", use_container_width=True):
+            st.switch_page("pages/9_jobs.py")
 
-with col4:
-    st.markdown("#### 4️⃣ Jobs")
-    st.markdown(
-        """
-    Browse recent outputs and jump back into Evaluate or MPNN.
-    """
-    )
-    if st.button("Go to Jobs", key="go_jobs"):
-        st.switch_page("pages/7_jobs.py")
+# 2. RESEARCH SUITE (Advanced Bento)
+st.markdown("<br><br>", unsafe_allow_html=True)
+st.markdown("### 🔬 Specialized Laboratoreis")
 
-# System status
-st.markdown("---")
-st.markdown("### System Status")
+b_row1_col1, b_row1_col2 = st.columns([1, 1])
 
+with b_row1_col1:
+    with st.container(border=True):
+        col_img, col_txt = st.columns([1, 2])
+        with col_img:
+            st.markdown("<div style='font-size: 5rem; text-align: center;'>🧬</div>", unsafe_allow_html=True)
+        with col_txt:
+            st.markdown("#### Deep Mutagenesis Scanner")
+            st.markdown("In-silico scanning of beneficial mutations using enterprise-grade structural models.")
+            if st.button("Enter Scanner", key="b_scan", use_container_width=True):
+                st.switch_page("pages/10_mutation_scanner.py")
+
+with b_row1_col2:
+    with st.container(border=True):
+        col_img, col_txt = st.columns([1, 2])
+        with col_img:
+            st.markdown("<div style='font-size: 5rem; text-align: center;'>🎯</div>", unsafe_allow_html=True)
+        with col_txt:
+            st.markdown("#### ProteinMPNN Studio")
+            st.markdown("Professional de-novo sequence design for designated backbone architectures.")
+            if st.button("Enter Studio", key="b_mpnn", use_container_width=True):
+                st.switch_page("pages/8_mpnn.py")
+
+# 3. TECHNICAL INFRASTRUCTURE
+st.markdown("<br>", unsafe_allow_html=True)
+st.markdown("### 🛰️ System Infrastructure")
+
+inf_col1, inf_col2, inf_col3, inf_col4 = st.columns(4)
+
+with inf_col1:
+    with st.container(border=True):
+        st.markdown("**⚖️ Benchmark**")
+        if st.button("Compare", key="inf_compare", use_container_width=True):
+            st.switch_page("pages/3_compare.py")
+
+with inf_col2:
+    with st.container(border=True):
+        st.markdown("**📈 Evolution**")
+        if st.button("Evolve", key="inf_evolve", use_container_width=True):
+            st.switch_page("pages/4_evolution.py")
+
+with inf_col3:
+    with st.container(border=True):
+        st.markdown("**📦 Batch**")
+        if st.button("Batch", key="inf_batch", use_container_width=True):
+            st.switch_page("pages/5_batch.py")
+
+with inf_col4:
+    with st.container(border=True):
+        st.markdown("**⚙️ Config**")
+        if st.button("Settings", key="inf_settings", use_container_width=True):
+            st.switch_page("pages/6_settings.py")
+
+# System Pulse
+st.markdown("<br>", unsafe_allow_html=True)
 try:
-    from protein_design_hub.predictors.registry import PredictorRegistry
-    from protein_design_hub.core.config import get_settings
-
-    settings = get_settings()
-
-    # Predictor status
-    col1, col2, col3 = st.columns(3)
-
-    predictors = ["colabfold", "chai1", "boltz2", "esmfold", "esmfold_api"]
-    columns = st.columns(3)
-
-    for i, pred_name in enumerate(predictors):
-        col = columns[i % 3]
-        with col:
-            try:
-                predictor = PredictorRegistry.get(pred_name, settings)
-                status = predictor.get_status()
-
-                if status["installed"]:
-                    st.success(f"**{pred_name.upper()}**: Installed")
-                    st.caption(f"Version: {status.get('version', 'unknown')}")
-                else:
-                    st.error(f"**{pred_name.upper()}**: Not Installed")
-            except Exception as e:
-                st.warning(f"**{pred_name.upper()}**: Error checking status")
-
-    # GPU status
-    st.markdown("#### GPU Status")
-    try:
-        import torch
-
-        if torch.cuda.is_available():
-            device_name = torch.cuda.get_device_name(0)
-            memory = torch.cuda.get_device_properties(0).total_memory / 1e9
-            st.success(f"**GPU Available**: {device_name} ({memory:.1f} GB)")
-        else:
-            st.warning("**GPU**: Not available - predictions will be slow")
-    except ImportError:
-        st.error("**PyTorch**: Not installed")
-
-except Exception as e:
-    st.error(f"Error loading system status: {e}")
+    import torch
+    pulse_color = "#22d3ee" if torch.cuda.is_available() else "#f43f5e"
+    pulse_text = "NVIDIA HPC CLUSTER ONLINE" if torch.cuda.is_available() else "CPU FALLBACK ACTIVE"
+    st.markdown(f"""
+    <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 20px; display: flex; align-items: center; justify-content: center; gap: 15px;">
+        <span style="width: 12px; height: 12px; background: {pulse_color}; border-radius: 50%; box-shadow: 0 0 15px {pulse_color}; animation: pulse 2s infinite;"></span>
+        <span style="font-family: 'JetBrains Mono'; font-size: 0.8rem; font-weight: 700; color: #94a3b8; letter-spacing: 0.1em;">{pulse_text}</span>
+    </div>
+    <style>
+    @keyframes pulse {{
+        0% {{ transform: scale(0.95); box-shadow: 0 0 0 0 rgba({pulse_color}, 0.7); }}
+        70% {{ transform: scale(1); box-shadow: 0 0 0 10px rgba({pulse_color}, 0); }}
+        100% {{ transform: scale(0.95); box-shadow: 0 0 0 0 rgba({pulse_color}, 0); }}
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+except Exception:
+    pass
 
 # Footer
-st.markdown("---")
+st.markdown("<br><br>", unsafe_allow_html=True)
 st.markdown(
     """
-    <div style="text-align: center; color: #888; font-size: 0.9rem;">
-        Protein Design Hub v0.1.0 |
-        Integrating ColabFold, Chai-1, Boltz-2 & OpenStructure
+    <div style="text-align: center; color: #334155; font-size: 0.7rem; font-family: 'JetBrains Mono'; letter-spacing: 0.4em; padding: 4rem 0;">
+        DESIGNED FOR EXCELLENCE // REPRODUCIBILITY GUARANTEED
     </div>
     """,
     unsafe_allow_html=True,

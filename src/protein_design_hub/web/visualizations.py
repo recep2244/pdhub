@@ -1,25 +1,52 @@
-"""Visualization utilities for protein structure analysis."""
-
 import json
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Union
 import numpy as np
 
+# =============================================================================
+# Visual Theme System
+# =============================================================================
+
+def apply_pro_theme(fig):
+    """Apply the Cyber-Biology Pro theme to a Plotly figure."""
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Outfit, sans-serif", color="#94a3b8"),
+        title=dict(font=dict(size=20, weight="bold", color="#f1f5f9")),
+        xaxis=dict(
+            gridcolor="rgba(255,255,255,0.05)",
+            linecolor="rgba(255,255,255,0.1)",
+            zerolinecolor="rgba(255,255,255,0.1)",
+        ),
+        yaxis=dict(
+            gridcolor="rgba(255,255,255,0.05)",
+            linecolor="rgba(255,255,255,0.1)",
+            zerolinecolor="rgba(255,255,255,0.1)",
+        ),
+        margin=dict(l=40, r=40, t=60, b=40),
+    )
+    return fig
+
+# =============================================
+# Analysis Plots
+# =============================================
 
 def create_pae_heatmap(
     pae_data: List[List[float]],
     title: str = "Predicted Aligned Error (PAE)",
-    colorscale: str = "Greens_r",
+    colorscale: Union[str, List] = "RdYlBu_r",
     max_value: float = 30.0,
 ) -> "plotly.graph_objects.Figure":
     """
-    Create a PAE (Predicted Aligned Error) heatmap visualization.
+    Create a PAE heatmap plot.
 
     Args:
-        pae_data: 2D array of PAE values [residue_i][residue_j].
+        pae_data: 2D list/array of PAE values.
         title: Plot title.
-        colorscale: Plotly colorscale name.
-        max_value: Maximum value for color scale.
+        colorscale: Plotly colorscale or name.
+        max_value: Max value for color scaling.
 
     Returns:
         Plotly Figure object.
@@ -51,7 +78,7 @@ def create_pae_heatmap(
         height=600,
     )
 
-    return fig
+    return apply_pro_theme(fig)
 
 
 def create_plddt_plot(
@@ -109,7 +136,7 @@ def create_plddt_plot(
         showlegend=False,
     )
 
-    return fig
+    return apply_pro_theme(fig)
 
 
 def create_contact_map(
@@ -397,50 +424,43 @@ def create_per_residue_comparison(
 
 def create_structure_viewer(
     structure_path: Path,
-    width: int = 800,
+    width: str = "100%",
     height: int = 600,
     style: str = "cartoon",
     color_by: str = "spectrum",
     spin: bool = False,
-    background_color: str = "white",
+    background_color: str = "#050508",
 ) -> str:
     """
-    Create a 3D structure viewer using 3Dmol.js.
-
-    Args:
-        structure_path: Path to the PDB/CIF file.
-        width: Width of the viewer in pixels.
-        height: Height of the viewer in pixels.
-        style: Representation style ('cartoon', 'stick', 'sphere').
-        color_by: Coloring scheme ('spectrum', 'chain', 'residue', 'secondary').
-        spin: Whether to auto-spin the structure.
-        background_color: Background color name or hex code.
-
-    Returns:
-        HTML string containing the viewer.
+    Create a 3D structure viewer using 3Dmol.js with Lab-OS Pro styling.
     """
     structure_path = Path(structure_path)
     model_data = structure_path.read_text()
-    
-    # Determine format
     file_fmt = "mmcif" if structure_path.suffix == ".cif" else "pdb"
-
-    # Define simple color schemes map for non-standard 3Dmol names if needed
-    # But 3Dmol supports 'spectrum', 'chain', etc. directly.
     
     style_spec = {}
     if style == "cartoon":
-        style_spec = {"cartoon": {"color": color_by}}
+        # Professional spectrum coloring for AlphaFold models
+        if color_by == "spectrum":
+            style_spec = {"cartoon": {"colorscheme": {"prop": "b", "gradient": "roygb", "min": 50, "max": 90}}}
+        else:
+            style_spec = {"cartoon": {"color": color_by}}
     elif style == "stick":
         style_spec = {"stick": {}}
     elif style == "sphere":
         style_spec = {"sphere": {}}
     
     # Clean up string for JS safety
-    model_data = model_data.replace("`", "\`")
+    model_data = model_data.replace("`", "\`").replace("\\", "\\\\")
 
     html = f"""
-    <div id="mol_viewer_{structure_path.stem}" style="width: {width}px; height: {height}px; position: relative;"></div>
+    <div class="pro-viewer-container" style="width: {width}; height: {height}px; background: {background_color}; border-radius: 20px; border: 1px solid rgba(255,255,255,0.05); overflow: hidden; position: relative;">
+        <div id="mol_viewer_{structure_path.stem}" style="width: 100%; height: 100%;"></div>
+        <div style="position: absolute; bottom: 15px; right: 20px; font-family: 'JetBrains Mono'; font-size: 0.6rem; color: #475569; letter-spacing: 0.1em; pointer-events: none;">
+            PDHUB-OS // 3D_VIEWPORT_01 // {structure_path.name.upper()}
+        </div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <script src="https://3dmol.org/build/3Dmol-min.js"></script>
     <script>
         $(function() {{
@@ -452,7 +472,11 @@ def create_structure_viewer(
             viewer.setStyle({{}}, {json.dumps(style_spec)});
             viewer.zoomTo();
             viewer.render();
-            {'viewer.spin("y", 1);' if spin else ''}
+            {'viewer.spin("y", 0.5);' if spin else ''}
+            
+            // Interaction glow
+            element.on('mousedown', () => {{ element.css('box-shadow', 'inset 0 0 40px rgba(99, 102, 241, 0.1)'); }});
+            element.on('mouseup', () => {{ element.css('box-shadow', 'none'); }});
         }});
     </script>
     """
@@ -464,60 +488,61 @@ def create_structure_comparison_3d(
     reference_path: Optional[Path] = None,
     highlight_differences: bool = True,
     rmsd_threshold: float = 2.0,
+    height: int = 500,
 ) -> str:
     """
-    Create 3D structure comparison viewer HTML.
-
-    Args:
-        model_path: Path to model structure.
-        reference_path: Optional reference structure for comparison.
-        highlight_differences: Whether to highlight structural differences.
-        rmsd_threshold: Threshold for highlighting differences.
-
-    Returns:
-        HTML string for py3Dmol viewer.
+    Create a 3D structural comparison viewer with synchronized Lab-OS Pro styling.
     """
     import uuid
-    
-    unique_id = f"structure_viewer_{uuid.uuid4().hex[:8]}"
+    unique_id = f"structural_cmp_{uuid.uuid4().hex[:8]}"
     model_path = Path(model_path)
-
-    # Read model structure
-    model_pdb = model_path.read_text().replace("`", "\`")
+    model_pdb = model_path.read_text().replace("`", "\`").replace("\\", "\\\\")
+    
+    ref_html = (
+        "<div style='font-family: \"JetBrains Mono\"; font-size: 0.65rem; color: #94a3b8; "
+        "background: rgba(255,255,255,0.05); padding: 4px 10px; border-radius: 4px; "
+        "border: 1px solid rgba(255,255,255,0.1);'>REFERENCE ACTIVE</div>"
+    ) if reference_path else ""
 
     html = f"""
-    <div id="{unique_id}" style="width: 100%; height: 500px; position: relative;">
+    <div class="pro-viewer-container" style="width: 100%; height: {height}px; background: #050508; border-radius: 24px; border: 1px solid rgba(255,255,255,0.05); overflow: hidden; position: relative;">
+        <div id="{unique_id}" style="width: 100%; height: 100%;"></div>
+        <div style="position: absolute; top: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none;">
+            <div style="font-family: 'JetBrains Mono'; font-size: 0.65rem; color: #6366f1; background: rgba(99, 102, 241, 0.1); padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(99, 102, 241, 0.2);">
+                MODEL: {model_path.name[:20]}
+            </div>
+            {ref_html}
+        </div>
     </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <script src="https://3dmol.org/build/3Dmol-min.js"></script>
     <script>
     $(function() {{
-        let viewer = $3Dmol.createViewer("{unique_id}", {{
-            backgroundColor: 'white'
-        }});
-    """
-
-    # Add model
-    html += f"""
+        let viewer = $3Dmol.createViewer("{unique_id}", {{ backgroundColor: '#050508' }});
+        
+        // Add model with spectrum coloring
         let model = viewer.addModel(`{model_pdb}`, "pdb");
-        model.setStyle({{}}, {{cartoon: {{color: 'spectrum'}}}});
+        model.setStyle({{}}, {{cartoon: {{colorscheme: {{prop: 'b', gradient: 'roygb', min: 50, max: 90}}}}}});
     """
 
     if reference_path:
         reference_path = Path(reference_path)
-        ref_pdb = reference_path.read_text().replace("`", "\`")
-
+        ref_pdb = reference_path.read_text().replace("`", "\`").replace("\\", "\\\\")
         html += f"""
         let reference = viewer.addModel(`{ref_pdb}`, "pdb");
-        reference.setStyle({{}}, {{cartoon: {{color: 'gray', opacity: 0.5}}}});
+        reference.setStyle({{}}, {{cartoon: {{color: '#475569', opacity: 0.6}}}});
         """
 
     html += """
         viewer.zoomTo();
         viewer.render();
+        
+        // Interaction micro-animations
+        $("#" + "{unique_id}").on('mousedown', () => {{ $("#" + "{unique_id}").parent().css('border-color', 'rgba(99, 102, 241, 0.3)'); }});
+        $("#" + "{unique_id}").on('mouseup', () => {{ $("#" + "{unique_id}").parent().css('border-color', 'rgba(255,255,255,0.05)'); }});
     });
     </script>
     """
-
     return html
 
 
@@ -996,208 +1021,404 @@ def create_msa_viewer(
     </div>
     """
     return html
-    """
-    Create a Ramachandran plot for a structure.
-
-    Args:
-        structure_path: Path to structure file.
-        title: Plot title.
-
-    Returns:
-        Plotly Figure with Ramachandran plot.
-    """
-    import plotly.graph_objects as go
-    import numpy as np
-
-    try:
-        from Bio.PDB import PDBParser, MMCIFParser
-        from Bio.PDB.Polypeptide import PPBuilder
-
-        structure_path = Path(structure_path)
-        
-        # Determine format (PDB/MMCIF)
-        if structure_path.suffix.lower() in ['.cif', '.mmcif']:
-            parser = MMCIFParser(QUIET=True)
-            structure = parser.get_structure('structure', str(structure_path))
-        else:
-            parser = PDBParser(QUIET=True)
-            structure = parser.get_structure('structure', str(structure_path))
-            
-        builder = PPBuilder()
-        pp = builder.build_peptides(structure)
-        
-        phi_psi = []
-        if pp:
-            for poly in pp:
-                phi_psi.extend(poly.get_phi_psi_list())
-                
-        # Filter None values
-        phi = [pair[0] * 180 / np.pi for pair in phi_psi if pair[0]]
-        psi = [pair[1] * 180 / np.pi for pair in phi_psi if pair[1]]
-        
-        fig = go.Figure(data=go.Scatter(
-            x=phi, 
-            y=psi, 
-            mode='markers',
-            marker=dict(
-                size=5,
-                color='black',
-                opacity=0.5
-            )
-        ))
-        
-        # Add background regions (simplified)
-        # General favored regions
-        fig.add_shape(type="rect", x0=-180, y0=-180, x1=180, y1=180,
-                      line=dict(color="RoyalBlue"), fillcolor="white", opacity=0.1, layer="below")
-        
-        fig.update_layout(
-            title=dict(text=title, x=0.5),
-            xaxis=dict(title="Phi (degrees)", range=[-180, 180], zeroline=True),
-            yaxis=dict(title="Psi (degrees)", range=[-180, 180], zeroline=True),
-            width=600,
-            height=600,
-            shapes=[
-                # Alpha-helix
-                dict(type="rect", x0=-100, x1=-30, y0=-70, y1=-10, 
-                     fillcolor="red", opacity=0.2, line_width=0, layer="below"),
-                # Beta-sheet
-                dict(type="rect", x0=-180, x1=-45, y0=45, y1=180, 
-                     fillcolor="blue", opacity=0.2, line_width=0, layer="below"),
-                 dict(type="rect", x0=-180, x1=-45, y0=-180, y1=-135, # Wrap around
-                     fillcolor="blue", opacity=0.2, line_width=0, layer="below")
-            ]
-        )
-        
-        return fig
-        
-    except ImportError:
-        # Fallback empty figure
-        fig = go.Figure()
-        fig.update_layout(title="Install Biopython for Ramachandran Plot")
-        return fig
 
 
-def create_msa_viewer(
-    alignment: List[str],
-    names: List[str],
-    width: int = 800,
-    height: int = 400,
-    max_sequences: int = 100,
+def create_plddt_sequence_viewer(
+    sequence: str,
+    plddt_values: Optional[List[float]] = None,
+    label: str = "Sequence",
+    show_ruler: bool = True,
 ) -> str:
     """
-    Create an HTML-based MSA viewer with coloring.
+    Create an interactive pLDDT-colored sequence viewer similar to Alpha&ESM hFolds.
 
     Args:
-        alignment: List of aligned sequences.
-        names: List of sequence names.
-        width: Widget width.
-        height: Widget height.
-        max_sequences: Limit sequences for performance.
+        sequence: Amino acid sequence string.
+        plddt_values: Per-residue pLDDT scores (0-100). If None, uses uniform coloring.
+        label: Label for the sequence row.
+        show_ruler: Whether to show position ruler.
 
     Returns:
-        HTML string.
+        HTML string for the sequence viewer.
     """
-    # Truncate if too many
-    if len(alignment) > max_sequences:
-        alignment = alignment[:max_sequences]
-        names = names[:max_sequences]
-    
-    # Check length consistency
-    seq_len = len(alignment[0])
-    
-    # Basic Clustal-like colors
-    colors = {
-        'G': '#f79d5c', 'P': '#f79d5c', 'S': '#f79d5c', 'T': '#f79d5c',
-        'C': '#f2d388', 'A': '#95a5a6', 'V': '#95a5a6', 'L': '#95a5a6', 'I': '#95a5a6', 'M': '#95a5a6',
-        'F': '#81ecec', 'W': '#81ecec', 'Y': '#81ecec',
-        'N': '#a29bfe', 'Q': '#a29bfe', 'H': '#a29bfe',
-        'D': '#ff7675', 'E': '#ff7675',
-        'K': '#74b9ff', 'R': '#74b9ff',
-        '-': '#ffffff'
-    }
-    
-    rows_html = []
-    
-    # Header row (ruler)
-    ruler_cells = []
-    for i in range(1, seq_len + 1):
-        label = str(i) if i % 10 == 0 or i == 1 else ""
-        ruler_cells.append(f'<div class="msa-ruler-cell">{label}</div>')
-    
-    rows_html.append(f"""
-    <div class="msa-row">
-        <div class="msa-name"></div>
-        <div class="msa-seq">{''.join(ruler_cells)}</div>
-    </div>
-    """)
-    
-    for name, seq in zip(names, alignment):
-        residues = []
-        for char in seq:
-            c = colors.get(char.upper(), '#ffffff')
-            residues.append(f'<div class="msa-res" style="background-color: {c};">{char}</div>')
-        
-        rows_html.append(f"""
-        <div class="msa-row">
-            <div class="msa-name" title="{name}">{name[:15]}</div>
-            <div class="msa-seq">{''.join(residues)}</div>
+    def get_plddt_color(score: float) -> str:
+        """Get color based on pLDDT confidence score."""
+        if score >= 90:
+            return "#0053d6"  # Very high - dark blue
+        elif score >= 70:
+            return "#65cbf3"  # High - light blue
+        elif score >= 50:
+            return "#ffdb13"  # Low - yellow
+        else:
+            return "#ff7d45"  # Very low - orange
+
+    seq_len = len(sequence)
+
+    # Default pLDDT if not provided
+    if plddt_values is None:
+        plddt_values = [85.0] * seq_len  # Default confident
+
+    # Build residue cells
+    residue_cells = []
+    for i, (aa, plddt) in enumerate(zip(sequence, plddt_values)):
+        color = get_plddt_color(plddt)
+        residue_cells.append(
+            f'<div class="plddt-res" style="background-color: {color};" '
+            f'title="Pos {i+1}: {aa} (pLDDT: {plddt:.1f})">{aa}</div>'
+        )
+
+    # Ruler
+    ruler_html = ""
+    if show_ruler:
+        ruler_cells = []
+        for i in range(1, seq_len + 1):
+            if i == 1 or i % 10 == 0:
+                ruler_cells.append(f'<div class="plddt-ruler-cell">{i}</div>')
+            else:
+                ruler_cells.append('<div class="plddt-ruler-cell"></div>')
+        ruler_html = f'''
+        <div class="plddt-row">
+            <div class="plddt-label"></div>
+            <div class="plddt-seq">{" ".join(ruler_cells)}</div>
         </div>
-        """)
-    
+        '''
+
     css = """
     <style>
-    .msa-container {
-        font-family: 'Courier New', monospace;
+    .plddt-viewer {
+        font-family: 'JetBrains Mono', 'Courier New', monospace;
+        background: #1a1f2e;
+        border-radius: 12px;
+        padding: 16px;
         overflow-x: auto;
-        border: 1px solid #ddd;
+        border: 1px solid rgba(255,255,255,0.1);
+    }
+    .plddt-legend {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 12px;
+        font-size: 12px;
+        color: #94a3b8;
+        flex-wrap: wrap;
+    }
+    .plddt-legend-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .plddt-legend-color {
+        width: 16px;
+        height: 16px;
         border-radius: 4px;
-        background: white;
     }
-    .msa-row {
+    .plddt-row {
         display: flex;
-        height: 20px;
+        align-items: center;
+        margin-bottom: 4px;
     }
-    .msa-name {
-        width: 150px;
+    .plddt-label {
+        width: 100px;
         flex-shrink: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        border-right: 1px solid #eee;
-        padding-left: 5px;
-        font-size: 12px;
-        line-height: 20px;
-        background: #f9f9f9;
-        position: sticky;
-        left: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: #e2e8f0;
+        padding-right: 12px;
     }
-    .msa-seq {
+    .plddt-seq {
         display: flex;
+        gap: 1px;
     }
-    .msa-res {
-        width: 12px;
-        height: 20px;
-        text-align: center;
-        font-size: 12px;
-        line-height: 20px;
-        color: #333;
+    .plddt-res {
+        width: 18px;
+        height: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 500;
+        color: white;
+        border-radius: 3px;
+        cursor: pointer;
+        transition: transform 0.1s, box-shadow 0.1s;
     }
-    .msa-ruler-cell {
-        width: 12px;
-        height: 20px;
+    .plddt-res:hover {
+        transform: scale(1.2);
+        box-shadow: 0 0 8px rgba(255,255,255,0.3);
+        z-index: 10;
+        position: relative;
+    }
+    .plddt-ruler-cell {
+        width: 18px;
+        height: 16px;
         font-size: 9px;
-        color: #888;
-        border-bottom: 1px solid #ccc;
+        color: #64748b;
+        text-align: center;
     }
     </style>
     """
-    
+
     html = f"""
     {css}
-    <div class="msa-container" style="width: 100%; height: {height}px; overflow-y: auto;">
-        {''.join(rows_html)}
+    <div class="plddt-viewer">
+        <div class="plddt-legend">
+            <span style="color: #e2e8f0; font-weight: 600;">Model Confidence:</span>
+            <div class="plddt-legend-item">
+                <div class="plddt-legend-color" style="background: #0053d6;"></div>
+                <span>Very high (pLDDT ≥ 90)</span>
+            </div>
+            <div class="plddt-legend-item">
+                <div class="plddt-legend-color" style="background: #65cbf3;"></div>
+                <span>High (90 > pLDDT ≥ 70)</span>
+            </div>
+            <div class="plddt-legend-item">
+                <div class="plddt-legend-color" style="background: #ffdb13;"></div>
+                <span>Low (70 > pLDDT ≥ 50)</span>
+            </div>
+            <div class="plddt-legend-item">
+                <div class="plddt-legend-color" style="background: #ff7d45;"></div>
+                <span>Very low (pLDDT < 50)</span>
+            </div>
+        </div>
+        {ruler_html}
+        <div class="plddt-row">
+            <div class="plddt-label">{label}</div>
+            <div class="plddt-seq">{''.join(residue_cells)}</div>
+        </div>
     </div>
     """
     return html
 
+
+def create_protein_info_table(
+    protein_name: str,
+    sequence: str,
+    gene_name: Optional[str] = None,
+    uniprot_id: Optional[str] = None,
+    pdb_id: Optional[str] = None,
+    mean_plddt: Optional[float] = None,
+    predictor: Optional[str] = None,
+    additional_info: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Create a clean protein information table similar to Alpha&ESM hFolds.
+
+    Args:
+        protein_name: Name of the protein.
+        sequence: Amino acid sequence.
+        gene_name: Gene name.
+        uniprot_id: UniProt accession.
+        pdb_id: PDB ID if from experimental structure.
+        mean_plddt: Mean pLDDT score.
+        predictor: Name of the predictor used.
+        additional_info: Additional key-value pairs to display.
+
+    Returns:
+        HTML string for the information table.
+    """
+    rows = []
+
+    # Always show protein name
+    rows.append(("Protein name", protein_name))
+
+    if gene_name:
+        rows.append(("Gene name", gene_name))
+
+    if uniprot_id:
+        link = f'<a href="https://www.uniprot.org/uniprotkb/{uniprot_id}" target="_blank" style="color: #60a5fa;">{uniprot_id}</a>'
+        rows.append(("UniProt accession", link))
+
+    rows.append(("Sequence length", str(len(sequence))))
+
+    if pdb_id:
+        link = f'<a href="https://www.rcsb.org/structure/{pdb_id}" target="_blank" style="color: #60a5fa;">{pdb_id}</a>'
+        rows.append(("PDB ID", link))
+
+    if mean_plddt is not None:
+        color = "#0053d6" if mean_plddt >= 90 else "#65cbf3" if mean_plddt >= 70 else "#ffdb13" if mean_plddt >= 50 else "#ff7d45"
+        rows.append(("Mean pLDDT", f'<span style="color: {color}; font-weight: 600;">{mean_plddt:.1f}</span>'))
+
+    if predictor:
+        rows.append(("Predictor", predictor))
+
+    # Additional info
+    if additional_info:
+        for key, value in additional_info.items():
+            rows.append((key, str(value)))
+
+    # Build table HTML
+    table_rows = ""
+    for i, (label, value) in enumerate(rows):
+        bg = "rgba(255,255,255,0.02)" if i % 2 == 0 else "transparent"
+        table_rows += f'''
+        <tr style="background: {bg};">
+            <td style="padding: 10px 16px; font-weight: 500; color: #94a3b8; border-bottom: 1px solid rgba(255,255,255,0.05);">{label}</td>
+            <td style="padding: 10px 16px; color: #e2e8f0; border-bottom: 1px solid rgba(255,255,255,0.05);">{value}</td>
+        </tr>
+        '''
+
+    html = f"""
+    <div style="background: #1a1f2e; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.1);">
+            <h3 style="margin: 0; color: #e2e8f0; font-size: 16px; font-weight: 600;">📋 Protein Information</h3>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+            {table_rows}
+        </table>
+    </div>
+    """
+    return html
+
+
+def create_expandable_section(
+    title: str,
+    content: str,
+    icon: str = "📊",
+    expanded: bool = False,
+    section_id: Optional[str] = None,
+) -> str:
+    """
+    Create an expandable/collapsible section similar to Alpha&ESM hFolds.
+
+    Args:
+        title: Section title.
+        content: HTML content for the section.
+        icon: Emoji icon for the title.
+        expanded: Whether section starts expanded.
+        section_id: Unique ID for the section (auto-generated if not provided).
+
+    Returns:
+        HTML string for the expandable section.
+    """
+    import uuid
+    section_id = section_id or f"section_{uuid.uuid4().hex[:8]}"
+    display = "block" if expanded else "none"
+    chevron = "▼" if expanded else "▶"
+
+    html = f"""
+    <div style="background: #1a1f2e; border-radius: 12px; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.1); overflow: hidden;">
+        <div
+            onclick="
+                var content = document.getElementById('{section_id}_content');
+                var chevron = document.getElementById('{section_id}_chevron');
+                if (content.style.display === 'none') {{
+                    content.style.display = 'block';
+                    chevron.textContent = '▼';
+                }} else {{
+                    content.style.display = 'none';
+                    chevron.textContent = '▶';
+                }}
+            "
+            style="display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; cursor: pointer; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;"
+            onmouseover="this.style.background='rgba(255,255,255,0.05)'"
+            onmouseout="this.style.background='rgba(255,255,255,0.03)'"
+        >
+            <span style="color: #e2e8f0; font-weight: 600; font-size: 15px;">{icon} {title}</span>
+            <span id="{section_id}_chevron" style="color: #64748b; font-size: 12px;">{chevron}</span>
+        </div>
+        <div id="{section_id}_content" style="display: {display}; padding: 16px 20px;">
+            {content}
+        </div>
+    </div>
+    """
+    return html
+
+
+def create_model_quality_summary(
+    mean_plddt: float,
+    ptm: Optional[float] = None,
+    iptm: Optional[float] = None,
+    clash_score: Optional[float] = None,
+    ramachandran_favored: Optional[float] = None,
+) -> str:
+    """
+    Create a model quality assessment summary panel.
+
+    Args:
+        mean_plddt: Mean pLDDT score.
+        ptm: Predicted TM-score.
+        iptm: Interface pTM (for multimers).
+        clash_score: Clash score from evaluation.
+        ramachandran_favored: Percentage of residues in favored regions.
+
+    Returns:
+        HTML string for the quality summary.
+    """
+    def quality_badge(value: float, thresholds: Tuple[float, float, float], labels: Tuple[str, str, str, str] = ("Excellent", "Good", "Fair", "Poor")) -> str:
+        if value >= thresholds[0]:
+            return f'<span style="background: #059669; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px;">{labels[0]}</span>'
+        elif value >= thresholds[1]:
+            return f'<span style="background: #0284c7; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px;">{labels[1]}</span>'
+        elif value >= thresholds[2]:
+            return f'<span style="background: #d97706; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px;">{labels[2]}</span>'
+        else:
+            return f'<span style="background: #dc2626; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px;">{labels[3]}</span>'
+
+    metrics = []
+
+    # pLDDT
+    badge = quality_badge(mean_plddt, (90, 70, 50))
+    metrics.append(f'''
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <span style="color: #94a3b8;">Mean pLDDT</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="color: #e2e8f0; font-weight: 600;">{mean_plddt:.1f}</span>
+                {badge}
+            </div>
+        </div>
+    ''')
+
+    if ptm is not None:
+        badge = quality_badge(ptm * 100, (80, 60, 40))
+        metrics.append(f'''
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <span style="color: #94a3b8;">pTM Score</span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #e2e8f0; font-weight: 600;">{ptm:.3f}</span>
+                    {badge}
+                </div>
+            </div>
+        ''')
+
+    if iptm is not None:
+        badge = quality_badge(iptm * 100, (80, 60, 40))
+        metrics.append(f'''
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <span style="color: #94a3b8;">ipTM Score</span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #e2e8f0; font-weight: 600;">{iptm:.3f}</span>
+                    {badge}
+                </div>
+            </div>
+        ''')
+
+    if clash_score is not None:
+        # Lower is better for clash score
+        badge = quality_badge(100 - clash_score, (95, 85, 70))
+        metrics.append(f'''
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <span style="color: #94a3b8;">Clash Score</span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #e2e8f0; font-weight: 600;">{clash_score:.1f}</span>
+                    {badge}
+                </div>
+            </div>
+        ''')
+
+    if ramachandran_favored is not None:
+        badge = quality_badge(ramachandran_favored, (98, 95, 90))
+        metrics.append(f'''
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0;">
+                <span style="color: #94a3b8;">Ramachandran Favored</span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #e2e8f0; font-weight: 600;">{ramachandran_favored:.1f}%</span>
+                    {badge}
+                </div>
+            </div>
+        ''')
+
+    html = f'''
+    <div style="font-size: 14px;">
+        {''.join(metrics)}
+    </div>
+    '''
+    return html

@@ -59,6 +59,8 @@ class PredictorRegistry:
             "esm-fold": "esmfold",
             "esmfold-api": "esmfold_api",
             "esm-api": "esmfold_api",
+            "esm3": "esm3",
+            "esm-3": "esm3",
         }
 
         resolved_name = aliases.get(name_lower, name_lower)
@@ -142,6 +144,11 @@ def _register_predictors():
 
     try:
         from protein_design_hub.predictors.esmfold import predictor as _  # noqa: F401
+    except ImportError:
+        pass
+
+    try:
+        from protein_design_hub.predictors.esm3 import predictor as _  # noqa: F401
     except ImportError:
         pass
 

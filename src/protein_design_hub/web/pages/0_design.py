@@ -5,7 +5,14 @@ from pathlib import Path
 import json
 import tempfile
 
+from protein_design_hub.web.ui import inject_base_css, sidebar_nav, sidebar_system_status, metric_card
+
 st.set_page_config(page_title="Design - Protein Design Hub", page_icon="🧬", layout="wide")
+
+# Base theme + navigation
+inject_base_css()
+sidebar_nav(current="Design")
+sidebar_system_status()
 
 # Custom CSS for shiny, interactive interface
 st.markdown("""
@@ -21,9 +28,10 @@ st.markdown("""
     flex-wrap: wrap;
     gap: 4px;
     padding: 15px;
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    background: var(--pdhub-bg-card);
+    border: 1px solid var(--pdhub-border);
     border-radius: 15px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    box-shadow: var(--pdhub-shadow-sm);
 }
 
 /* Selected residue highlight */
@@ -34,31 +42,33 @@ st.markdown("""
 
 /* Card styling */
 .design-card {
-    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    background: var(--pdhub-bg-card);
     border-radius: 15px;
     padding: 20px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    box-shadow: var(--pdhub-shadow-sm);
     margin: 10px 0;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--pdhub-border);
+    color: var(--pdhub-text);
 }
 
 .design-card-dark {
-    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+    background: var(--pdhub-gradient-dark);
     border-radius: 15px;
     padding: 20px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    box-shadow: var(--pdhub-shadow-md);
     margin: 10px 0;
     color: white;
+    border: 1px solid var(--pdhub-border);
 }
 
 /* Metric display */
 .metric-box {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--pdhub-gradient);
     border-radius: 12px;
     padding: 15px;
     text-align: center;
     color: white;
-    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    box-shadow: var(--pdhub-shadow-sm);
 }
 
 .metric-value {
@@ -73,7 +83,7 @@ st.markdown("""
 
 /* Selection indicator */
 .selection-badge {
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    background: var(--pdhub-grad-glow);
     color: white;
     padding: 8px 16px;
     border-radius: 20px;
@@ -95,12 +105,15 @@ st.markdown("""
 .stTabs [data-baseweb="tab"] {
     border-radius: 10px 10px 0 0;
     padding: 10px 20px;
-    background: linear-gradient(135deg, #e0e5ec 0%, #f5f7fa 100%);
+    background: var(--pdhub-bg-light);
+    color: var(--pdhub-text-secondary);
+    border: 1px solid var(--pdhub-border);
 }
 
 .stTabs [aria-selected="true"] {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    background: var(--pdhub-gradient) !important;
     color: white !important;
+    border-color: transparent !important;
 }
 
 /* pLDDT color scale */
@@ -181,6 +194,23 @@ if 'plddt_scores' not in st.session_state:
     st.session_state.plddt_scores = None
 if 'esmfold_running' not in st.session_state:
     st.session_state.esmfold_running = False
+if 'load_example_requested' not in st.session_state:
+    st.session_state.load_example_requested = False
+
+# Handle example loading request BEFORE widgets are rendered
+if st.session_state.load_example_requested:
+    ubiquitin_seq = "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"
+    # Set both the internal state AND the widget keys (must be done BEFORE widgets render)
+    st.session_state.current_sequence = ubiquitin_seq
+    st.session_state.sequence_name = "Ubiquitin"
+    st.session_state.seq_input = ubiquitin_seq  # Widget key for sequence input
+    st.session_state.seq_name_input = "Ubiquitin"  # Widget key for name input
+    st.session_state.selected_positions = set()
+    st.session_state.current_structure = None
+    st.session_state.residue_ligands = {}
+    st.session_state.plddt_scores = None
+    st.session_state.load_example_requested = False
+    st.toast("✅ Loaded Ubiquitin sequence!")
 
 def toggle_position(pos):
     """Toggle a position in the selection."""
@@ -206,7 +236,7 @@ st.markdown("""
                font-size: 3rem; margin-bottom: 0;">
         🧬 Interactive Protein Designer
     </h1>
-    <p style="color: #666; font-size: 1.2rem;">Click residues to select, modify multiple at once, attach ligands</p>
+    <p style="color: var(--pdhub-text-secondary); font-size: 1.2rem;">Click residues to select, modify multiple at once, attach ligands</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1055,8 +1085,7 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
-    # Example sequence button
-    if st.button("Load Example Sequence"):
-        st.session_state.current_sequence = "MKFLILLFNILCLFPVLAADNHGVGPQGASLGLLDNALLFLSSHFTSDL"
-        st.session_state.sequence_name = "example_protein"
+    # Example sequence button - uses flag pattern to avoid widget key modification error
+    if st.button("Load Example Sequence", key="load_example_btn", type="primary", use_container_width=True):
+        st.session_state.load_example_requested = True
         st.rerun()

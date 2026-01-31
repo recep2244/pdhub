@@ -43,10 +43,8 @@ Implemented robust "Load-from-Job" logic that enables researchers to revisit and
 - **Fix:** Add MIT LICENSE file
 
 ### 2. **Incomplete Git Tracking**
-- **Severity:** MEDIUM-HIGH
-- **Issue:** Multiple untracked files and modified files not committed
-- **Impact:** Code not version controlled, potential loss of work
-- **Fix:** Review all changes and commit (Prepared in QUICK_ACTIONS.md)
+- **Status:** ✅ **RESOLVED**
+- **Resolution:** All untracked and modified files committed in Milestone v0.1.1.
 
 ### 3. **No CI/CD Pipeline**
 - **Severity:** MEDIUM-HIGH
@@ -382,8 +380,8 @@ Implemented robust "Load-from-Job" logic that enables researchers to revisit and
 ### Phase 1: Infrastructure & Data Recovery (Week 1)
 1. ✅ **Unify Job Pipeline** (Prediction, Scan, Evolution)
 2. ✅ **Mark Page Sync** (Resolved numbering issues)
-3. 🚧 **Add LICENSE file** (Next Step)
-4. 🚧 **Commit all work to Git** (Next Step)
+3. ✅ **Add LICENSE file** (Verified)
+4. ✅ **Commit all work to Git** (Accomplished)
 5. 🚧 **Basic CI suite** (Next Step)
 
 ### Phase 2: High-Priority (Weeks 2-3)

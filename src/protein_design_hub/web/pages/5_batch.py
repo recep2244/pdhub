@@ -6,30 +6,40 @@ import json
 import tempfile
 import time
 
+from protein_design_hub.web.ui import inject_base_css, sidebar_nav, sidebar_system_status
+
 st.set_page_config(page_title="Batch - Protein Design Hub", page_icon="📦", layout="wide")
+
+# Base theme + navigation
+inject_base_css()
+sidebar_nav(current="Batch")
+sidebar_system_status()
 
 # Custom CSS
 st.markdown("""
 <style>
 .batch-card {
-    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    background: var(--pdhub-bg-card);
     border-radius: 12px;
     padding: 20px;
     margin: 10px 0;
-    border-left: 4px solid #667eea;
+    border: 1px solid var(--pdhub-border);
+    border-left: 4px solid var(--pdhub-primary);
+    color: var(--pdhub-text);
 }
-.job-pending { border-left-color: #ffc107; }
-.job-running { border-left-color: #17a2b8; }
-.job-complete { border-left-color: #28a745; }
-.job-failed { border-left-color: #dc3545; }
+.job-pending { border-left-color: var(--pdhub-warning); }
+.job-running { border-left-color: var(--pdhub-info); }
+.job-complete { border-left-color: var(--pdhub-success); }
+.job-failed { border-left-color: var(--pdhub-error); }
 .progress-container {
-    background: #e9ecef;
+    background: var(--pdhub-bg-light);
     border-radius: 10px;
     height: 20px;
     overflow: hidden;
+    border: 1px solid var(--pdhub-border);
 }
 .progress-bar {
-    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    background: var(--pdhub-gradient);
     height: 100%;
     transition: width 0.3s ease;
 }
@@ -41,6 +51,10 @@ if 'batch_jobs' not in st.session_state:
     st.session_state.batch_jobs = []
 if 'batch_running' not in st.session_state:
     st.session_state.batch_running = False
+if 'batch_history' not in st.session_state:
+    st.session_state.batch_history = []
+if 'batch_start_time' not in st.session_state:
+    st.session_state.batch_start_time = None
 
 # Title
 st.markdown("""
@@ -50,7 +64,7 @@ st.markdown("""
                font-size: 2.5rem;">
         📦 Batch Processing
     </h1>
-    <p style="color: #666;">Run multiple predictions, designs, or evaluations in parallel</p>
+    <p style="color: var(--pdhub-text-secondary);">Run multiple predictions, designs, or evaluations in parallel</p>
 </div>
 """, unsafe_allow_html=True)
 

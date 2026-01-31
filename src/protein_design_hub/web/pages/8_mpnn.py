@@ -116,7 +116,7 @@ page_header(
     "🎯"
 )
 
-sidebar_nav(current="MPNN Design")
+sidebar_nav(current="MPNN Lab")
 sidebar_system_status()
 
 # Main content
@@ -221,6 +221,69 @@ with col_b:
     )
 
     st.markdown('</div>', unsafe_allow_html=True)
+
+    # Design Constraints Section
+    with st.expander("🎯 Design Constraints", expanded=False):
+        st.markdown("##### Fixed Positions")
+        fixed_positions = st.text_input(
+            "Positions to keep fixed",
+            placeholder="e.g., 1-10, 25, 30-35",
+            help="These residues will not be redesigned"
+        )
+
+        st.markdown("##### Designable Chains")
+        design_chains = st.text_input(
+            "Chains to design",
+            value="A",
+            placeholder="e.g., A,B or A",
+            help="Which chains to redesign (comma-separated)"
+        )
+
+        st.markdown("##### Amino Acid Bias")
+        bias_mode = st.selectbox(
+            "Bias type",
+            ["None", "Favor hydrophilic", "Avoid cysteine", "Custom"],
+            help="Apply bias to amino acid sampling"
+        )
+
+        if bias_mode == "Custom":
+            st.text_input(
+                "Favored residues",
+                placeholder="e.g., A,L,V,I",
+                help="Residues to favor during design"
+            )
+            st.text_input(
+                "Avoided residues",
+                placeholder="e.g., C,M,W",
+                help="Residues to avoid during design"
+            )
+
+    # Advanced Options
+    with st.expander("⚙️ Advanced Options", expanded=False):
+        use_soluble_model = st.checkbox(
+            "Use soluble model",
+            value=False,
+            help="Optimized for soluble proteins"
+        )
+
+        omit_aa = st.text_input(
+            "Omit amino acids globally",
+            placeholder="e.g., C,M",
+            help="Never include these amino acids"
+        )
+
+        pssm_mode = st.checkbox(
+            "Use PSSM bias",
+            value=False,
+            help="Apply position-specific scoring matrix bias"
+        )
+
+        if pssm_mode:
+            pssm_file = st.file_uploader(
+                "Upload PSSM file",
+                type=["txt", "pssm"],
+                help="BLAST-format PSSM file"
+            )
 
 st.markdown("---")
 

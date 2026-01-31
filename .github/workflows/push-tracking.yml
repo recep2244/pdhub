@@ -1,0 +1,48 @@
+name: Push Tracking
+
+on:
+  push:
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Write push metadata
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import time
+
+          def env(key, default=""):
+              return os.environ.get(key, default)
+
+          payload = {
+              "repository": env("GITHUB_REPOSITORY"),
+              "ref": env("GITHUB_REF"),
+              "ref_name": env("GITHUB_REF_NAME"),
+              "sha": env("GITHUB_SHA"),
+              "actor": env("GITHUB_ACTOR"),
+              "event": env("GITHUB_EVENT_NAME"),
+              "workflow": env("GITHUB_WORKFLOW"),
+              "run_id": env("GITHUB_RUN_ID"),
+              "run_number": env("GITHUB_RUN_NUMBER"),
+              "server_url": env("GITHUB_SERVER_URL"),
+              "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+          }
+
+          with open("push-trace.json", "w", encoding="utf-8") as f:
+              json.dump(payload, f, indent=2, sort_keys=True)
+          PY
+
+      - name: Add summary
+        run: |
+          echo "Push trace saved for ${GITHUB_SHA} on ${GITHUB_REF_NAME}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload push trace
+        uses: actions/upload-artifact@v4
+        with:
+          name: push-trace-${{ github.run_id }}
+          path: push-trace.json

@@ -15,6 +15,11 @@ from protein_design_hub.web.ui import (
     set_selected_model,
     sidebar_nav,
     sidebar_system_status,
+    metric_card,
+    card_start,
+    card_end,
+    empty_state,
+    render_badge,
 )
 
 inject_base_css()
@@ -29,53 +34,8 @@ page_header(
 sidebar_nav(current="Evaluate")
 sidebar_system_status()
 
-# Custom CSS
-st.markdown(
-    """
-<style>
-.metric-card {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-radius: 12px;
-    padding: 20px;
-    text-align: center;
-    color: white;
-    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-    margin: 5px 0;
-}
-.metric-card-success {
-    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-}
-.metric-card-warning {
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-}
-.metric-value {
-    font-size: 32px;
-    font-weight: bold;
-}
-.metric-label {
-    font-size: 14px;
-    opacity: 0.9;
-}
-.section-header {
-    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-    color: white;
-    padding: 15px 20px;
-    border-radius: 10px;
-    margin: 20px 0 10px 0;
-}
-.quality-bar {
-    display: flex;
-    height: 30px;
-    border-radius: 8px;
-    overflow: hidden;
-    margin: 10px 0;
-}
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-st.title("📊 Comprehensive Structure Evaluation")
+# Sidebar settings
+st.sidebar.markdown("### Evaluation Parameters")
 st.markdown(
     "Evaluate predicted structures using OpenStructure metrics at global, per-residue, per-chain, and interface levels"
 )
@@ -223,19 +183,76 @@ if reference_file:
 with col_visual:
     st.markdown("### 🧬 Visual Inspection")
     if active_model_path:
-        from protein_design_hub.web.visualizations import create_structure_comparison_3d
-        
+        from protein_design_hub.web.visualizations import (
+            create_structure_comparison_3d,
+            create_protein_info_table,
+            create_plddt_sequence_viewer,
+            create_expandable_section,
+            create_model_quality_summary,
+        )
+        import streamlit.components.v1 as components
+
         st.caption(f"Visualizing: {active_model_path.name}")
         html_view = create_structure_comparison_3d(
-            active_model_path, 
+            active_model_path,
             active_ref_path,
             highlight_differences=True
         )
-        import streamlit.components.v1 as components
-        components.html(html_view, height=450)
+        components.html(html_view, height=400)
+
+        # Extract sequence and pLDDT from structure for enhanced display
+        try:
+            from Bio.PDB import PDBParser, MMCIFParser
+            from Bio.SeqUtils import seq1
+
+            if active_model_path.suffix.lower() in ['.cif', '.mmcif']:
+                parser = MMCIFParser(QUIET=True)
+            else:
+                parser = PDBParser(QUIET=True)
+
+            structure = parser.get_structure('model', str(active_model_path))
+
+            # Get sequence and pLDDT from B-factors
+            sequence = ""
+            plddt_values = []
+            for model in structure:
+                for chain in model:
+                    for residue in chain:
+                        if residue.id[0] == ' ':
+                            sequence += seq1(residue.resname)
+                            if 'CA' in residue:
+                                plddt_values.append(residue['CA'].get_bfactor())
+                    break
+                break
+
+            if sequence and plddt_values:
+                # Show pLDDT-colored sequence viewer
+                mean_plddt = sum(plddt_values) / len(plddt_values) if plddt_values else 0
+
+                with st.expander("📊 Sequence with Confidence Coloring", expanded=True):
+                    seq_html = create_plddt_sequence_viewer(
+                        sequence[:100] + ("..." if len(sequence) > 100 else ""),
+                        plddt_values[:100] if len(plddt_values) > 100 else plddt_values,
+                        label=active_model_path.stem[:15],
+                        show_ruler=True
+                    )
+                    components.html(seq_html, height=180, scrolling=True)
+                    if len(sequence) > 100:
+                        st.caption(f"Showing first 100 of {len(sequence)} residues")
+
+                # Model quality summary
+                with st.expander("📈 Model Quality Assessment", expanded=False):
+                    quality_html = create_model_quality_summary(
+                        mean_plddt=mean_plddt,
+                        ptm=None,  # Would need to extract from JSON
+                    )
+                    components.html(quality_html, height=100)
+        except Exception as e:
+            pass  # Silently skip enhanced view if parsing fails
+
     else:
         st.info("👈 Upload or select a structure to visualize it here.")
-        
+
         # Placeholder animation
         st.markdown("""
         <div style="border: 2px dashed #ccc; border-radius: 10px; height: 350px; display: flex; align-items: center; justify-content: center; background: #f9f9f9;">
@@ -297,23 +314,26 @@ if st.button("⚡ Run Quick Evaluation", type="primary", use_container_width=Tru
             st.success("✅ Quick evaluation complete")
             st.session_state.quick_eval = result.to_dict()
 
-            st.markdown("### Results")
+            st.markdown("### Results Summary")
             col_a, col_b, col_c = st.columns(3)
             with col_a:
                 if result.clash_score is not None:
-                    st.metric("Clash score", f"{result.clash_score:.2f}")
+                    metric_card(f"{result.clash_score:.2f}", "Clash Score", "error", "💥")
+                st.markdown("<br>", unsafe_allow_html=True)
                 if result.sasa_total is not None:
-                    st.metric("SASA", f"{result.sasa_total:.1f} Å²")
+                    metric_card(f"{result.sasa_total:.1f}", "SASA (Å²)", "info", "🌐")
             with col_b:
                 if result.contact_energy is not None:
-                    st.metric("Contact energy", f"{result.contact_energy:.3f}")
+                    metric_card(f"{result.contact_energy:.2f}", "Contact Energy", "warning", "🔋")
+                st.markdown("<br>", unsafe_allow_html=True)
                 if result.contact_energy_per_residue is not None:
-                    st.metric("Contact energy / res", f"{result.contact_energy_per_residue:.3f}")
+                    metric_card(f"{result.contact_energy_per_residue:.3f}", "Energy / Res", "warning", "🧪")
             with col_c:
                 if result.tm_score is not None:
-                    st.metric("TM-score", f"{result.tm_score:.4f}")
+                    metric_card(f"{result.tm_score:.3f}", "TM-Score", "gradient", "📏")
+                st.markdown("<br>", unsafe_allow_html=True)
                 if result.rmsd is not None:
-                    st.metric("RMSD", f"{result.rmsd:.2f} Å")
+                    metric_card(f"{result.rmsd:.2f}", "RMSD (Å)", "success", "📐")
 
             # Save results if part of a job
             if chosen:

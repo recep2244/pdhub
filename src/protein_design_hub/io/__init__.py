@@ -6,6 +6,7 @@ from protein_design_hub.io.parsers.pdb import PDBParser
 from protein_design_hub.io.parsers.constraints import ConstraintParser
 from protein_design_hub.io.writers.structure_writer import StructureWriter
 from protein_design_hub.io.writers.report_writer import ReportWriter
+from protein_design_hub.io.afdb import AFDBClient
 
 __all__ = [
     "FastaParser",
@@ -14,4 +15,5 @@ __all__ = [
     "ConstraintParser",
     "StructureWriter",
     "ReportWriter",
+    "AFDBClient",
 ]

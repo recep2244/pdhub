@@ -3,10 +3,17 @@
 import streamlit as st
 from pathlib import Path
 import json
+from typing import Iterable, List, Tuple
 
 st.set_page_config(page_title="Settings - Protein Design Hub", page_icon="⚙️", layout="wide")
 
-from protein_design_hub.web.ui import inject_base_css, sidebar_nav, sidebar_system_status
+from protein_design_hub.web.ui import (
+    inject_base_css,
+    sidebar_nav,
+    sidebar_system_status,
+    section_header,
+    status_badge,
+)
 
 inject_base_css()
 sidebar_nav(current="Settings")
@@ -20,33 +27,35 @@ if "theme" not in st.session_state:
 theme_css = """
 <style>
 .settings-card {
-    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-    border-radius: 12px;
+    background: var(--pdhub-bg-card);
+    border-radius: var(--pdhub-border-radius-md);
     padding: 20px;
-    margin: 10px 0;
-    border: 1px solid #dee2e6;
+    margin: 12px 0;
+    border: 1px solid var(--pdhub-border);
+    color: var(--pdhub-text);
 }
 .settings-card-dark {
-    background: linear-gradient(135deg, #2d3436 0%, #1e272e 100%);
-    border-radius: 12px;
+    background: var(--pdhub-bg-card);
+    border-radius: var(--pdhub-border-radius-md);
     padding: 20px;
-    margin: 10px 0;
-    color: white;
+    margin: 12px 0;
+    color: var(--pdhub-text);
+    border: 1px solid var(--pdhub-border);
 }
 .status-ok {
-    color: #27ae60;
+    color: var(--pdhub-success);
     font-weight: bold;
 }
 .status-error {
-    color: #e74c3c;
+    color: var(--pdhub-error);
     font-weight: bold;
 }
 .status-warning {
-    color: #f39c12;
+    color: var(--pdhub-warning);
     font-weight: bold;
 }
 .metric-card {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--pdhub-gradient);
     border-radius: 10px;
     padding: 15px;
     text-align: center;
@@ -54,9 +63,19 @@ theme_css = """
     margin: 5px;
 }
 .section-header {
-    border-bottom: 2px solid #667eea;
-    padding-bottom: 5px;
-    margin-bottom: 15px;
+    border-bottom: 1px solid var(--pdhub-border);
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+}
+.badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+.muted-text {
+    color: var(--pdhub-text-secondary);
+    font-size: 0.9rem;
 }
 </style>
 """
@@ -65,6 +84,13 @@ st.markdown(theme_css, unsafe_allow_html=True)
 st.title("⚙️ Settings & Configuration")
 st.markdown("Configure Protein Design Hub, manage installations, and customize your experience")
 
+# Utility helpers
+def _render_badges(items: Iterable[Tuple[str, str]]) -> None:
+    badges = " ".join(status_badge(label, status) for label, status in items if label)
+    if badges:
+        st.markdown(f'<div class="badge-row">{badges}</div>', unsafe_allow_html=True)
+
+# Tabs
 # Tabs
 tabs = st.tabs(
     [
@@ -79,12 +105,12 @@ tabs = st.tabs(
 
 # ==================== TAB 1: System Status ====================
 with tabs[0]:
-    st.subheader("System Status Overview")
+    section_header("System Status Overview", "Live hardware and tool health signals.", "📊")
 
     # Refresh button
-    col_refresh, col_spacer = st.columns([1, 5])
+    col_refresh, col_spacer = st.columns([1, 3])
     with col_refresh:
-        if st.button("🔄 Refresh", use_container_width=True):
+        if st.button("🔄 Refresh Status", key="refresh_status"):
             st.rerun()
 
     # GPU Status Section
@@ -183,6 +209,7 @@ with tabs[0]:
             "boltz2": {"icon": "⚡", "name": "Boltz-2", "desc": "Fast diffusion model"},
             "esmfold": {"icon": "🧠", "name": "ESMFold", "desc": "Fast single-sequence folding"},
             "esmfold_api": {"icon": "🌐", "name": "ESMFold API", "desc": "Remote folding (no GPU)"},
+            "esm3": {"icon": "🧬", "name": "ESM3", "desc": "Multimodal generation (structure track)"},
         }
 
         for i, (pred_id, info) in enumerate(predictor_info.items()):
@@ -191,12 +218,15 @@ with tabs[0]:
                     predictor = PredictorRegistry.get(pred_id, settings)
                     status = predictor.get_status()
 
-                    st.markdown(f"#### {info['icon']} {info['name']}")
-                    st.caption(info["desc"])
+                    with st.container(border=True):
+                        st.markdown(f"#### {info['icon']} {info['name']}")
+                        st.caption(info["desc"])
 
-                    if status["installed"]:
-                        version = status.get("version", "unknown")
-                        st.success(f"✓ Installed (v{version})")
+                        if status["installed"]:
+                            version = status.get("version", "unknown")
+                            _render_badges([("Installed", "ok"), (f"v{version}", "primary")])
+                        else:
+                            _render_badges([("Not installed", "error")])
 
                         # Features
                         features = []
@@ -210,13 +240,13 @@ with tabs[0]:
                             features.append(f"🗂️ {status.get('output_format')}")
 
                         if features:
-                            st.caption(" | ".join(features))
+                            _render_badges([(feat, "info") for feat in features])
 
-                        # Update status
                         if status.get("needs_update"):
-                            st.warning(f"Update available: {status.get('latest_version')}")
-                    else:
-                        st.error("✗ Not Installed")
+                            latest = status.get("latest_version")
+                            _render_badges([("Update available", "warning")])
+                            if latest:
+                                st.caption(f"Latest: v{latest}")
 
                 except Exception as e:
                     st.error(f"Error: {e}")
@@ -263,7 +293,7 @@ with tabs[0]:
 
 # ==================== TAB 2: Installations ====================
 with tabs[1]:
-    st.subheader("📦 Install & Update Tools")
+    section_header("Install & Update Tools", "Manage predictors and evaluation dependencies.", "📦")
 
     try:
         from protein_design_hub.predictors.registry import PredictorRegistry
@@ -284,10 +314,10 @@ with tabs[1]:
                 with col1:
                     if is_installed:
                         version = predictor.installer.get_installed_version()
-                        st.info(f"Currently installed: v{version or 'unknown'}")
+                        _render_badges([("Installed", "ok"), (f"v{version or 'unknown'}", "primary")])
                         st.markdown(f"**Location:** `{predictor.installer.get_install_path()}`")
                     else:
-                        st.warning("Not currently installed")
+                        _render_badges([("Not installed", "error")])
 
                     # Installation requirements
                     st.markdown("**Requirements:**")
@@ -395,13 +425,13 @@ with tabs[1]:
             st.markdown("**TMalign**")
             st.caption("For TM-score computation")
             if st.button("Install TMalign", key="install_tmalign"):
-                st.info("Run: `conda install -c bioconda tmalign`")
+                st.code("conda install -c bioconda tmalign")
 
         with col2:
             st.markdown("**OpenStructure**")
             st.caption("For comprehensive metrics (lDDT, DockQ, etc.)")
             if st.button("Install OpenStructure", key="install_ost"):
-                st.info("Run: `micromamba create -n ost -c conda-forge -c bioconda openstructure`")
+                st.code("micromamba create -n ost -c conda-forge -c bioconda openstructure")
 
     except Exception as e:
         st.error(f"Error: {e}")
@@ -411,7 +441,7 @@ with tabs[1]:
 
 # ==================== TAB 3: Preferences ====================
 with tabs[2]:
-    st.subheader("🎨 User Preferences")
+    section_header("User Preferences", "Customize how results are displayed and saved.", "🎨")
 
     col1, col2 = st.columns(2)
 
@@ -494,7 +524,7 @@ textColor="#ffffff"
 
 # ==================== TAB 4: Configuration ====================
 with tabs[3]:
-    st.subheader("🔧 Advanced Configuration")
+    section_header("Advanced Configuration", "Power-user settings for output, GPU, and network.", "🔧")
 
     try:
         from protein_design_hub.core.config import get_settings
@@ -652,7 +682,7 @@ with tabs[3]:
 
 # ==================== TAB 5: Cache & Data ====================
 with tabs[4]:
-    st.subheader("📁 Cache & Data Management")
+    section_header("Cache & Data Management", "Inspect caches, clean artifacts, and manage outputs.", "📁")
 
     # Cache locations
     st.markdown("### Cache Locations")
@@ -667,41 +697,41 @@ with tabs[4]:
     }
 
     for name, path in cache_dirs.items():
-        col1, col2, col3 = st.columns([2, 1, 1])
+        with st.container(border=True):
+            col1, col2, col3 = st.columns([2, 1, 1])
 
-        with col1:
-            st.markdown(f"**{name}**")
-            st.caption(str(path))
+            with col1:
+                st.markdown(f"**{name}**")
+                st.caption(str(path))
 
-        with col2:
-            if path.exists():
-                if path.is_file():
-                    size = path.stat().st_size / 1e6
-                    st.caption(f"{size:.1f} MB")
-                else:
-                    # Calculate directory size
-                    try:
-                        size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) / 1e6
+            with col2:
+                if path.exists():
+                    if path.is_file():
+                        size = path.stat().st_size / 1e6
                         st.caption(f"{size:.1f} MB")
-                    except:
-                        st.caption("N/A")
-            else:
-                st.caption("Not created")
+                    else:
+                        try:
+                            size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) / 1e6
+                            st.caption(f"{size:.1f} MB")
+                        except Exception:
+                            st.caption("N/A")
+                else:
+                    st.caption("Not created")
 
-        with col3:
-            if path.exists():
-                if st.button("🗑️", key=f"clear_{name}", help=f"Clear {name}"):
-                    try:
-                        if path.is_file():
-                            path.unlink()
-                        else:
-                            import shutil
+            with col3:
+                if path.exists():
+                    if st.button("🗑️ Clear", key=f"clear_{name}", use_container_width=True):
+                        try:
+                            if path.is_file():
+                                path.unlink()
+                            else:
+                                import shutil
 
-                            shutil.rmtree(path)
-                        st.success(f"Cleared {name}")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+                                shutil.rmtree(path)
+                            st.success(f"Cleared {name}")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error: {e}")
 
     st.markdown("---")
 
@@ -775,7 +805,7 @@ with tabs[4]:
 
 # ==================== TAB 6: Logs ====================
 with tabs[5]:
-    st.subheader("📋 Application Logs")
+    section_header("Application Logs", "Inspect runtime logs and export diagnostics.", "📋")
 
     log_files = {
         "Application Log": Path.home() / ".pdhub" / "pdhub.log",

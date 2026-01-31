@@ -613,7 +613,7 @@ with col_right:
 
         settings = get_settings()
         predictor_html = '<div style="display: flex; flex-wrap: wrap; gap: 8px;">'
-        for name in ["colabfold", "chai1", "boltz2", "esmfold", "esmfold_api"]:
+        for name in ["colabfold", "chai1", "boltz2", "esmfold", "esmfold_api", "esm3"]:
             try:
                 pred = PredictorRegistry.get(name, settings)
                 installed = pred.installer.is_installed()
@@ -673,7 +673,7 @@ with col_feat1:
         """
     <div class="feature-item">
         <b>🔬 Multi-Predictor Support</b><br>
-        <span style="color: var(--pdhub-text-secondary);">ColabFold, Chai-1, Boltz-2, ESMFold - run all and compare results</span>
+        <span style="color: var(--pdhub-text-secondary);">ColabFold, Chai-1, Boltz-2, ESMFold, ESM3 - run all and compare results</span>
     </div>
     <div class="feature-item">
         <b>🎯 Advanced Design</b><br>

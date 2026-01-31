@@ -74,6 +74,12 @@ class ESMFoldPredictor(BasePredictor):
                 "ESMFold requires `fair-esm` and `torch`. Install `fair-esm` via `pdhub install predictor esmfold`, and install torch separately.",
                 original_error=e,
             )
+        if not hasattr(esm, "pretrained") or not hasattr(esm.pretrained, "esmfold_v1"):
+            raise PredictionError(
+                self.name,
+                "Detected a non-ESMFold `esm` package. The EvolutionaryScale ESM3 SDK uses the same import name "
+                "and conflicts with `fair-esm`. Use a separate environment for ESM3 or reinstall `fair-esm`.",
+            )
 
         if input_data.is_multimer:
             raise PredictionError(self.name, "ESMFold supports single-sequence inputs only")
@@ -87,7 +93,14 @@ class ESMFoldPredictor(BasePredictor):
         if not sequence:
             raise PredictionError(self.name, "No valid amino acids in sequence")
 
-        model = esm.pretrained.esmfold_v1().eval()
+        try:
+            model = esm.pretrained.esmfold_v1().eval()
+        except Exception as e:
+            if "Keys" in str(e) and "missing" in str(e) or "use_esm_attn_map" in str(e):
+                from protein_design_hub.predictors.esmfold.utils import load_esmfold_model
+                model = load_esmfold_model(version="v1", allow_missing=True).eval()
+            else:
+                raise
         if torch.cuda.is_available():
             model = model.cuda()
             # Trade-off: lower chunk size reduces memory use.

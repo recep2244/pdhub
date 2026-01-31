@@ -4,7 +4,14 @@ import streamlit as st
 from pathlib import Path
 import json
 
+from protein_design_hub.web.ui import inject_base_css, sidebar_nav, sidebar_system_status
+
 st.set_page_config(page_title="MSA Analysis - Protein Design Hub", page_icon="🧬", layout="wide")
+
+# Base theme + navigation
+inject_base_css()
+sidebar_nav(current="MSA")
+sidebar_system_status()
 
 # Custom CSS
 st.markdown("""
@@ -23,7 +30,7 @@ st.markdown("""
     line-height: 24px;
 }
 .coevolution-card {
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    background: var(--pdhub-gradient);
     border-radius: 12px;
     padding: 15px;
     color: white;
@@ -46,7 +53,7 @@ st.markdown("""
                font-size: 2.5rem;">
         🧬 MSA & Evolutionary Analysis
     </h1>
-    <p style="color: #666;">Analyze conservation, coevolution, and ancestral sequences</p>
+    <p style="color: var(--pdhub-text-secondary);">Analyze conservation, coevolution, and ancestral sequences</p>
 </div>
 """, unsafe_allow_html=True)
 

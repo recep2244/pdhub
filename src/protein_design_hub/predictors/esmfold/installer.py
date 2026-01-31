@@ -17,15 +17,17 @@ class ESMFoldInstaller(ToolInstaller):
         try:
             import torch  # noqa: F401
             import esm  # noqa: F401
+            if not hasattr(esm, "pretrained") or not hasattr(esm.pretrained, "esmfold_v1"):
+                return False
         except Exception:
             return False
         return True
 
     def get_installed_version(self) -> Optional[str]:
-        return self._get_installed_pip_version("fair-esm") or self._get_installed_pip_version("esm")
+        return self._get_installed_pip_version("fair-esm")
 
     def get_latest_version(self) -> Optional[str]:
-        return self._get_pypi_version("fair-esm") or self._get_pypi_version("esm")
+        return self._get_pypi_version("fair-esm")
 
     def install(self) -> bool:
         # Note: torch is intentionally not auto-installed here; users generally want

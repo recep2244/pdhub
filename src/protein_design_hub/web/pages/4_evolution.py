@@ -11,6 +11,11 @@ from protein_design_hub.web.ui import (
     page_header,
     sidebar_nav,
     sidebar_system_status,
+    metric_card,
+    card_start,
+    card_end,
+    empty_state,
+    render_badge,
 )
 
 st.set_page_config(page_title="Evolution - Protein Design Hub", page_icon="🧬", layout="wide")
@@ -98,7 +103,7 @@ st.markdown("""
                font-size: 2.5rem;">
         🧬 Directed Evolution Workflow
     </h1>
-    <p style="color: #666;">Computationally evolve proteins toward desired properties</p>
+    <p style="color: var(--pdhub-text-secondary);">Computationally evolve proteins toward desired properties</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -408,22 +413,17 @@ with main_tabs[2]:
 
         with col1:
             improvement = generations[-1]["best_fitness"] - generations[0]["best_fitness"]
-            st.metric("Fitness Improvement", f"+{improvement:.4f}")
+            metric_card(f"+{improvement:.4f}", "Improvement", "success", "📈")
         with col2:
-            st.metric("Final Best Fitness", f"{generations[-1]['best_fitness']:.4f}")
+            metric_card(f"{generations[-1]['best_fitness']:.4f}", "Best Fitness", "gradient", "🏆")
         with col3:
             # Count mutations
             orig = results["starting_sequence"]
             best = results["best_sequence"]
             mutations = sum(1 for a, b in zip(orig, best) if a != b)
-            st.metric("Total Mutations", mutations)
+            metric_card(mutations, "Mutations", "warning", "🧬")
         with col4:
-            st.metric("Generations Run", len(generations))
-
-        st.markdown("---")
-
-        # Fitness over generations chart
-        st.markdown("#### Fitness Trajectory")
+            metric_card(len(generations), "Generations", "info", "🔄")
 
         import pandas as pd
 

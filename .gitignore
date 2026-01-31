@@ -158,6 +158,10 @@ models/
 tmp/
 temp/
 *.tmp
+.tmp_predictor_checks/
+pdhub_bg_base64.txt
+.venv_esm3/
+.venv_immunebuilder/
 
 # Log files
 logs/

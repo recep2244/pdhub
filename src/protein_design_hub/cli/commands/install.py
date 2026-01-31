@@ -135,7 +135,7 @@ def install_all(
 @app.command("predictor")
 def install_predictor(
     name: str = typer.Argument(
-        ..., help="Predictor name (colabfold, chai1, boltz2, esmfold, esmfold_api)"
+        ..., help="Predictor name (colabfold, chai1, boltz2, esmfold, esmfold_api, esm3)"
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Force reinstall"),
 ):

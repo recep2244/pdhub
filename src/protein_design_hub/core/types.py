@@ -15,6 +15,7 @@ class PredictorType(str, Enum):
     BOLTZ2 = "boltz2"
     ESMFOLD = "esmfold"
     ESMFOLD_API = "esmfold_api"
+    ESM3 = "esm3"
 
 
 class MoleculeType(str, Enum):
@@ -46,6 +47,33 @@ class MetricType(str, Enum):
     SEQUENCE_RECOVERY = "sequence_recovery"
     DISORDER = "disorder"
     SHAPE_COMPLEMENTARITY = "shape_complementarity"
+    # New metrics
+    RAMACHANDRAN = "ramachandran"
+    ROTAMER_QUALITY = "rotamer_quality"
+    MOLPROBITY = "molprobity"
+    HBOND_ENERGY = "hbond_energy"
+    AGGREGATION_SCORE = "aggregation_score"
+    SOLUBILITY = "solubility"
+
+
+class SecondaryStructure(str, Enum):
+    """Secondary structure types."""
+
+    HELIX = "H"
+    SHEET = "E"
+    COIL = "C"
+    ANY = "X"
+
+
+class ConstraintType(str, Enum):
+    """Types of design constraints."""
+
+    DISTANCE = "distance"
+    CONTACT = "contact"
+    SECONDARY_STRUCTURE = "secondary_structure"
+    FIXED_RESIDUE = "fixed_residue"
+    ALLOWED_AA = "allowed_aa"
+    FORBIDDEN_AA = "forbidden_aa"
 
 
 @dataclass
@@ -121,6 +149,164 @@ class Constraint:
     chain1: str = "A"
     chain2: str = "A"
     weight: float = 1.0
+
+
+@dataclass
+class DesignConstraint:
+    """Design constraint for sequence design."""
+
+    constraint_type: ConstraintType
+    positions: list[int] = field(default_factory=list)
+    chain: str = "A"
+    # For fixed/allowed/forbidden AA
+    amino_acids: list[str] = field(default_factory=list)
+    # For secondary structure
+    secondary_structure: Optional[str] = None
+    # For distance constraints
+    target_distance: Optional[float] = None
+    tolerance: float = 2.0
+
+
+@dataclass
+class ChainInfo:
+    """Information about a protein chain."""
+
+    chain_id: str
+    sequence: str
+    start_residue: int = 1
+    molecule_type: MoleculeType = MoleculeType.PROTEIN
+    description: str = ""
+
+    def __len__(self) -> int:
+        return len(self.sequence)
+
+
+@dataclass
+class MultiChainComplex:
+    """A multi-chain protein complex."""
+
+    chains: list[ChainInfo]
+    name: str = ""
+    ligands: list[str] = field(default_factory=list)  # SMILES strings
+
+    @property
+    def total_residues(self) -> int:
+        return sum(len(c) for c in self.chains)
+
+    @property
+    def num_chains(self) -> int:
+        return len(self.chains)
+
+    @property
+    def chain_ids(self) -> list[str]:
+        return [c.chain_id for c in self.chains]
+
+    def get_chain(self, chain_id: str) -> Optional[ChainInfo]:
+        for c in self.chains:
+            if c.chain_id == chain_id:
+                return c
+        return None
+
+    @classmethod
+    def from_fasta(cls, fasta_str: str, name: str = "") -> "MultiChainComplex":
+        """Parse multi-chain FASTA with : separator or multiple entries."""
+        chains = []
+        lines = fasta_str.strip().split("\n")
+        current_header = ""
+        current_seq = []
+        chain_idx = 0
+
+        for line in lines:
+            if line.startswith(">"):
+                if current_seq:
+                    seq = "".join(current_seq)
+                    # Check for chain separator
+                    if ":" in seq:
+                        for i, part in enumerate(seq.split(":")):
+                            if part:
+                                chain_id = chr(ord("A") + chain_idx)
+                                chains.append(ChainInfo(
+                                    chain_id=chain_id,
+                                    sequence=part,
+                                    description=current_header
+                                ))
+                                chain_idx += 1
+                    else:
+                        chain_id = chr(ord("A") + chain_idx)
+                        chains.append(ChainInfo(
+                            chain_id=chain_id,
+                            sequence=seq,
+                            description=current_header
+                        ))
+                        chain_idx += 1
+                    current_seq = []
+                current_header = line[1:].strip()
+            else:
+                current_seq.append(line.strip())
+
+        # Last sequence
+        if current_seq:
+            seq = "".join(current_seq)
+            if ":" in seq:
+                for i, part in enumerate(seq.split(":")):
+                    if part:
+                        chain_id = chr(ord("A") + chain_idx)
+                        chains.append(ChainInfo(
+                            chain_id=chain_id,
+                            sequence=part,
+                            description=current_header
+                        ))
+                        chain_idx += 1
+            else:
+                chain_id = chr(ord("A") + chain_idx)
+                chains.append(ChainInfo(
+                    chain_id=chain_id,
+                    sequence=seq,
+                    description=current_header
+                ))
+
+        return cls(chains=chains, name=name)
+
+    def to_fasta(self, use_separator: bool = False) -> str:
+        """Convert to FASTA format."""
+        if use_separator and len(self.chains) > 1:
+            seqs = ":".join(c.sequence for c in self.chains)
+            return f">{self.name or 'complex'}\n{seqs}"
+        else:
+            lines = []
+            for c in self.chains:
+                header = c.description or f"{self.name}_{c.chain_id}"
+                lines.append(f">{header}")
+                lines.append(c.sequence)
+            return "\n".join(lines)
+
+
+@dataclass
+class PerChainMetrics:
+    """Metrics computed per chain."""
+
+    chain_id: str
+    plddt: Optional[float] = None
+    plddt_per_residue: Optional[list[float]] = None
+    tm_score: Optional[float] = None
+    rmsd: Optional[float] = None
+    sequence_length: int = 0
+    secondary_structure: Optional[str] = None
+    disorder_fraction: Optional[float] = None
+
+
+@dataclass
+class MolProbityResult:
+    """MolProbity validation results."""
+
+    ramachandran_favored: float = 0.0
+    ramachandran_allowed: float = 0.0
+    ramachandran_outliers: float = 0.0
+    rotamer_outliers: float = 0.0
+    cbeta_deviations: int = 0
+    clashscore: float = 0.0
+    molprobity_score: float = 0.0
+    outlier_residues: list[dict] = field(default_factory=list)
 
 
 @dataclass
