@@ -434,9 +434,12 @@ def create_structure_viewer(
     """
     Create a 3D structure viewer using 3Dmol.js with Lab-OS Pro styling.
     """
+    import uuid
+
     structure_path = Path(structure_path)
     model_data = structure_path.read_text()
-    file_fmt = "mmcif" if structure_path.suffix == ".cif" else "pdb"
+    file_fmt = "mmcif" if structure_path.suffix.lower() in {".cif", ".mmcif"} else "pdb"
+    viewer_id = f"mol_viewer_{uuid.uuid4().hex[:10]}"
     
     style_spec = {}
     if style == "cartoon":
@@ -455,7 +458,7 @@ def create_structure_viewer(
 
     html = f"""
     <div class="pro-viewer-container" style="width: {width}; height: {height}px; background: {background_color}; border-radius: 20px; border: 1px solid rgba(255,255,255,0.05); overflow: hidden; position: relative;">
-        <div id="mol_viewer_{structure_path.stem}" style="width: 100%; height: 100%;"></div>
+        <div id="{viewer_id}" style="width: 100%; height: 100%;"></div>
         <div style="position: absolute; bottom: 15px; right: 20px; font-family: 'JetBrains Mono'; font-size: 0.6rem; color: #475569; letter-spacing: 0.1em; pointer-events: none;">
             PDHUB-OS // 3D_VIEWPORT_01 // {structure_path.name.upper()}
         </div>
@@ -464,7 +467,7 @@ def create_structure_viewer(
     <script src="https://3dmol.org/build/3Dmol-min.js"></script>
     <script>
         $(function() {{
-            let element = $("#mol_viewer_{structure_path.stem}");
+            let element = $("#{viewer_id}");
             let config = {{ backgroundColor: "{background_color}" }};
             let viewer = $3Dmol.createViewer(element, config);
             
@@ -496,6 +499,7 @@ def create_structure_comparison_3d(
     import uuid
     unique_id = f"structural_cmp_{uuid.uuid4().hex[:8]}"
     model_path = Path(model_path)
+    model_fmt = "mmcif" if model_path.suffix.lower() in {".cif", ".mmcif"} else "pdb"
     model_pdb = model_path.read_text().replace("`", "\`").replace("\\", "\\\\")
     
     ref_html = (
@@ -521,15 +525,16 @@ def create_structure_comparison_3d(
         let viewer = $3Dmol.createViewer("{unique_id}", {{ backgroundColor: '#050508' }});
         
         // Add model with spectrum coloring
-        let model = viewer.addModel(`{model_pdb}`, "pdb");
+        let model = viewer.addModel(`{model_pdb}`, "{model_fmt}");
         model.setStyle({{}}, {{cartoon: {{colorscheme: {{prop: 'b', gradient: 'roygb', min: 50, max: 90}}}}}});
     """
 
     if reference_path:
         reference_path = Path(reference_path)
+        ref_fmt = "mmcif" if reference_path.suffix.lower() in {".cif", ".mmcif"} else "pdb"
         ref_pdb = reference_path.read_text().replace("`", "\`").replace("\\", "\\\\")
         html += f"""
-        let reference = viewer.addModel(`{ref_pdb}`, "pdb");
+        let reference = viewer.addModel(`{ref_pdb}`, "{ref_fmt}");
         reference.setStyle({{}}, {{cartoon: {{color: '#475569', opacity: 0.6}}}});
         """
 

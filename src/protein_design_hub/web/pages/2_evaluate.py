@@ -365,18 +365,21 @@ if st.button("⚡ Run Quick Evaluation", type="primary", use_container_width=Tru
                 st.code(traceback.format_exc())
 
 if st.button("🚀 Run Comprehensive Evaluation", type="primary", use_container_width=True):
-    if not model_file:
-        st.error("Please upload a model structure")
+    if not model_file and chosen is None:
+        st.error("Please upload a model structure or select a recent output.")
     elif not reference_file:
         st.error("Please upload a reference structure for comparison")
     else:
         try:
-            # Save files temporarily
-            with tempfile.NamedTemporaryFile(
-                suffix=Path(model_file.name).suffix, delete=False
-            ) as tmp:
-                tmp.write(model_file.read())
-                model_path = Path(tmp.name)
+            # Resolve model path (uploaded or recent output)
+            if chosen is not None and model_file is None:
+                model_path = Path(chosen)
+            else:
+                with tempfile.NamedTemporaryFile(
+                    suffix=Path(model_file.name).suffix, delete=False
+                ) as tmp:
+                    tmp.write(model_file.read())
+                    model_path = Path(tmp.name)
 
             with tempfile.NamedTemporaryFile(
                 suffix=Path(reference_file.name).suffix, delete=False
