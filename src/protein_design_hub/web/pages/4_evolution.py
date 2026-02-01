@@ -39,7 +39,7 @@ st.markdown("""
     background: var(--pdhub-gradient-dark);
     border-radius: var(--pdhub-border-radius-lg);
     padding: var(--pdhub-space-lg);
-    color: white;
+    color: var(--pdhub-text-heading);
     margin: var(--pdhub-space-md) 0;
     box-shadow: var(--pdhub-shadow-md);
 }

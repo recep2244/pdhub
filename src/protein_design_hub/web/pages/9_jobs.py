@@ -147,15 +147,15 @@ for i in range(0, len(jobs), cols_per_row):
                 # Artifacts
                 badge_html = []
                 if job['has_prediction']:
-                    badge_html.append('<span style="background:#22c55e;color:white;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Predict</span>')
+                    badge_html.append('<span style="background:#22c55e;color:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Predict</span>')
                 if job['has_design']:
-                    badge_html.append('<span style="background:#667eea;color:white;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Design</span>')
+                    badge_html.append('<span style="background:#667eea;color:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Design</span>')
                 if job['has_compare']:
-                    badge_html.append('<span style="background:#60a5fa;color:white;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Eval</span>')
+                    badge_html.append('<span style="background:#60a5fa;color:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Eval</span>')
                 if job.get('has_evolution'):
-                    badge_html.append('<span style="background:#f59e0b;color:white;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Evo</span>')
+                    badge_html.append('<span style="background:#f59e0b;color:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Evo</span>')
                 if job.get('has_scan'):
-                    badge_html.append('<span style="background:#8b5cf6;color:white;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Scan</span>')
+                    badge_html.append('<span style="background:#8b5cf6;color:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Scan</span>')
 
                 if badge_html:
                     st.markdown(f'<div style="margin: 0.5rem 0;">{"".join(badge_html)}</div>', unsafe_allow_html=True)

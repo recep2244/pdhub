@@ -89,7 +89,7 @@ COMPARE_CSS = """
     height: 18px;
     border-radius: 50%;
     background: currentColor;
-    color: white;
+    color: var(--pdhub-text-heading);
     display: flex;
     align-items: center;
     justify-content: center;

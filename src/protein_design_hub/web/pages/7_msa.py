@@ -22,10 +22,10 @@ sidebar_system_status()
 # Custom CSS
 st.markdown("""
 <style>
-.conservation-high { background-color: #1a5276; color: white; }
-.conservation-medium { background-color: #5dade2; color: white; }
+.conservation-high { background-color: #1a5276; color: var(--pdhub-text-heading); }
+.conservation-medium { background-color: #5dade2; color: var(--pdhub-text-heading); }
 .conservation-low { background-color: #aed6f1; color: black; }
-.conservation-none { background-color: #f8f9fa; color: black; }
+.conservation-none { background-color: #1e2433; color: var(--pdhub-text-secondary); }
 .msa-cell {
     display: inline-block;
     width: 20px;
@@ -39,7 +39,7 @@ st.markdown("""
     background: var(--pdhub-gradient);
     border-radius: 12px;
     padding: 15px;
-    color: white;
+    color: var(--pdhub-text-heading);
     margin: 10px 0;
 }
 </style>

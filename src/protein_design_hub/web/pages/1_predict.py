@@ -84,7 +84,7 @@ PREDICT_CSS = """
     top: 8px;
     right: 10px;
     background: var(--pdhub-primary, #6366f1);
-    color: white;
+    color: var(--pdhub-text-heading);
     width: 20px;
     height: 20px;
     border-radius: 50%;

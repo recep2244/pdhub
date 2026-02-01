@@ -65,7 +65,7 @@ st.markdown("""
     padding: 20px;
     box-shadow: var(--pdhub-shadow-md);
     margin: 10px 0;
-    color: white;
+    color: var(--pdhub-text-heading);
     border: 1px solid var(--pdhub-border);
 }
 
@@ -75,7 +75,7 @@ st.markdown("""
     border-radius: 12px;
     padding: 15px;
     text-align: center;
-    color: white;
+    color: var(--pdhub-text-heading);
     box-shadow: var(--pdhub-shadow-sm);
 }
 
@@ -92,7 +92,7 @@ st.markdown("""
 /* Selection indicator */
 .selection-badge {
     background: var(--pdhub-grad-glow);
-    color: white;
+    color: var(--pdhub-text-heading);
     padding: 8px 16px;
     border-radius: 20px;
     font-weight: bold;
@@ -120,7 +120,7 @@ st.markdown("""
 
 .stTabs [aria-selected="true"] {
     background: var(--pdhub-gradient) !important;
-    color: white !important;
+    color: var(--pdhub-text-heading) !important;
     border-color: transparent !important;
 }
 
@@ -889,14 +889,14 @@ if seq:
                     style="cartoon",
                     color_by="spectrum",
                     spin=True,
-                    background_color="#ffffff"
+                    background_color="#0f1015"
                 )
                 components.html(html_view, height=520)
                 st.caption("Auto-generated 3D preview")
             else:
                  st.markdown("""
-                <div style="border: 2px dashed #ccc; border-radius: 10px; height: 350px; display: flex; align-items: center; justify-content: center; background: #f9f9f9;">
-                    <div style="text-align: center; color: #888;">
+                <div style="border: 2px dashed rgba(255,255,255,0.2); border-radius: 10px; height: 350px; display: flex; align-items: center; justify-content: center; background: #1a1f2b;">
+                    <div style="text-align: center; color: #9aa4b2;">
                         <div style="font-size: 40px; margin-bottom: 10px;">🧬</div>
                         <div>Run 'Predict Structure' to see 3D structure</div>
                     </div>

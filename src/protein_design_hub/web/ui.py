@@ -124,7 +124,7 @@ THEME_CSS = """
     --pdhub-text: #f1f5f9;
     --pdhub-text-secondary: #a1a9b8;
     --pdhub-text-muted: #6b7280;
-    --pdhub-text-heading: #ffffff;
+    --pdhub-text-heading: #e5e7eb;
 
     /* Primary Brand Colors */
     --pdhub-primary: #6366f1;
@@ -279,7 +279,7 @@ div.stDownloadButton > button[kind="primary"],
 div.stFormSubmitButton > button[kind="primary"] {
     background: var(--pdhub-grad-glow) !important;
     border: none !important;
-    color: white !important;
+    color: var(--pdhub-text-heading) !important;
     font-weight: 600 !important;
     box-shadow: var(--pdhub-shadow-sm), 0 4px 12px rgba(99, 102, 241, 0.3) !important;
 }
@@ -497,7 +497,7 @@ div.stFormSubmitButton > button[kind="secondary"]:hover {
 
 .stTabs [aria-selected="true"] {
     background: var(--pdhub-gradient) !important;
-    color: white !important;
+    color: var(--pdhub-text-heading) !important;
     font-weight: 600 !important;
 }
 
@@ -671,14 +671,14 @@ div.stFormSubmitButton > button[kind="secondary"]:hover {
 .pdhub-step-active .pdhub-step-circle {
     background: var(--pdhub-gradient);
     border: none;
-    color: white;
+    color: var(--pdhub-text-heading);
     box-shadow: 0 0 12px var(--pdhub-primary-glow);
 }
 
 .pdhub-step-completed .pdhub-step-circle {
     background: var(--pdhub-success);
     border: none;
-    color: white;
+    color: var(--pdhub-text-heading);
 }
 
 .pdhub-step-line {
@@ -1043,7 +1043,7 @@ div.stFormSubmitButton > button[kind="secondary"]:hover {
 }
 
 [data-testid="stSlider"] [role="slider"] {
-    background: white !important;
+    background: var(--pdhub-text-heading) !important;
     border: 2px solid var(--pdhub-primary) !important;
     box-shadow: var(--pdhub-shadow-sm) !important;
 }

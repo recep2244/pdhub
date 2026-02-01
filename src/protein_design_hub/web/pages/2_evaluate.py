@@ -174,7 +174,7 @@ EVALUATE_CSS = """
     font-family: 'JetBrains Mono', monospace;
     font-size: 1.4rem;
     font-weight: 600;
-    color: var(--pdhub-text-heading, #ffffff);
+    color: var(--pdhub-text-heading, #e5e7eb);
 }
 
 .metric-tile-label {
@@ -264,7 +264,7 @@ EVALUATE_CSS = """
     height: 28px;
     border-radius: 50%;
     background: var(--pdhub-primary, #6366f1);
-    color: white;
+    color: var(--pdhub-text-heading);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1515,13 +1515,13 @@ if run_comprehensive:
                             # Color code by quality
                             def color_lddt(val):
                                 if val >= 0.9:
-                                    return "background-color: #0053d6; color: white"
+                                    return "background-color: #0053d6; color: #e5e7eb"
                                 elif val >= 0.7:
                                     return "background-color: #65cbf3"
                                 elif val >= 0.5:
                                     return "background-color: #ffdb13"
                                 else:
-                                    return "background-color: #ff7d45; color: white"
+                                    return "background-color: #ff7d45; color: #e5e7eb"
 
                             if "lddt" in df_details.columns:
                                 styled = df_details.style.applymap(color_lddt, subset=["lddt"])
