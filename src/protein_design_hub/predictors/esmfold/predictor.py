@@ -190,6 +190,8 @@ class ESMFoldAPIPredictor(BasePredictor):
         structure_path.write_text(response.text)
 
         plddt_values = _extract_plddt_from_pdb(structure_path)
+        if plddt_values and max(plddt_values) <= 1.0:
+            plddt_values = [v * 100.0 for v in plddt_values]
         mean_plddt = (sum(plddt_values) / len(plddt_values)) if plddt_values else None
 
         return PredictionResult(

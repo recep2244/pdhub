@@ -801,6 +801,8 @@ if st.session_state.sequence:
                         values.append(float(v))
                     except Exception:
                         values.append(float("nan"))
+                if values and max(values) <= 1.0:
+                    values = [v * 100.0 for v in values]
                 try:
                     from protein_design_hub.web.visualizations import create_plddt_plot
                     title = "Per-Residue pLDDT (Base)"

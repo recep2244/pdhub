@@ -360,6 +360,8 @@ class MutationScanner:
         pdb_text = response.text
         output_path.write_text(pdb_text)
         plddt_values = self._extract_plddt_from_pdb(pdb_text)
+        if plddt_values and max(plddt_values) <= 1.0:
+            plddt_values = [v * 100.0 for v in plddt_values]
         return pdb_text, plddt_values
     
     def _predict_esmfold_local(
