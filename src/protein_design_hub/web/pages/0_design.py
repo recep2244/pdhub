@@ -5,7 +5,15 @@ from pathlib import Path
 import json
 import tempfile
 
-from protein_design_hub.web.ui import inject_base_css, sidebar_nav, sidebar_system_status, metric_card
+from protein_design_hub.web.ui import (
+    inject_base_css,
+    sidebar_nav,
+    sidebar_system_status,
+    metric_card,
+    page_header,
+    section_header,
+    info_box,
+)
 
 st.set_page_config(page_title="Design - Protein Design Hub", page_icon="🧬", layout="wide")
 
@@ -228,17 +236,12 @@ def select_range(start, end):
     for i in range(start, end + 1):
         st.session_state.selected_positions.add(i)
 
-# Title
-st.markdown("""
-<div style="text-align: center; padding: 20px;">
-    <h1 style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-               -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-               font-size: 3rem; margin-bottom: 0;">
-        🧬 Interactive Protein Designer
-    </h1>
-    <p style="color: var(--pdhub-text-secondary); font-size: 1.2rem;">Click residues to select, modify multiple at once, attach ligands</p>
-</div>
-""", unsafe_allow_html=True)
+# Page Header
+page_header(
+    "Interactive Protein Designer",
+    "Click residues to select, modify multiple at once, attach ligands",
+    "🧬"
+)
 
 # === TOP SECTION: Input and Quick Actions ===
 col_input, col_actions = st.columns([2, 1])

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import List
 
@@ -53,6 +54,15 @@ def main() -> int:
     import esm
     from esm.sdk.api import ESMProtein, GenerationConfig
 
+    hf_token = (
+        payload.get("hf_token")
+        or os.getenv("ESM3_HF_TOKEN")
+        or os.getenv("HUGGINGFACE_HUB_TOKEN")
+        or os.getenv("HF_TOKEN")
+    )
+    if hf_token:
+        os.environ["HUGGINGFACE_HUB_TOKEN"] = hf_token
+
     token = payload.get("forge_token")
     if token:
         model = esm.sdk.client(model_name, token=token)
@@ -60,7 +70,14 @@ def main() -> int:
         from esm.models.esm3 import ESM3
         import torch
 
-        device = payload.get("device") or ("cuda" if torch.cuda.is_available() else "cpu")
+        requested_device = payload.get("device") or ""
+        device = requested_device or ("cuda" if torch.cuda.is_available() else "cpu")
+        if device.startswith("cuda"):
+            try:
+                if not torch.cuda.is_available():
+                    device = "cpu"
+            except Exception:
+                device = "cpu"
         model = ESM3.from_pretrained(model_name).to(device)
 
     protein = ESMProtein(sequence=sequence)

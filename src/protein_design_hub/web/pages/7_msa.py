@@ -4,7 +4,13 @@ import streamlit as st
 from pathlib import Path
 import json
 
-from protein_design_hub.web.ui import inject_base_css, sidebar_nav, sidebar_system_status
+from protein_design_hub.web.ui import (
+    inject_base_css,
+    sidebar_nav,
+    sidebar_system_status,
+    page_header,
+    section_header,
+)
 
 st.set_page_config(page_title="MSA Analysis - Protein Design Hub", page_icon="🧬", layout="wide")
 
@@ -45,37 +51,46 @@ if 'msa_alignment' not in st.session_state:
 if 'msa_names' not in st.session_state:
     st.session_state.msa_names = None
 
-# Title
-st.markdown("""
-<div style="text-align: center; padding: 20px;">
-    <h1 style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-               -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-               font-size: 2.5rem;">
-        🧬 MSA & Evolutionary Analysis
-    </h1>
-    <p style="color: var(--pdhub-text-secondary);">Analyze conservation, coevolution, and ancestral sequences</p>
-</div>
-""", unsafe_allow_html=True)
+# Page Header
+page_header(
+    "MSA & Evolutionary Analysis",
+    "Analyze conservation, coevolution, and ancestral sequences",
+    "🧬"
+)
 
 # Main tabs
 main_tabs = st.tabs(["📥 Input", "📊 Conservation", "🔗 Coevolution", "🌳 Ancestral", "📈 PSSM"])
 
 # === INPUT TAB ===
 with main_tabs[0]:
-    st.markdown("### 📥 Load Multiple Sequence Alignment")
+    section_header("Load MSA", "Upload or paste a multiple sequence alignment", "📥")
 
-    input_method = st.radio(
-        "Input method",
-        ["Upload file", "Paste alignment", "Fetch from UniProt (Clustal)"],
-        horizontal=True
-    )
+    col_method, col_info = st.columns([3, 1])
+    with col_method:
+        input_method = st.radio(
+            "Input method",
+            ["Upload file", "Paste alignment", "Fetch from UniProt"],
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+    with col_info:
+        with st.popover("📖 Supported Formats"):
+            st.markdown("""
+            **Supported file formats:**
+            - FASTA (.fasta, .fa)
+            - A3M (.a3m)
+            - Stockholm (.sto)
+            - Clustal (.aln)
+            """)
 
     if input_method == "Upload file":
-        uploaded = st.file_uploader(
-            "Upload MSA file",
-            type=["fasta", "fa", "a3m", "sto", "aln"],
-            help="FASTA, A3M, Stockholm, or Clustal format"
-        )
+        with st.container(border=True):
+            uploaded = st.file_uploader(
+                "Upload MSA file (FASTA, A3M, Stockholm, Clustal)",
+                type=["fasta", "fa", "a3m", "sto", "aln"],
+                help="Drag and drop or click to browse",
+                label_visibility="collapsed"
+            )
 
         if uploaded:
             content = uploaded.read().decode()

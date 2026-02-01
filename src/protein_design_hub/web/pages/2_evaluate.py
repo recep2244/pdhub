@@ -1,9 +1,11 @@
 """Comprehensive Evaluation page with all OpenStructure metrics."""
 
-import streamlit as st
-from pathlib import Path
-import tempfile
 import json
+import tempfile
+from pathlib import Path
+from typing import Optional
+
+import streamlit as st
 
 st.set_page_config(page_title="Evaluate - Protein Design Hub", page_icon="📊", layout="wide")
 
@@ -12,6 +14,7 @@ from protein_design_hub.web.ui import (
     inject_base_css,
     list_output_structures,
     page_header,
+    section_header,
     set_selected_model,
     sidebar_nav,
     sidebar_system_status,
@@ -20,9 +23,362 @@ from protein_design_hub.web.ui import (
     card_end,
     empty_state,
     render_badge,
+    info_box,
 )
 
 inject_base_css()
+
+# =============================================================================
+# Page-specific CSS for enhanced UI
+# =============================================================================
+EVALUATE_CSS = """
+<style>
+/* Evaluation Panel Styling */
+.evaluation-panel {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.05));
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.evaluation-panel-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--pdhub-primary-light, #818cf8);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+}
+
+/* Input Card Styling */
+.input-card {
+    background: var(--pdhub-bg-card, rgba(18, 20, 28, 0.9));
+    border: 1px solid var(--pdhub-border, rgba(255, 255, 255, 0.10));
+    border-radius: 14px;
+    padding: 1.25rem;
+    transition: all 0.25s ease;
+    margin-bottom: 1rem;
+}
+
+.input-card:hover {
+    border-color: var(--pdhub-border-strong, rgba(255, 255, 255, 0.18));
+}
+
+.input-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--pdhub-border, rgba(255, 255, 255, 0.10));
+}
+
+.input-card-icon {
+    font-size: 1.25rem;
+}
+
+.input-card-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--pdhub-text, #f1f5f9);
+}
+
+.input-card-subtitle {
+    font-size: 0.8rem;
+    color: var(--pdhub-text-muted, #6b7280);
+}
+
+/* Run Section Styling */
+.run-section {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(59, 130, 246, 0.1));
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+}
+
+.run-section.disabled {
+    background: var(--pdhub-bg-card, rgba(20,20,30,0.5));
+    border-color: var(--pdhub-border, rgba(100,100,100,0.3));
+}
+
+.run-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.run-section-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--pdhub-text, #f1f5f9);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Status Indicator */
+.status-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.status-ready {
+    background: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.status-waiting {
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.status-error {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Metric Grid */
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin: 1rem 0;
+}
+
+.metric-tile {
+    background: var(--pdhub-bg-card, rgba(18, 20, 28, 0.9));
+    border: 1px solid var(--pdhub-border, rgba(255, 255, 255, 0.10));
+    border-radius: 10px;
+    padding: 1rem;
+    text-align: center;
+    transition: all 0.2s ease;
+}
+
+.metric-tile:hover {
+    border-color: var(--pdhub-primary, #6366f1);
+    transform: translateY(-2px);
+}
+
+.metric-tile-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: var(--pdhub-text-heading, #ffffff);
+}
+
+.metric-tile-label {
+    font-size: 0.75rem;
+    color: var(--pdhub-text-secondary, #a1a9b8);
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.metric-tile-icon {
+    font-size: 1.25rem;
+    margin-bottom: 6px;
+}
+
+/* Metric Categories */
+.metric-category {
+    background: var(--pdhub-bg-card, rgba(18, 20, 28, 0.9));
+    border: 1px solid var(--pdhub-border, rgba(255, 255, 255, 0.10));
+    border-radius: 12px;
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.metric-category-header {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--pdhub-text, #f1f5f9);
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Settings Panel */
+.settings-panel {
+    background: var(--pdhub-bg-card, rgba(20,20,30,0.6));
+    border: 1px solid var(--pdhub-border, rgba(100,100,100,0.3));
+    border-radius: 12px;
+    padding: 1rem;
+    margin-top: 0.5rem;
+}
+
+.settings-header {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--pdhub-text-secondary, #a1a9b8);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--pdhub-border, rgba(100,100,100,0.2));
+}
+
+/* Results Dashboard */
+.results-header {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(59, 130, 246, 0.1));
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.results-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--pdhub-text, #f1f5f9);
+    margin-bottom: 0.5rem;
+}
+
+.results-subtitle {
+    font-size: 0.9rem;
+    color: var(--pdhub-text-secondary, #a1a9b8);
+}
+
+/* Workflow Steps */
+.workflow-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 0.75rem 0;
+}
+
+.workflow-step-number {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--pdhub-primary, #6366f1);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+}
+
+.workflow-step-content {
+    flex: 1;
+}
+
+.workflow-step-title {
+    font-weight: 600;
+    color: var(--pdhub-text, #f1f5f9);
+    margin-bottom: 2px;
+}
+
+.workflow-step-desc {
+    font-size: 0.85rem;
+    color: var(--pdhub-text-secondary, #a1a9b8);
+}
+
+/* Checklist Item */
+.checklist-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: var(--pdhub-bg-light, rgba(255, 255, 255, 0.05));
+    margin: 4px 0;
+}
+
+.checklist-icon {
+    width: 20px;
+    text-align: center;
+}
+
+.checklist-done {
+    color: #22c55e;
+}
+
+.checklist-pending {
+    color: #6b7280;
+}
+
+/* File Status */
+.file-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: var(--pdhub-bg-light, rgba(255, 255, 255, 0.05));
+    margin: 8px 0;
+}
+
+.file-status-icon {
+    font-size: 1.1rem;
+}
+
+.file-status-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--pdhub-text, #f1f5f9);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-status-badge {
+    font-size: 0.7rem;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-weight: 600;
+}
+
+.file-status-badge-ok {
+    background: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+}
+
+.file-status-badge-optional {
+    background: rgba(99, 102, 241, 0.15);
+    color: #818cf8;
+}
+
+/* Visual Placeholder */
+.visual-placeholder {
+    border: 2px dashed var(--pdhub-border, rgba(100,100,100,0.3));
+    border-radius: 12px;
+    height: 350px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--pdhub-bg-card, rgba(18, 20, 28, 0.5));
+}
+
+.visual-placeholder-content {
+    text-align: center;
+    color: var(--pdhub-text-muted, #6b7280);
+}
+
+.visual-placeholder-icon {
+    font-size: 2.5rem;
+    margin-bottom: 0.75rem;
+    opacity: 0.6;
+}
+</style>
+"""
+
+st.markdown(EVALUATE_CSS, unsafe_allow_html=True)
 
 
 def _summarize_metric_value(value):
@@ -92,100 +448,196 @@ page_header(
 sidebar_nav(current="Evaluate")
 sidebar_system_status()
 
-# Sidebar settings
-st.sidebar.markdown("### Evaluation Parameters")
-st.markdown(
-    "Evaluate predicted structures using OpenStructure metrics at global, per-residue, per-chain, and interface levels"
-)
-
-# Sidebar
-st.sidebar.header("⚙️ Evaluation Settings")
-
-# Quick evaluation (design-focused, reference optional)
-st.sidebar.subheader("Quick Evaluation (Recommended)")
+# Initialize metric selection
 try:
     from protein_design_hub.evaluation.composite import CompositeEvaluator
-
     _all = CompositeEvaluator.list_all_metrics()
     _metric_names = [m["name"] for m in _all]
-    quick_metrics = st.sidebar.multiselect(
-        "Metrics",
-        options=_metric_names,
-        default=[
-            "clash_score",
-            "contact_energy",
-            "sasa",
-            "interface_bsa",
-            "salt_bridges",
-            "voromqa",
-            "cad_score",
-        ],
-        help="Reference-free metrics are great for design ranking. Reference-based metrics need a reference structure.",
-    )
-    quick_metrics = list(quick_metrics)
+    _metric_info = {m["name"]: m for m in _all}
 except Exception:
-    quick_metrics = ["clash_score", "contact_energy", "sasa"]
+    _metric_names = ["clash_score", "contact_energy", "sasa"]
+    _metric_info = {}
 
-# Metric selection - Global
-st.sidebar.subheader("Global Metrics")
-compute_lddt = st.sidebar.checkbox("lDDT (Local Distance)", value=True)
-compute_bb_lddt = st.sidebar.checkbox("BB-lDDT (Backbone only)", value=False)
-compute_rmsd = st.sidebar.checkbox("RMSD & GDT (Rigid Scores)", value=True)
-compute_tm = st.sidebar.checkbox("TM-score", value=True)
-compute_cad = st.sidebar.checkbox("CAD-score", value=False, help="Requires voronota")
+# Initialize session state for metrics
+if "quick_metrics" not in st.session_state:
+    st.session_state.quick_metrics = [
+        "clash_score",
+        "contact_energy",
+        "sasa",
+        "interface_bsa",
+        "salt_bridges",
+        "voromqa",
+        "cad_score",
+    ]
 
-if compute_cad and "cad_score" not in quick_metrics:
-    quick_metrics.append("cad_score")
-elif not compute_cad and "cad_score" in quick_metrics:
-    quick_metrics.remove("cad_score")
+# Sidebar - Simplified Tool Status
+with st.sidebar.expander("Tool Status", expanded=False):
+    try:
+        from protein_design_hub.evaluation.ost_runner import get_ost_runner
+        runner = get_ost_runner()
+        if runner.is_available():
+            version = runner.get_version()
+            st.success(f"OpenStructure: v{version}")
+        else:
+            st.error("OpenStructure: Not available")
+            st.caption("Install: `micromamba create -n ost -c conda-forge -c bioconda openstructure`")
+    except Exception as e:
+        st.error(f"Error checking tools: {e}")
 
-# Interface metrics
-st.sidebar.subheader("Interface Metrics")
-compute_qs = st.sidebar.checkbox("QS-score (Quaternary)", value=True)
-compute_dockq = st.sidebar.checkbox(
-    "DockQ (Interface Quality)", value=True, help="fnat, irmsd, lrmsd"
-)
-compute_ilddt = st.sidebar.checkbox("iLDDT (Inter-chain lDDT)", value=False)
-compute_ics = st.sidebar.checkbox(
-    "ICS (Contact Similarity)", value=True, help="Precision/Recall/F1"
-)
-compute_ips = st.sidebar.checkbox("IPS (Patch Similarity)", value=True, help="Jaccard coefficient")
-compute_patch = st.sidebar.checkbox(
-    "Patch Scores (CASP15)", value=True, help="Local interface quality"
-)
+# =============================================================================
+# SECTION 1: Evaluation Configuration (Main Content Area)
+# =============================================================================
+section_header("Evaluation Configuration", "Select metrics and parameters", "⚙️")
 
-# Advanced settings
-with st.sidebar.expander("Advanced Settings"):
-    st.markdown("**lDDT Settings**")
-    lddt_radius = st.number_input("Inclusion radius (Å)", value=15.0, min_value=5.0, max_value=30.0)
-    lddt_seq_sep = st.number_input("Sequence separation", value=0, min_value=0, max_value=10)
+col_config, col_preview = st.columns([2, 1])
 
-    st.markdown("**RMSD Settings**")
-    rmsd_atoms = st.selectbox("Atom selection", options=["CA", "backbone", "heavy", "all"], index=0)
-
-    st.markdown("**DockQ Settings**")
-    dockq_capri_peptide = st.checkbox(
-        "CAPRI Peptide Mode", value=False, help="For small peptide docking"
+with col_config:
+    # Evaluation Mode Selection
+    st.markdown("##### Evaluation Mode")
+    eval_mode = st.radio(
+        "Mode",
+        ["Quick (Design Ranking)", "Comprehensive (Full Analysis)"],
+        index=0,
+        horizontal=True,
+        help="Quick mode for fast design screening, Comprehensive for detailed structural analysis",
+        label_visibility="collapsed"
     )
 
-    st.markdown("**Chain Mapping**")
-    chem_seqid_thresh = st.slider("Chain grouping threshold (%)", 50, 100, 95)
-    map_seqid_thresh = st.slider("Mapping threshold (%)", 30, 100, 70)
+    # Metric Selection
+    st.markdown("##### Metrics Selection")
 
-# Evaluation mode
-eval_mode = st.sidebar.radio(
-    "Evaluation Mode", ["Comprehensive (All Levels)", "Quick (Global Only)"], index=0
-)
+    # Group metrics by category
+    ref_free_metrics = ["clash_score", "contact_energy", "sasa", "interface_bsa", "salt_bridges", "voromqa", "cad_score", "disorder"]
+    ref_based_metrics = ["lddt", "tm_score", "rmsd", "gdt_ts", "gdt_ha", "qs_score", "sequence_recovery"]
+    interface_metrics = ["dockq", "ics", "ips", "ilddt", "patch_scores", "lddt_pli", "shape_complementarity"]
+
+    tab_refree, tab_refbased, tab_interface = st.tabs(["Reference-Free", "Reference-Based", "Interface"])
+
+    with tab_refree:
+        st.caption("Metrics that work without a reference structure - ideal for design ranking")
+        available_ref_free = [m for m in ref_free_metrics if m in _metric_names]
+        selected_ref_free = st.multiselect(
+            "Reference-free metrics",
+            options=available_ref_free,
+            default=[m for m in st.session_state.quick_metrics if m in available_ref_free],
+            key="ref_free_select",
+            label_visibility="collapsed"
+        )
+
+    with tab_refbased:
+        st.caption("Metrics requiring a reference structure for comparison")
+        available_ref_based = [m for m in ref_based_metrics if m in _metric_names]
+        selected_ref_based = st.multiselect(
+            "Reference-based metrics",
+            options=available_ref_based,
+            default=["lddt", "tm_score", "rmsd"] if eval_mode.startswith("Comprehensive") else [],
+            key="ref_based_select",
+            label_visibility="collapsed"
+        )
+
+    with tab_interface:
+        st.caption("Interface quality metrics for complexes")
+        available_interface = [m for m in interface_metrics if m in _metric_names]
+        selected_interface = st.multiselect(
+            "Interface metrics",
+            options=available_interface,
+            default=[],
+            key="interface_select",
+            label_visibility="collapsed"
+        )
+
+    # Combine all selected metrics
+    quick_metrics = list(set(selected_ref_free + selected_ref_based + selected_interface))
+    st.session_state.quick_metrics = quick_metrics
+
+    # Advanced Settings
+    with st.expander("Advanced Parameters", expanded=False):
+        col_adv1, col_adv2 = st.columns(2)
+
+        with col_adv1:
+            st.markdown("**lDDT Settings**")
+            lddt_radius = st.number_input("Inclusion radius (Å)", value=15.0, min_value=5.0, max_value=30.0)
+            lddt_seq_sep = st.number_input("Sequence separation", value=0, min_value=0, max_value=10)
+
+        with col_adv2:
+            st.markdown("**RMSD Settings**")
+            rmsd_atoms = st.selectbox("Atom selection", options=["CA", "backbone", "heavy", "all"], index=0)
+
+            st.markdown("**Chain Mapping**")
+            chem_seqid_thresh = st.slider("Chain grouping (%)", 50, 100, 95)
+            map_seqid_thresh = st.slider("Mapping threshold (%)", 30, 100, 70)
+
+with col_preview:
+    # Metrics Summary Panel
+    st.markdown("""
+    <div class="evaluation-panel">
+        <div class="evaluation-panel-title">Selected Metrics</div>
+    """, unsafe_allow_html=True)
+
+    if quick_metrics:
+        ref_free_count = len([m for m in quick_metrics if m in ref_free_metrics])
+        ref_based_count = len([m for m in quick_metrics if m in ref_based_metrics])
+        interface_count = len([m for m in quick_metrics if m in interface_metrics])
+
+        st.markdown(f"""
+        <div style="text-align: center; margin-bottom: 1rem;">
+            <div style="font-size: 2.5rem; font-weight: 700; color: #60a5fa;">{len(quick_metrics)}</div>
+            <div style="font-size: 0.8rem; color: #94a3b8;">Total Metrics</div>
+        </div>
+        <div class="checklist-item">
+            <span class="checklist-icon {'checklist-done' if ref_free_count > 0 else 'checklist-pending'}">{'✓' if ref_free_count > 0 else '○'}</span>
+            <span>{ref_free_count} Reference-free</span>
+        </div>
+        <div class="checklist-item">
+            <span class="checklist-icon {'checklist-done' if ref_based_count > 0 else 'checklist-pending'}">{'✓' if ref_based_count > 0 else '○'}</span>
+            <span>{ref_based_count} Reference-based</span>
+        </div>
+        <div class="checklist-item">
+            <span class="checklist-icon {'checklist-done' if interface_count > 0 else 'checklist-pending'}">{'✓' if interface_count > 0 else '○'}</span>
+            <span>{interface_count} Interface</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Show if reference is required
+        needs_ref = any(m in ref_based_metrics or m in interface_metrics for m in quick_metrics)
+        if needs_ref:
+            st.markdown("""
+            <div style="margin-top: 1rem; padding: 8px 12px; background: rgba(245, 158, 11, 0.15); border-radius: 8px; font-size: 0.8rem; color: #f59e0b;">
+                ⚠️ Reference structure required
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style="text-align: center; padding: 1.5rem; color: #6b7280;">
+            <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">📊</div>
+            <div>No metrics selected</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
-# Main content
-col_visual, col_upload = st.columns([1, 1])
+# =============================================================================
+# SECTION 2: Input Structures
+# =============================================================================
+section_header("Input Structures", "Upload or select structures to evaluate", "📁")
+
+col_upload, col_visual = st.columns([1, 1])
 
 with col_upload:
-    st.markdown("### 📁 Input Structures")
-    
-    st.caption("Model Structure (Required)")
-    # Model Uploader
+    # Model structure card
+    st.markdown("""
+    <div class="input-card">
+        <div class="input-card-header">
+            <span class="input-card-icon">🧬</span>
+            <div>
+                <div class="input-card-title">Model Structure</div>
+                <div class="input-card-subtitle">Required - The structure to evaluate</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # Check for pre-selected model from Jobs page
     try:
         from protein_design_hub.core.config import get_settings
         _settings = get_settings()
@@ -197,41 +649,88 @@ with col_upload:
     sel = get_selected_model()
     if sel is not None and sel.exists():
         chosen = sel
-        st.success("Using selected model from Jobs")
-        if st.button("Clear selected model", key="clear_sel_model"):
+        st.markdown(f"""
+        <div class="file-status">
+            <span class="file-status-icon">✅</span>
+            <span class="file-status-name">{sel.name}</span>
+            <span class="file-status-badge file-status-badge-ok">Selected</span>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("Clear selection", key="clear_sel_model", type="secondary", use_container_width=True):
             set_selected_model(None)
             st.rerun()
+    else:
+        if recent:
+            chosen = st.selectbox(
+                "Choose from recent outputs",
+                options=[None] + recent,
+                format_func=lambda p: "— Select structure —" if p is None else p.name,
+                index=0,
+                key="recent_model"
+            )
 
-    if recent:
-        default_index = 0
-        if chosen is not None and chosen in recent:
-            default_index = 1 + recent.index(chosen)
-        chosen = st.selectbox(
-            "Use recent output (optional)",
-            options=[None] + recent,
-            format_func=lambda p: "—" if p is None else str(p),
-            index=default_index,
+        model_file = st.file_uploader(
+            "Or upload PDB/CIF file",
+            type=["pdb", "cif", "mmcif"],
+            key="model",
+            help="Structure to evaluate",
         )
-    
-    model_file = st.file_uploader(
-        "Upload model structure",
-        type=["pdb", "cif", "mmcif"],
-        key="model",
-        help="Structure to evaluate",
-    )
-    
-    st.caption("Reference Structure (Optional)")
+
+        if model_file:
+            st.markdown(f"""
+            <div class="file-status">
+                <span class="file-status-icon">📄</span>
+                <span class="file-status-name">{model_file.name}</span>
+                <span class="file-status-badge file-status-badge-ok">Uploaded</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # Reference structure card
+    needs_reference = any(m in ref_based_metrics or m in interface_metrics for m in quick_metrics)
+    ref_status = "Required" if needs_reference else "Optional"
+    ref_color = "warning" if needs_reference else "info"
+
+    st.markdown(f"""
+    <div class="input-card">
+        <div class="input-card-header">
+            <span class="input-card-icon">📏</span>
+            <div>
+                <div class="input-card-title">Reference Structure</div>
+                <div class="input-card-subtitle">{ref_status} - Ground truth for comparison</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
     reference_file = st.file_uploader(
-        "Upload reference structure",
+        "Upload reference PDB/CIF",
         type=["pdb", "cif", "mmcif"],
         key="reference",
         help="Ground truth structure for comparison",
     )
-    
+
     if reference_file:
-        st.success(f"✅ Ref: {reference_file.name}")
+        st.markdown(f"""
+        <div class="file-status">
+            <span class="file-status-icon">✅</span>
+            <span class="file-status-name">{reference_file.name}</span>
+            <span class="file-status-badge file-status-badge-ok">Uploaded</span>
+        </div>
+        """, unsafe_allow_html=True)
     else:
-        st.info("ℹ️ Reference needed for lDDT/TM/RMSD")
+        if needs_reference:
+            st.warning("Reference needed for selected metrics")
+        else:
+            st.markdown(f"""
+            <div class="file-status">
+                <span class="file-status-icon">ℹ️</span>
+                <span class="file-status-name">Not provided</span>
+                <span class="file-status-badge file-status-badge-optional">Optional</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # Determine active model path for visualization
 active_model_path = None
@@ -239,7 +738,7 @@ active_ref_path = None
 
 if chosen:
     active_model_path = Path(chosen)
-elif model_file:
+elif 'model_file' in dir() and model_file:
     # Save temp for visualization
     with tempfile.NamedTemporaryFile(suffix=Path(model_file.name).suffix, delete=False) as tmp:
         tmp.write(model_file.read())
@@ -253,7 +752,17 @@ if reference_file:
         reference_file.seek(0)
 
 with col_visual:
-    st.markdown("### 🧬 Visual Inspection")
+    st.markdown("""
+    <div class="input-card" style="height: 100%;">
+        <div class="input-card-header">
+            <span class="input-card-icon">🔬</span>
+            <div>
+                <div class="input-card-title">Visual Inspection</div>
+                <div class="input-card-subtitle">3D structure preview</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
     if active_model_path:
         from protein_design_hub.web.visualizations import (
             create_structure_comparison_3d,
@@ -264,13 +773,13 @@ with col_visual:
         )
         import streamlit.components.v1 as components
 
-        st.caption(f"Visualizing: {active_model_path.name}")
+        st.caption(f"Viewing: `{active_model_path.name}`")
         html_view = create_structure_comparison_3d(
             active_model_path,
             active_ref_path,
             highlight_differences=True
         )
-        components.html(html_view, height=400)
+        components.html(html_view, height=350)
 
         # Extract sequence and pLDDT from structure for enhanced display
         try:
@@ -298,48 +807,134 @@ with col_visual:
                 break
 
             if sequence and plddt_values:
-                # Show pLDDT-colored sequence viewer
                 mean_plddt = sum(plddt_values) / len(plddt_values) if plddt_values else 0
 
-                with st.expander("📊 Sequence with Confidence Coloring", expanded=True):
+                # Quick stats
+                st.markdown(f"""
+                <div class="metric-grid">
+                    <div class="metric-tile">
+                        <div class="metric-tile-icon">📐</div>
+                        <div class="metric-tile-value">{len(sequence)}</div>
+                        <div class="metric-tile-label">Residues</div>
+                    </div>
+                    <div class="metric-tile">
+                        <div class="metric-tile-icon">⭐</div>
+                        <div class="metric-tile-value">{mean_plddt:.1f}</div>
+                        <div class="metric-tile-label">Avg pLDDT</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                with st.expander("Sequence with Confidence", expanded=False):
                     seq_html = create_plddt_sequence_viewer(
                         sequence[:100] + ("..." if len(sequence) > 100 else ""),
                         plddt_values[:100] if len(plddt_values) > 100 else plddt_values,
                         label=active_model_path.stem[:15],
                         show_ruler=True
                     )
-                    components.html(seq_html, height=180, scrolling=True)
+                    components.html(seq_html, height=150, scrolling=True)
                     if len(sequence) > 100:
                         st.caption(f"Showing first 100 of {len(sequence)} residues")
-
-                # Model quality summary
-                with st.expander("📈 Model Quality Assessment", expanded=False):
-                    quality_html = create_model_quality_summary(
-                        mean_plddt=mean_plddt,
-                        ptm=None,  # Would need to extract from JSON
-                    )
-                    components.html(quality_html, height=100)
         except Exception as e:
             pass  # Silently skip enhanced view if parsing fails
 
     else:
-        st.info("👈 Upload or select a structure to visualize it here.")
-
-        # Placeholder animation
         st.markdown("""
-        <div style="border: 2px dashed #ccc; border-radius: 10px; height: 350px; display: flex; align-items: center; justify-content: center; background: #f9f9f9;">
-            <div style="text-align: center; color: #888;">
-                <div style="font-size: 40px; margin-bottom: 10px;">🧬</div>
-                <div>3D Viewer will appear here</div>
+        <div class="visual-placeholder">
+            <div class="visual-placeholder-content">
+                <div class="visual-placeholder-icon">🧬</div>
+                <div>Upload or select a structure</div>
+                <div style="font-size: 0.8rem; margin-top: 4px;">3D viewer will appear here</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# Run evaluation
-st.markdown("---")
 
-if st.button("⚡ Run Quick Evaluation", type="primary", use_container_width=True):
+# =============================================================================
+# SECTION 3: Run Evaluation
+# =============================================================================
+section_header("Run Evaluation", "Execute selected metrics on your structure", "🚀")
+
+# Determine readiness
+has_model = chosen is not None or ('model_file' in dir() and model_file is not None)
+has_reference = reference_file is not None
+needs_reference_for_metrics = any(m in ref_based_metrics or m in interface_metrics for m in quick_metrics)
+is_ready = has_model and (not needs_reference_for_metrics or has_reference)
+
+# Status indicators
+run_section_class = "" if is_ready else "disabled"
+
+st.markdown(f'<div class="run-section {run_section_class}">', unsafe_allow_html=True)
+
+col_status, col_actions = st.columns([2, 1])
+
+with col_status:
+    st.markdown('<div class="run-section-title">🎯 Evaluation Status</div>', unsafe_allow_html=True)
+
+    # Checklist
+    st.markdown(f"""
+    <div class="checklist-item">
+        <span class="checklist-icon {'checklist-done' if has_model else 'checklist-pending'}">{'✓' if has_model else '○'}</span>
+        <span>Model structure {'loaded' if has_model else 'required'}</span>
+    </div>
+    <div class="checklist-item">
+        <span class="checklist-icon {'checklist-done' if has_reference else ('checklist-pending' if needs_reference_for_metrics else 'checklist-done')}">{'✓' if has_reference or not needs_reference_for_metrics else '○'}</span>
+        <span>Reference structure {'loaded' if has_reference else ('required' if needs_reference_for_metrics else 'not needed')}</span>
+    </div>
+    <div class="checklist-item">
+        <span class="checklist-icon {'checklist-done' if quick_metrics else 'checklist-pending'}">{'✓' if quick_metrics else '○'}</span>
+        <span>{len(quick_metrics)} metrics selected</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_actions:
+    # Status badge
+    if is_ready:
+        st.markdown("""
+        <div style="text-align: center; margin-bottom: 1rem;">
+            <span class="status-indicator status-ready">✓ Ready to Run</span>
+        </div>
+        """, unsafe_allow_html=True)
+    elif not has_model:
+        st.markdown("""
+        <div style="text-align: center; margin-bottom: 1rem;">
+            <span class="status-indicator status-waiting">Upload Structure</span>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style="text-align: center; margin-bottom: 1rem;">
+            <span class="status-indicator status-waiting">Upload Reference</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+st.markdown("</div>", unsafe_allow_html=True)
+
+# Action buttons
+col_btn1, col_btn2 = st.columns(2)
+
+with col_btn1:
+    run_quick = st.button(
+        "⚡ Run Quick Evaluation",
+        type="primary",
+        use_container_width=True,
+        disabled=not has_model
+    )
+
+with col_btn2:
+    run_comprehensive = st.button(
+        "🔬 Run Comprehensive",
+        type="secondary",
+        use_container_width=True,
+        disabled=not (has_model and has_reference)
+    )
+
+# =============================================================================
+# Evaluation Execution
+# =============================================================================
+if run_quick:
     if not model_file and chosen is None:
         st.error("Please upload a model structure (or pick a recent one).")
     else:
@@ -383,34 +978,70 @@ if st.button("⚡ Run Quick Evaluation", type="primary", use_container_width=Tru
             with st.spinner("Computing metrics..."):
                 result = evaluator.evaluate(model_path, reference_path)
 
-            st.success("✅ Quick evaluation complete")
             st.session_state.quick_eval = result.to_dict()
 
+            # Results header
+            st.markdown("""
+            <div class="results-header">
+                <div class="results-title">✅ Evaluation Complete</div>
+                <div class="results-subtitle">Quick evaluation finished successfully</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Metric results grid
             st.markdown("### Results Summary")
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
-                if result.clash_score is not None:
-                    metric_card(f"{result.clash_score:.2f}", "Clash Score", "error", "💥")
-                st.markdown("<br>", unsafe_allow_html=True)
-                if result.sasa_total is not None:
-                    metric_card(f"{result.sasa_total:.1f}", "SASA (Å²)", "info", "🌐")
-            with col_b:
-                if result.contact_energy is not None:
-                    metric_card(f"{result.contact_energy:.2f}", "Contact Energy", "warning", "🔋")
-                st.markdown("<br>", unsafe_allow_html=True)
-                if result.contact_energy_per_residue is not None:
-                    metric_card(f"{result.contact_energy_per_residue:.3f}", "Energy / Res", "warning", "🧪")
-            with col_c:
-                if result.tm_score is not None:
-                    metric_card(f"{result.tm_score:.3f}", "TM-Score", "gradient", "📏")
-                st.markdown("<br>", unsafe_allow_html=True)
-                if result.rmsd is not None:
-                    metric_card(f"{result.rmsd:.2f}", "RMSD (Å)", "success", "📐")
-                st.markdown("<br>", unsafe_allow_html=True)
-                if result.cad_score is not None:
-                    metric_card(f"{result.cad_score:.3f}", "CAD-score", "info", "🧭")
-                if result.voromqa_score is not None:
-                    metric_card(f"{result.voromqa_score:.3f}", "VoroMQA", "info", "🧪")
+
+            # Group metrics by category
+            structural_metrics = []
+            energy_metrics = []
+            quality_metrics = []
+
+            if result.clash_score is not None:
+                structural_metrics.append(("Clash Score", f"{result.clash_score:.2f}", "💥", "error"))
+            if result.sasa_total is not None:
+                structural_metrics.append(("SASA (Å²)", f"{result.sasa_total:.1f}", "🌐", "info"))
+            if result.interface_bsa_total is not None:
+                structural_metrics.append(("Interface BSA", f"{result.interface_bsa_total:.1f}", "🔗", "info"))
+
+            if result.contact_energy is not None:
+                energy_metrics.append(("Contact Energy", f"{result.contact_energy:.2f}", "🔋", "warning"))
+            if result.contact_energy_per_residue is not None:
+                energy_metrics.append(("Energy/Res", f"{result.contact_energy_per_residue:.3f}", "⚡", "warning"))
+            if result.salt_bridge_count is not None:
+                energy_metrics.append(("Salt Bridges", f"{result.salt_bridge_count}", "🧂", "info"))
+
+            if result.tm_score is not None:
+                quality_metrics.append(("TM-Score", f"{result.tm_score:.3f}", "📏", "gradient"))
+            if result.rmsd is not None:
+                quality_metrics.append(("RMSD (Å)", f"{result.rmsd:.2f}", "📐", "success"))
+            if result.lddt is not None:
+                quality_metrics.append(("lDDT", f"{result.lddt:.3f}", "🎯", "success"))
+            if result.cad_score is not None:
+                quality_metrics.append(("CAD-score", f"{result.cad_score:.3f}", "🧭", "info"))
+            if result.voromqa_score is not None:
+                quality_metrics.append(("VoroMQA", f"{result.voromqa_score:.3f}", "🧪", "info"))
+
+            # Display metrics in organized columns
+            if structural_metrics:
+                st.markdown("#### Structural Metrics")
+                cols = st.columns(len(structural_metrics))
+                for i, (label, value, icon, variant) in enumerate(structural_metrics):
+                    with cols[i]:
+                        metric_card(value, label, variant, icon)
+
+            if energy_metrics:
+                st.markdown("#### Energy Metrics")
+                cols = st.columns(len(energy_metrics))
+                for i, (label, value, icon, variant) in enumerate(energy_metrics):
+                    with cols[i]:
+                        metric_card(value, label, variant, icon)
+
+            if quality_metrics:
+                st.markdown("#### Quality Metrics")
+                cols = st.columns(min(len(quality_metrics), 4))
+                for i, (label, value, icon, variant) in enumerate(quality_metrics):
+                    with cols[i % len(cols)]:
+                        metric_card(value, label, variant, icon)
 
             # Detailed metrics table
             st.markdown("### 📋 All Computed Metrics")
@@ -472,7 +1103,7 @@ if st.button("⚡ Run Quick Evaluation", type="primary", use_container_width=Tru
             with st.expander("Error details"):
                 st.code(traceback.format_exc())
 
-if st.button("🚀 Run Comprehensive Evaluation", type="primary", use_container_width=True):
+if run_comprehensive:
     if not model_file and chosen is None:
         st.error("Please upload a model structure or select a recent output.")
     elif not reference_file:

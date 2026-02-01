@@ -33,7 +33,14 @@ from protein_design_hub.analysis.mutation_scanner import (
     MultiMutationVariant,
 )
 from protein_design_hub.io.afdb import AFDBClient, AFDBMatch, normalize_sequence
-from protein_design_hub.web.ui import inject_base_css, sidebar_nav, sidebar_system_status
+from protein_design_hub.web.ui import (
+    inject_base_css,
+    sidebar_nav,
+    sidebar_system_status,
+    page_header,
+    section_header,
+    info_box,
+)
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -55,17 +62,6 @@ st.markdown("""
 .main .block-container {
     padding: 1rem 2rem;
     max-width: 100%;
-}
-
-/* Gradient headers */
-.gradient-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    font-size: 2.5rem;
-    font-weight: bold;
-    text-align: center;
-    margin-bottom: 0.5rem;
 }
 
 /* Residue grid */
@@ -425,13 +421,12 @@ def run_baseline_comparison(
         status.update(label="Baseline comparison complete", state="complete", expanded=False)
     return results
 
-# Main UI
-st.markdown("""
-<div style="text-align: center; padding: 20px;">
-    <h1 class="gradient-header">🔬 Mutation Scanner</h1>
-    <p style="color: var(--pdhub-text-secondary);">Comprehensive saturation mutagenesis with full biophysical metrics</p>
-</div>
-""", unsafe_allow_html=True)
+# Main UI - Page Header
+page_header(
+    "Mutation Scanner",
+    "Comprehensive saturation mutagenesis with full biophysical metrics",
+    "🔬"
+)
 
 # Predictor selection
 show_advanced = st.checkbox(
@@ -624,7 +619,8 @@ if "immunebuilder" in baseline_predictors or selected_predictor == "immunebuilde
         st.session_state.scanner = build_scanner("immunebuilder")
 
 # 1. Input
-st.markdown("## 1️⃣ Input Sequence")
+section_header("Input Sequence", "Paste your protein sequence for mutation analysis", "1️⃣")
+
 seq_col, info_col = st.columns([3, 1])
 with seq_col:
     immune_required = ("immunebuilder" in baseline_predictors) or (selected_predictor == "immunebuilder")
@@ -643,13 +639,14 @@ with seq_col:
     placeholder = (
         ">A\nEVQLVESGGGLVQPGGSLRLSCAAS...\n>B\nDIQMTQSPSSLSASVGDRVT...\n"
         if immune_required else
-        "MKFLILLFNILCLFPVLAADNHGVGPQGAS..."
+        "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPP...\n\nPaste raw amino acid sequence (A-Y)"
     )
     new_seq = st.text_area(
-        "Sequence",
+        "Protein Sequence",
         value=st.session_state.sequence_input_raw,
         height=120 if immune_required else 100,
         placeholder=placeholder,
+        label_visibility="collapsed"
     )
     if new_seq != st.session_state.sequence_input_raw:
         st.session_state.sequence_input_raw = new_seq
@@ -683,7 +680,8 @@ with seq_col:
         st.error(st.session_state.immune_parse_error)
 
 with info_col:
-    if st.button("Load Ubiquitin"):
+    st.markdown("##### Quick Load")
+    if st.button("📋 Ubiquitin (76 aa)", use_container_width=True, type="secondary"):
         ubi = "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"
         if ("immunebuilder" in baseline_predictors) or (selected_predictor == "immunebuilder"):
             st.session_state.sequence_input_raw = f">A\n{ubi}\n>B\n{ubi}\n"
@@ -691,6 +689,20 @@ with info_col:
             st.session_state.sequence = ubi
             st.session_state.sequence_input_raw = ubi
         st.session_state.sequence_name = "Ubiquitin"
+        st.session_state.base_structure = None
+        st.session_state.scan_results = None
+        st.session_state.baseline_results = None
+        st.session_state.baseline_sequence = None
+        st.rerun()
+
+    if st.button("📋 T1024 (52 aa)", use_container_width=True, type="secondary"):
+        t1024 = "MAAHKGAEHVVKASLDAGVKTVAGGLVVKAKALGGKDATMHLVAATLKKGYM"
+        if ("immunebuilder" in baseline_predictors) or (selected_predictor == "immunebuilder"):
+            st.session_state.sequence_input_raw = f">A\n{t1024}\n>B\n{t1024}\n"
+        else:
+            st.session_state.sequence = t1024
+            st.session_state.sequence_input_raw = t1024
+        st.session_state.sequence_name = "T1024"
         st.session_state.base_structure = None
         st.session_state.scan_results = None
         st.session_state.baseline_results = None
@@ -783,17 +795,24 @@ if st.session_state.sequence:
                             i + 1 for i, v in enumerate(pldit) if v < threshold
                         }
                         st.rerun()
+                values = []
+                for v in pldit:
+                    try:
+                        values.append(float(v))
+                    except Exception:
+                        values.append(float("nan"))
                 try:
                     from protein_design_hub.web.visualizations import create_plddt_plot
                     title = "Per-Residue pLDDT (Base)"
                     if st.session_state.mutation_predictor == "immunebuilder":
                         title = "Per-Residue Error (Base)"
-                    fig = create_plddt_plot(pldit, title=title)
+                    fig = create_plddt_plot(values, title=title)
                     for pos in st.session_state.selected_positions:
                         fig.add_vline(x=pos, line_dash="dash", line_color="#f59e0b", opacity=0.6)
                     st.plotly_chart(fig, use_container_width=True)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    st.warning(f"Plotly pLDDT plot unavailable ({exc}). Showing fallback line chart.")
+                    st.line_chart(values, height=300, use_container_width=True)
         with col_select:
             st.markdown("**Manual selection**")
             pos_text = st.text_input("Positions (e.g. 5,7-10)", value="")

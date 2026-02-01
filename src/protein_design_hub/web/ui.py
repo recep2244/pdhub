@@ -5,11 +5,99 @@ from __future__ import annotations
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
+import subprocess
+import re
 
 import streamlit as st
 
 SESSION_SELECTED_MODEL = "pdhub_selected_model_path"
 SESSION_SELECTED_BACKBONE = "pdhub_selected_backbone_path"
+
+
+# =============================================================================
+# GPU Detection Utility
+# =============================================================================
+
+def detect_gpu() -> Dict[str, Any]:
+    """
+    Robust GPU detection that falls back to nvidia-smi when PyTorch fails.
+
+    Returns a dict with:
+        - available: bool
+        - name: str (GPU name or "CPU")
+        - memory_total_gb: float
+        - memory_free_gb: float
+        - driver_version: str
+        - source: str ("torch" or "nvidia-smi" or "none")
+    """
+    result = {
+        "available": False,
+        "name": "CPU",
+        "memory_total_gb": 0.0,
+        "memory_free_gb": 0.0,
+        "driver_version": "",
+        "source": "none",
+    }
+
+    # Try PyTorch first
+    try:
+        import torch
+        if torch.cuda.is_available():
+            result["available"] = True
+            result["name"] = torch.cuda.get_device_name(0)
+            props = torch.cuda.get_device_properties(0)
+            result["memory_total_gb"] = props.total_memory / (1024**3)
+            result["memory_free_gb"] = (props.total_memory - torch.cuda.memory_allocated(0)) / (1024**3)
+            result["source"] = "torch"
+            return result
+    except Exception:
+        pass  # Fall through to nvidia-smi
+
+    # Fallback to nvidia-smi
+    try:
+        output = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=name,memory.total,memory.free,driver_version", "--format=csv,noheader,nounits"],
+            stderr=subprocess.DEVNULL,
+            timeout=5
+        ).decode().strip()
+
+        if output:
+            parts = [p.strip() for p in output.split(",")]
+            if len(parts) >= 4:
+                result["available"] = True
+                result["name"] = parts[0]
+                result["memory_total_gb"] = float(parts[1]) / 1024  # MiB to GiB
+                result["memory_free_gb"] = float(parts[2]) / 1024
+                result["driver_version"] = parts[3]
+                result["source"] = "nvidia-smi"
+                return result
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+        pass
+
+    return result
+
+
+def get_gpu_status_html() -> str:
+    """Get formatted HTML string for GPU status display."""
+    gpu = detect_gpu()
+
+    if gpu["available"]:
+        # Extract short name (last part of GPU name)
+        short_name = gpu["name"].split()[-1] if gpu["name"] else "GPU"
+        mem_gb = gpu["memory_total_gb"]
+        return f"""
+        <div style="font-size: 0.8rem; color: #22c55e; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+            <span style="width: 8px; height: 8px; background: #22c55e; border-radius: 50%;"></span>
+            GPU: {short_name} ({mem_gb:.0f}GB)
+        </div>
+        """
+    else:
+        return """
+        <div style="font-size: 0.8rem; color: #f59e0b; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+            <span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span>
+            Compute: CPU Mode
+        </div>
+        """
 
 # =============================================================================
 # CSS Theme System
@@ -101,21 +189,32 @@ THEME_CSS = """
     --pdhub-transition-fast: all 0.15s var(--pdhub-ease);
 }
 
-/* Global Atmosphere */
+/* Global Atmosphere - Clean & Professional */
 [data-testid="stAppViewContainer"] {
     background-color: var(--pdhub-bg);
-    background-image: 
-        radial-gradient(circle at 0% 0%, rgba(99, 102, 241, 0.12) 0%, transparent 40%),
-        radial-gradient(circle at 100% 100%, rgba(34, 211, 238, 0.08) 0%, transparent 40%),
-        url("https://www.transparenttextures.com/patterns/dark-matter.png");
+    background-image:
+        radial-gradient(ellipse at 0% 0%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 100% 100%, rgba(139, 92, 246, 0.05) 0%, transparent 50%);
     color: var(--pdhub-text);
-    font-family: 'Outfit', sans-serif !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 .main .block-container {
-    padding-top: 4rem !important;
-    padding-bottom: 8rem !important;
-    max-width: 1400px;
+    padding-top: 3rem !important;
+    padding-bottom: 6rem !important;
+    max-width: 1320px;
+}
+
+/* Base Typography */
+p, span, div {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}
+
+code, pre, .stCode {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
 }
 
 /* ============================================
@@ -139,18 +238,18 @@ nav[class*="st-emotion-cache"] {
 }
 
 /* ============================================
-   Hyper-Pro Buttons (Anti-Basic)
+   Professional Button System
    ============================================ */
 div.stButton > button {
-    background: var(--pdhub-glass) !important;
+    background: var(--pdhub-bg-elevated) !important;
     border: 1px solid var(--pdhub-border) !important;
-    color: #f1f5f9 !important;
-    padding: 0.75rem 1.5rem !important;
-    border-radius: 14px !important;
-    font-weight: 600 !important;
+    color: var(--pdhub-text) !important;
+    padding: 0.65rem 1.25rem !important;
+    border-radius: var(--pdhub-border-radius-sm) !important;
+    font-weight: 500 !important;
+    font-size: 0.875rem !important;
     letter-spacing: 0.01em !important;
-    font-size: 0.85rem !important;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
+    box-shadow: var(--pdhub-shadow-sm) !important;
     transition: var(--pdhub-transition) !important;
     position: relative;
     overflow: hidden;
@@ -158,60 +257,64 @@ div.stButton > button {
     white-space: nowrap !important;
 }
 
-div.stButton > button::before {
-    content: '';
-    position: absolute;
-    top: 0; left: -100%;
-    width: 100%; height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-    transition: 0.5s;
-}
-
-div.stButton > button:hover::before {
-    left: 100%;
-}
-
 div.stButton > button:hover {
-    transform: translateY(-5px) scale(1.02) !important;
-    border-color: var(--pdhub-primary) !important;
-    box-shadow: 0 10px 30px rgba(99, 102, 241, 0.2) !important;
-    background: rgba(99, 102, 241, 0.1) !important;
+    transform: translateY(-2px) !important;
+    border-color: var(--pdhub-primary-light) !important;
+    box-shadow: var(--pdhub-shadow-md), 0 0 0 1px var(--pdhub-primary-glow) !important;
+    background: rgba(99, 102, 241, 0.12) !important;
+}
+
+div.stButton > button:active {
+    transform: translateY(0) !important;
 }
 
 div.stButton > button[kind="primary"] {
     background: var(--pdhub-grad-glow) !important;
     border: none !important;
     color: white !important;
+    font-weight: 600 !important;
+    box-shadow: var(--pdhub-shadow-sm), 0 4px 12px rgba(99, 102, 241, 0.3) !important;
 }
 
 div.stButton > button[kind="primary"]:hover {
-    box-shadow: 0 15px 40px rgba(99, 102, 241, 0.4) !important;
+    box-shadow: var(--pdhub-shadow-md), 0 8px 24px rgba(99, 102, 241, 0.4) !important;
+    transform: translateY(-2px) !important;
+}
+
+div.stButton > button[kind="secondary"] {
+    background: transparent !important;
+    border: 1px solid var(--pdhub-border-strong) !important;
+}
+
+div.stButton > button[kind="secondary"]:hover {
+    background: var(--pdhub-bg-light) !important;
+    border-color: var(--pdhub-primary) !important;
 }
 
 /* ============================================
-   Advanced Bento Layout
+   Page Header & Hero
    ============================================ */
 .pdhub-hero {
-    background: rgba(255,255,255,0.02);
-    backdrop-filter: blur(40px);
-    border: 1px solid rgba(255,255,255,0.05);
-    padding: 5rem 4rem;
-    border-radius: 32px;
-    margin-bottom: 4rem;
+    background: var(--pdhub-gradient-card);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--pdhub-border);
+    padding: 3rem 2.5rem;
+    border-radius: var(--pdhub-border-radius-xl);
+    margin-bottom: 2.5rem;
     text-align: center;
     position: relative;
 }
 
 .pdhub-hero-title {
-    font-size: 6rem;
-    font-weight: 800;
-    letter-spacing: -0.06em;
+    font-size: 3rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
     background: var(--pdhub-grad-glow);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    line-height: 0.9;
-    margin-bottom: 1.5rem;
-    filter: drop-shadow(0 10px 30px rgba(99, 102, 241, 0.3));
+    background-clip: text;
+    line-height: 1.1;
+    margin-bottom: 0.75rem;
 }
 
 .pdhub-hero-with-image {
@@ -221,284 +324,479 @@ div.stButton > button[kind="primary"]:hover {
 
 .pdhub-hero-icon {
     color: var(--pdhub-text);
+    font-size: 2.5rem !important;
+    margin-bottom: 0.75rem !important;
 }
 
 .pdhub-hero-subtitle {
     color: var(--pdhub-text-secondary);
+    font-size: 1.05rem;
+    font-weight: 400;
+    max-width: 600px;
+    margin: 0 auto;
+    line-height: 1.5;
 }
 
+/* ============================================
+   Card System
+   ============================================ */
 .pdhub-card {
-    background: var(--pdhub-glass);
+    background: var(--pdhub-bg-card);
     border: 1px solid var(--pdhub-border);
-    border-radius: 24px;
-    padding: 2.5rem;
+    border-radius: var(--pdhub-border-radius-lg);
+    padding: 1.75rem;
     transition: var(--pdhub-transition);
     height: 100%;
 }
 
 .pdhub-card:hover {
-    transform: perspective(1000px) rotateX(2deg) translateY(-10px);
-    border-color: rgba(99, 102, 241, 0.4);
-    box-shadow: 0 20px 50px rgba(0,0,0,0.5), 0 0 30px rgba(99, 102, 241, 0.1);
+    transform: translateY(-4px);
+    border-color: rgba(99, 102, 241, 0.3);
+    box-shadow: var(--pdhub-shadow-lg), var(--pdhub-shadow-glow);
 }
 
-/* Metric Professionalism */
+/* ============================================
+   Metric Cards
+   ============================================ */
 .pdhub-metric {
-    background: linear-gradient(to bottom right, rgba(255,255,255,0.03), transparent);
+    background: var(--pdhub-bg-card);
     border: 1px solid var(--pdhub-border);
-    padding: 2.5rem;
-    border-radius: 24px;
+    padding: 1.5rem;
+    border-radius: var(--pdhub-border-radius-md);
     text-align: left;
     transition: var(--pdhub-transition);
 }
 
+.pdhub-metric:hover {
+    border-color: var(--pdhub-border-strong);
+    box-shadow: var(--pdhub-shadow-sm);
+}
+
 .pdhub-metric-value {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 3.5rem;
-    font-weight: 700;
-    background: linear-gradient(to right, #fff, #94a3b8);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    font-size: 2.25rem;
+    font-weight: 600;
+    color: var(--pdhub-text-heading);
+    line-height: 1.2;
 }
 
 .pdhub-metric-label {
     color: var(--pdhub-text-secondary);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin-top: 0.25rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
 }
 
 .pdhub-animate-fade-in {
-    animation: pdhub-fade-in 0.6s ease-out both;
+    animation: pdhub-fade-in 0.4s var(--pdhub-ease-out) both;
 }
 
 @keyframes pdhub-fade-in {
-    from { opacity: 0; transform: translateY(6px); }
+    from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* Sidebar OS Feel */
+/* ============================================
+   Sidebar - Clean Professional
+   ============================================ */
 [data-testid="stSidebar"] {
-    background: #050508;
-    border-right: 1px solid #1e1e26;
+    background: linear-gradient(180deg, #0c0d12 0%, #08090c 100%);
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+[data-testid="stSidebar"] > div:first-child {
+    padding-top: 0 !important;
 }
 
 .pdhub-sidebar-header {
-    background: rgba(255,255,255,0.03);
-    padding: 2.5rem 1.5rem;
-    border-bottom: 1px solid #1e1e26;
+    background: linear-gradient(180deg, rgba(99, 102, 241, 0.08) 0%, transparent 100%);
+    padding: 2rem 1.5rem 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     margin: 0 !important;
     border-radius: 0 !important;
 }
 
 .pdhub-sidebar-logo {
-    font-size: 1.8rem;
-    font-weight: 800;
+    font-size: 1.5rem;
+    font-weight: 700;
     background: var(--pdhub-grad-glow);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    letter-spacing: -0.05em;
+    background-clip: text;
+    letter-spacing: -0.02em;
 }
+
 .pdhub-sidebar-tagline {
     color: var(--pdhub-text-muted);
     font-size: 0.75rem;
-    margin-top: 6px;
+    margin-top: 4px;
+    font-weight: 500;
 }
 
-/* Nav Grouping Anti-Basic */
+/* Navigation Groups */
 .pdhub-nav-group-title {
-    padding: 2rem 1.5rem 0.5rem;
-    color: #475569;
-    font-size: 0.75rem;
-    font-weight: 700;
+    padding: 1.5rem 1.25rem 0.5rem;
+    color: var(--pdhub-text-muted);
+    font-size: 0.7rem;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.2em;
+    letter-spacing: 0.12em;
 }
 
-/* Transitions */
-.stDataFrame { border-radius: 20px; overflow: hidden; background: var(--pdhub-glass); }
+/* ============================================
+   Data Tables
+   ============================================ */
+.stDataFrame {
+    border-radius: var(--pdhub-border-radius-md) !important;
+    overflow: hidden;
+    background: var(--pdhub-bg-card);
+    border: 1px solid var(--pdhub-border) !important;
+}
 
-/* Tabs */
+/* ============================================
+   Tabs - Clean & Readable
+   ============================================ */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 8px;
-}
-.stTabs [data-baseweb="tab"] {
-    border-radius: 12px 12px 0 0;
-    padding: 8px 16px;
+    gap: 4px;
     background: var(--pdhub-bg-light);
-    border: 1px solid var(--pdhub-border);
-    color: var(--pdhub-text-secondary);
+    padding: 4px;
+    border-radius: var(--pdhub-border-radius-sm);
 }
+
+.stTabs [data-baseweb="tab"] {
+    border-radius: var(--pdhub-border-radius-xs);
+    padding: 10px 20px;
+    background: transparent;
+    border: none;
+    color: var(--pdhub-text-secondary);
+    font-weight: 500;
+    font-size: 0.875rem;
+    transition: var(--pdhub-transition-fast);
+}
+
+.stTabs [data-baseweb="tab"]:hover {
+    color: var(--pdhub-text);
+    background: rgba(255, 255, 255, 0.05);
+}
+
 .stTabs [aria-selected="true"] {
     background: var(--pdhub-gradient) !important;
     color: white !important;
-    border-color: transparent !important;
+    font-weight: 600 !important;
 }
 
-/* Badges */
+/* ============================================
+   Badges - Status Indicators
+   ============================================ */
 .pdhub-badge {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
+    gap: 5px;
+    padding: 5px 12px;
     border-radius: var(--pdhub-border-radius-full);
     font-size: 0.75rem;
     font-weight: 600;
     border: 1px solid transparent;
+    letter-spacing: 0.01em;
 }
-.pdhub-badge-ok { background: var(--pdhub-success-light); color: var(--pdhub-success); border-color: rgba(16,185,129,0.3); }
-.pdhub-badge-warn { background: var(--pdhub-warning-light); color: var(--pdhub-warning); border-color: rgba(245,158,11,0.3); }
-.pdhub-badge-err { background: var(--pdhub-error-light); color: var(--pdhub-error); border-color: rgba(239,68,68,0.3); }
-.pdhub-badge-info { background: var(--pdhub-info-light); color: var(--pdhub-info); border-color: rgba(56,189,248,0.3); }
-.pdhub-badge-primary { background: rgba(99,102,241,0.2); color: var(--pdhub-primary-light); border-color: rgba(99,102,241,0.3); }
 
-/* Info boxes */
+.pdhub-badge-ok {
+    background: var(--pdhub-success-light);
+    color: var(--pdhub-success);
+    border-color: rgba(34, 197, 94, 0.25);
+}
+
+.pdhub-badge-warn {
+    background: var(--pdhub-warning-light);
+    color: var(--pdhub-warning);
+    border-color: rgba(245, 158, 11, 0.25);
+}
+
+.pdhub-badge-err {
+    background: var(--pdhub-error-light);
+    color: var(--pdhub-error);
+    border-color: rgba(239, 68, 68, 0.25);
+}
+
+.pdhub-badge-info {
+    background: var(--pdhub-info-light);
+    color: var(--pdhub-info);
+    border-color: rgba(59, 130, 246, 0.25);
+}
+
+.pdhub-badge-primary {
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--pdhub-primary-light);
+    border-color: rgba(99, 102, 241, 0.25);
+}
+
+/* ============================================
+   Info Boxes - Alerts & Messages
+   ============================================ */
 .pdhub-info-box {
     display: flex;
-    gap: 12px;
-    padding: 14px 16px;
+    gap: 14px;
+    padding: 16px 18px;
     border-radius: var(--pdhub-border-radius-md);
     border: 1px solid var(--pdhub-border);
-    background: var(--pdhub-bg-light);
+    background: var(--pdhub-bg-card);
     align-items: flex-start;
+    margin: 0.75rem 0;
 }
+
 .pdhub-info-box-title {
     font-weight: 600;
     margin-bottom: 4px;
+    color: var(--pdhub-text-heading);
 }
+
 .pdhub-info-box-content {
     color: var(--pdhub-text);
+    font-size: 0.9rem;
+    line-height: 1.5;
 }
-.pdhub-info-box-icon {
-    font-size: 1.1rem;
-    margin-top: 2px;
-}
-.pdhub-info-box-info { border-left: 4px solid var(--pdhub-info); }
-.pdhub-info-box-success { border-left: 4px solid var(--pdhub-success); }
-.pdhub-info-box-warning { border-left: 4px solid var(--pdhub-warning); }
-.pdhub-info-box-error { border-left: 4px solid var(--pdhub-error); }
-.pdhub-info-box-tip { border-left: 4px solid var(--pdhub-primary); }
 
-/* Section headers */
+.pdhub-info-box-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.pdhub-info-box-info {
+    border-left: 4px solid var(--pdhub-info);
+    background: linear-gradient(90deg, rgba(59, 130, 246, 0.08) 0%, var(--pdhub-bg-card) 100%);
+}
+
+.pdhub-info-box-success {
+    border-left: 4px solid var(--pdhub-success);
+    background: linear-gradient(90deg, rgba(34, 197, 94, 0.08) 0%, var(--pdhub-bg-card) 100%);
+}
+
+.pdhub-info-box-warning {
+    border-left: 4px solid var(--pdhub-warning);
+    background: linear-gradient(90deg, rgba(245, 158, 11, 0.08) 0%, var(--pdhub-bg-card) 100%);
+}
+
+.pdhub-info-box-error {
+    border-left: 4px solid var(--pdhub-error);
+    background: linear-gradient(90deg, rgba(239, 68, 68, 0.08) 0%, var(--pdhub-bg-card) 100%);
+}
+
+.pdhub-info-box-tip {
+    border-left: 4px solid var(--pdhub-primary);
+    background: linear-gradient(90deg, rgba(99, 102, 241, 0.08) 0%, var(--pdhub-bg-card) 100%);
+}
+
+/* ============================================
+   Section Headers
+   ============================================ */
 .pdhub-section-header {
     display: flex;
     align-items: center;
     gap: 12px;
-    margin: 1.5rem 0 1rem;
-}
-.pdhub-section-icon {
-    font-size: 1.2rem;
-}
-.pdhub-section-title {
-    font-size: 1.3rem;
-    font-weight: 600;
-    color: var(--pdhub-text);
-}
-.pdhub-section-subtitle {
-    color: var(--pdhub-text-secondary);
-    font-size: 0.9rem;
+    margin: 2rem 0 1.25rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--pdhub-border);
 }
 
-/* Progress steps */
+.pdhub-section-icon {
+    font-size: 1.25rem;
+}
+
+.pdhub-section-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--pdhub-text-heading);
+    letter-spacing: -0.01em;
+}
+
+.pdhub-section-subtitle {
+    color: var(--pdhub-text-secondary);
+    font-size: 0.875rem;
+    margin-left: auto;
+}
+
+/* ============================================
+   Progress Steps
+   ============================================ */
 .pdhub-steps {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 16px;
+    gap: 8px;
+    padding: 1rem;
+    background: var(--pdhub-bg-card);
+    border-radius: var(--pdhub-border-radius-md);
+    border: 1px solid var(--pdhub-border);
 }
+
 .pdhub-step {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     color: var(--pdhub-text-secondary);
     position: relative;
 }
+
 .pdhub-step-circle {
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
-    border: 1px solid var(--pdhub-border);
+    border: 2px solid var(--pdhub-border);
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 600;
-    color: var(--pdhub-text);
+    font-size: 0.85rem;
+    color: var(--pdhub-text-muted);
+    background: var(--pdhub-bg-light);
+    transition: var(--pdhub-transition);
 }
+
 .pdhub-step-active .pdhub-step-circle {
     background: var(--pdhub-gradient);
     border: none;
     color: white;
+    box-shadow: 0 0 12px var(--pdhub-primary-glow);
 }
+
 .pdhub-step-completed .pdhub-step-circle {
     background: var(--pdhub-success);
     border: none;
     color: white;
 }
+
 .pdhub-step-line {
-    width: 36px;
+    width: 32px;
     height: 2px;
     background: var(--pdhub-border);
-}
-.pdhub-step-label {
-    font-size: 0.85rem;
+    border-radius: 1px;
 }
 
-/* Loading */
+.pdhub-step-completed + .pdhub-step-line,
+.pdhub-step-completed .pdhub-step-line {
+    background: var(--pdhub-success);
+}
+
+.pdhub-step-label {
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.pdhub-step-active .pdhub-step-label {
+    color: var(--pdhub-text);
+    font-weight: 600;
+}
+
+/* ============================================
+   Loading States
+   ============================================ */
 .pdhub-loading {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px 14px;
+    gap: 14px;
+    padding: 16px 20px;
     border-radius: var(--pdhub-border-radius-md);
-    background: var(--pdhub-bg-light);
+    background: var(--pdhub-bg-card);
     border: 1px solid var(--pdhub-border);
 }
+
 .pdhub-spinner {
-    width: 24px;
-    height: 24px;
-    border: 3px solid var(--pdhub-border);
-    border-top: 3px solid var(--pdhub-primary);
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--pdhub-border);
+    border-top: 2px solid var(--pdhub-primary);
     border-radius: 50%;
-    animation: pdhub-spin 1s linear infinite;
+    animation: pdhub-spin 0.8s linear infinite;
 }
+
 .pdhub-loading-text {
     color: var(--pdhub-text-secondary);
     font-weight: 500;
+    font-size: 0.9rem;
 }
+
 @keyframes pdhub-spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
 
-/* Empty state */
+/* ============================================
+   Empty States
+   ============================================ */
 .pdhub-empty-state {
     text-align: center;
-    padding: 24px;
+    padding: 3rem 2rem;
     border-radius: var(--pdhub-border-radius-lg);
-    background: var(--pdhub-bg-light);
-    border: 1px dashed var(--pdhub-border);
+    background: var(--pdhub-bg-card);
+    border: 2px dashed var(--pdhub-border);
 }
-.pdhub-empty-icon { font-size: 2rem; }
-.pdhub-empty-title { font-weight: 600; margin-top: 8px; }
-.pdhub-empty-message { color: var(--pdhub-text-secondary); margin-top: 6px; }
 
-/* Data rows */
+.pdhub-empty-icon {
+    font-size: 2.5rem;
+    opacity: 0.6;
+}
+
+.pdhub-empty-title {
+    font-weight: 600;
+    font-size: 1.1rem;
+    margin-top: 1rem;
+    color: var(--pdhub-text);
+}
+
+.pdhub-empty-message {
+    color: var(--pdhub-text-secondary);
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* ============================================
+   Data Rows
+   ============================================ */
 .pdhub-data-row {
     display: flex;
     justify-content: space-between;
-    padding: 8px 0;
+    align-items: center;
+    padding: 12px 0;
     border-bottom: 1px solid var(--pdhub-border);
 }
-.pdhub-data-label { color: var(--pdhub-text-secondary); }
-.pdhub-data-value { color: var(--pdhub-text); font-weight: 600; }
 
-/* Card containers */
-.pdhub-card-title {
-    font-size: 1.1rem;
-    font-weight: 600;
-    margin-bottom: 0.75rem;
-    color: var(--pdhub-text);
+.pdhub-data-row:last-child {
+    border-bottom: none;
 }
+
+.pdhub-data-label {
+    color: var(--pdhub-text-secondary);
+    font-size: 0.9rem;
+}
+
+.pdhub-data-value {
+    color: var(--pdhub-text);
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.9rem;
+}
+
+/* ============================================
+   Card Containers
+   ============================================ */
+.pdhub-card-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: var(--pdhub-text-heading);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .pdhub-card-content {
     color: var(--pdhub-text-secondary);
+    line-height: 1.6;
 }
 
 /* Generic metric card (used by evaluate/settings) */
@@ -541,65 +839,210 @@ div.stButton > button[kind="primary"]:hover {
     padding: 12px 16px;
     margin: 1rem 0;
 }
-.selection-info { color: var(--pdhub-text-secondary); font-size: 0.85rem; }
-.pdhub-muted { color: var(--pdhub-text-muted); font-size: 0.8rem; }
+.selection-info {
+    color: var(--pdhub-text-secondary);
+    font-size: 0.9rem;
+}
+
+.pdhub-muted {
+    color: var(--pdhub-text-muted);
+    font-size: 0.85rem;
+}
 
 /* ============================================
-   Professional Input Enhancements
+   Utility Classes
+   ============================================ */
+.pdhub-text-primary { color: var(--pdhub-primary-light) !important; }
+.pdhub-text-success { color: var(--pdhub-success) !important; }
+.pdhub-text-warning { color: var(--pdhub-warning) !important; }
+.pdhub-text-error { color: var(--pdhub-error) !important; }
+.pdhub-text-muted { color: var(--pdhub-text-muted) !important; }
+.pdhub-text-secondary { color: var(--pdhub-text-secondary) !important; }
+
+.pdhub-font-mono {
+    font-family: 'JetBrains Mono', monospace !important;
+}
+
+.pdhub-font-semibold { font-weight: 600 !important; }
+.pdhub-font-bold { font-weight: 700 !important; }
+
+.pdhub-text-sm { font-size: 0.875rem !important; }
+.pdhub-text-xs { font-size: 0.75rem !important; }
+.pdhub-text-lg { font-size: 1.125rem !important; }
+
+.pdhub-mt-1 { margin-top: 0.5rem !important; }
+.pdhub-mt-2 { margin-top: 1rem !important; }
+.pdhub-mt-3 { margin-top: 1.5rem !important; }
+.pdhub-mb-1 { margin-bottom: 0.5rem !important; }
+.pdhub-mb-2 { margin-bottom: 1rem !important; }
+.pdhub-mb-3 { margin-bottom: 1.5rem !important; }
+
+.pdhub-flex { display: flex !important; }
+.pdhub-flex-center { display: flex !important; align-items: center !important; justify-content: center !important; }
+.pdhub-gap-1 { gap: 0.5rem !important; }
+.pdhub-gap-2 { gap: 1rem !important; }
+
+/* Quick Stat Cards (compact) */
+.pdhub-stat {
+    background: var(--pdhub-bg-card);
+    border: 1px solid var(--pdhub-border);
+    border-radius: var(--pdhub-border-radius-sm);
+    padding: 1rem;
+    text-align: center;
+}
+
+.pdhub-stat-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--pdhub-text-heading);
+}
+
+.pdhub-stat-label {
+    font-size: 0.75rem;
+    color: var(--pdhub-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.25rem;
+}
+
+/* Result highlight boxes */
+.pdhub-result-box {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(34, 197, 94, 0.05) 100%);
+    border: 1px solid rgba(34, 197, 94, 0.25);
+    border-radius: var(--pdhub-border-radius-md);
+    padding: 1.25rem;
+}
+
+.pdhub-result-box-warning {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.05) 100%);
+    border-color: rgba(245, 158, 11, 0.25);
+}
+
+.pdhub-result-box-error {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.05) 100%);
+    border-color: rgba(239, 68, 68, 0.25);
+}
+
+/* Sequence display */
+.pdhub-sequence {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    background: var(--pdhub-bg-elevated);
+    border: 1px solid var(--pdhub-border);
+    border-radius: var(--pdhub-border-radius-sm);
+    padding: 1rem;
+    word-break: break-all;
+    line-height: 1.6;
+    color: var(--pdhub-text);
+}
+
+/* Caption/Help text */
+.pdhub-caption {
+    font-size: 0.8rem;
+    color: var(--pdhub-text-muted);
+    margin-top: 0.5rem;
+}
+
+/* ============================================
+   Form Inputs - Enhanced Readability
    ============================================ */
 [data-testid="stTextInput"] input,
 [data-testid="stTextArea"] textarea,
 [data-testid="stNumberInput"] input {
-    background: rgba(15, 23, 42, 0.6) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    border-radius: 12px !important;
-    color: #e2e8f0 !important;
+    background: var(--pdhub-bg-elevated) !important;
+    border: 1px solid var(--pdhub-border) !important;
+    border-radius: var(--pdhub-border-radius-sm) !important;
+    color: var(--pdhub-text) !important;
     padding: 12px 16px !important;
-    transition: all 0.3s ease !important;
+    font-size: 0.95rem !important;
+    transition: var(--pdhub-transition-fast) !important;
+}
+
+[data-testid="stTextInput"] input::placeholder,
+[data-testid="stTextArea"] textarea::placeholder {
+    color: var(--pdhub-text-muted) !important;
 }
 
 [data-testid="stTextInput"] input:focus,
 [data-testid="stTextArea"] textarea:focus,
 [data-testid="stNumberInput"] input:focus {
     border-color: var(--pdhub-primary) !important;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+    box-shadow: 0 0 0 3px var(--pdhub-primary-glow) !important;
+    outline: none !important;
 }
 
-/* Enhanced Select/Dropdown */
+/* Input Labels */
+[data-testid="stTextInput"] label,
+[data-testid="stTextArea"] label,
+[data-testid="stNumberInput"] label,
+[data-testid="stSelectbox"] label {
+    font-weight: 500 !important;
+    color: var(--pdhub-text) !important;
+    font-size: 0.9rem !important;
+    margin-bottom: 6px !important;
+}
+
+/* Select/Dropdown */
 [data-testid="stSelectbox"] > div > div {
-    background: rgba(15, 23, 42, 0.6) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    border-radius: 12px !important;
+    background: var(--pdhub-bg-elevated) !important;
+    border: 1px solid var(--pdhub-border) !important;
+    border-radius: var(--pdhub-border-radius-sm) !important;
 }
 
-/* Professional Expanders */
+[data-testid="stSelectbox"] > div > div:hover {
+    border-color: var(--pdhub-border-strong) !important;
+}
+
+/* ============================================
+   Expanders - Collapsible Sections
+   ============================================ */
 [data-testid="stExpander"] {
-    background: rgba(255, 255, 255, 0.02) !important;
-    border: 1px solid rgba(255, 255, 255, 0.06) !important;
-    border-radius: 16px !important;
+    background: var(--pdhub-bg-card) !important;
+    border: 1px solid var(--pdhub-border) !important;
+    border-radius: var(--pdhub-border-radius-md) !important;
     overflow: hidden;
+    margin: 0.5rem 0 !important;
 }
 
 [data-testid="stExpander"] summary {
-    padding: 16px 20px !important;
+    padding: 14px 18px !important;
     font-weight: 600 !important;
+    font-size: 0.95rem !important;
+    color: var(--pdhub-text) !important;
 }
 
 [data-testid="stExpander"]:hover {
-    border-color: rgba(99, 102, 241, 0.3) !important;
+    border-color: var(--pdhub-border-strong) !important;
 }
 
-/* Refined Slider */
+[data-testid="stExpander"] > div {
+    padding: 0 18px 16px !important;
+}
+
+/* ============================================
+   Sliders
+   ============================================ */
 [data-testid="stSlider"] > div > div > div {
-    background: linear-gradient(90deg, var(--pdhub-primary), var(--pdhub-accent)) !important;
+    background: var(--pdhub-gradient) !important;
+    height: 6px !important;
 }
 
-/* Professional File Uploader */
+[data-testid="stSlider"] [role="slider"] {
+    background: white !important;
+    border: 2px solid var(--pdhub-primary) !important;
+    box-shadow: var(--pdhub-shadow-sm) !important;
+}
+
+/* ============================================
+   File Uploader
+   ============================================ */
 [data-testid="stFileUploader"] > div {
-    background: rgba(15, 23, 42, 0.4) !important;
-    border: 2px dashed rgba(255, 255, 255, 0.1) !important;
-    border-radius: 16px !important;
-    transition: all 0.3s ease !important;
+    background: var(--pdhub-bg-card) !important;
+    border: 2px dashed var(--pdhub-border) !important;
+    border-radius: var(--pdhub-border-radius-md) !important;
+    transition: var(--pdhub-transition) !important;
+    padding: 2rem !important;
 }
 
 [data-testid="stFileUploader"] > div:hover {
@@ -607,81 +1050,129 @@ div.stButton > button[kind="primary"]:hover {
     background: rgba(99, 102, 241, 0.05) !important;
 }
 
-/* Enhanced Radio Buttons */
+/* ============================================
+   Radio Buttons & Checkboxes
+   ============================================ */
 [data-testid="stRadio"] label {
-    background: rgba(255, 255, 255, 0.03) !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    border-radius: 10px !important;
-    padding: 10px 16px !important;
+    background: var(--pdhub-bg-light) !important;
+    border: 1px solid var(--pdhub-border) !important;
+    border-radius: var(--pdhub-border-radius-sm) !important;
+    padding: 12px 16px !important;
     margin: 4px 0 !important;
-    transition: all 0.2s ease !important;
+    transition: var(--pdhub-transition-fast) !important;
 }
 
 [data-testid="stRadio"] label:hover {
-    background: rgba(99, 102, 241, 0.1) !important;
+    background: rgba(99, 102, 241, 0.08) !important;
     border-color: var(--pdhub-primary) !important;
 }
 
-/* Container Borders - More Professional */
-[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
-    border-radius: 20px !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    background: rgba(10, 10, 16, 0.5) !important;
-    backdrop-filter: blur(10px);
+[data-testid="stCheckbox"] label {
+    padding: 8px 0 !important;
 }
 
-/* Multiselect Enhancement */
-[data-testid="stMultiSelect"] > div {
-    background: rgba(15, 23, 42, 0.6) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    border-radius: 12px !important;
-}
-
-/* Success/Error Messages */
-[data-testid="stAlert"] {
-    border-radius: 12px !important;
-    border: none !important;
-}
-
-/* Professional Checkbox */
 [data-testid="stCheckbox"] label span {
-    color: var(--pdhub-text-secondary) !important;
+    color: var(--pdhub-text) !important;
+    font-size: 0.9rem !important;
 }
 
-/* Metric Delta Enhancement */
-[data-testid="stMetricDelta"] {
+/* ============================================
+   Container Borders
+   ============================================ */
+[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: var(--pdhub-border-radius-lg) !important;
+    border: 1px solid var(--pdhub-border) !important;
+    background: var(--pdhub-bg-card) !important;
+    padding: 1.25rem !important;
+}
+
+/* ============================================
+   Multiselect
+   ============================================ */
+[data-testid="stMultiSelect"] > div {
+    background: var(--pdhub-bg-elevated) !important;
+    border: 1px solid var(--pdhub-border) !important;
+    border-radius: var(--pdhub-border-radius-sm) !important;
+}
+
+[data-testid="stMultiSelect"] [data-baseweb="tag"] {
+    background: var(--pdhub-primary) !important;
+    border-radius: var(--pdhub-border-radius-xs) !important;
+}
+
+/* ============================================
+   Alerts & Messages
+   ============================================ */
+[data-testid="stAlert"] {
+    border-radius: var(--pdhub-border-radius-md) !important;
+    border: none !important;
+    padding: 1rem 1.25rem !important;
+}
+
+/* ============================================
+   Metrics
+   ============================================ */
+[data-testid="stMetricValue"] {
+    font-family: 'JetBrains Mono', monospace !important;
     font-weight: 600 !important;
 }
 
-/* Professional Headers */
-h1, h2, h3, h4, h5, h6 {
-    font-family: 'Outfit', sans-serif !important;
-    letter-spacing: -0.02em;
+[data-testid="stMetricDelta"] {
+    font-weight: 600 !important;
+    font-size: 0.85rem !important;
 }
 
-/* Smooth Scrollbar */
+[data-testid="stMetricLabel"] {
+    color: var(--pdhub-text-secondary) !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+}
+
+/* ============================================
+   Typography
+   ============================================ */
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Inter', -apple-system, sans-serif !important;
+    letter-spacing: -0.02em;
+    color: var(--pdhub-text-heading) !important;
+}
+
+h1 { font-size: 2rem !important; font-weight: 700 !important; }
+h2 { font-size: 1.5rem !important; font-weight: 600 !important; }
+h3 { font-size: 1.25rem !important; font-weight: 600 !important; }
+h4 { font-size: 1.1rem !important; font-weight: 600 !important; }
+
+/* ============================================
+   Scrollbar
+   ============================================ */
 ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: rgba(99, 102, 241, 0.4);
-    border-radius: 4px;
+    background: rgba(99, 102, 241, 0.35);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: rgba(99, 102, 241, 0.6);
+    background: rgba(99, 102, 241, 0.5);
+    border: 2px solid transparent;
+    background-clip: padding-box;
 }
 
-/* Professional Table Styling */
+/* ============================================
+   Table Styling
+   ============================================ */
 [data-testid="stDataFrame"] {
-    border-radius: 16px !important;
+    border-radius: var(--pdhub-border-radius-md) !important;
     overflow: hidden !important;
 }
 
@@ -691,32 +1182,109 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 [data-testid="stDataFrame"] th {
-    background: rgba(99, 102, 241, 0.15) !important;
+    background: rgba(99, 102, 241, 0.12) !important;
     font-weight: 600 !important;
     text-transform: uppercase !important;
     font-size: 0.75rem !important;
-    letter-spacing: 0.05em !important;
+    letter-spacing: 0.04em !important;
+    padding: 12px 16px !important;
+    color: var(--pdhub-text) !important;
 }
 
 [data-testid="stDataFrame"] td {
-    background: rgba(15, 23, 42, 0.4) !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+    background: var(--pdhub-bg-card) !important;
+    border-bottom: 1px solid var(--pdhub-border) !important;
+    padding: 10px 16px !important;
+    font-size: 0.9rem !important;
 }
 
-/* Tooltip Enhancement */
+[data-testid="stDataFrame"] tr:hover td {
+    background: var(--pdhub-bg-light) !important;
+}
+
+/* ============================================
+   Tooltips
+   ============================================ */
 [data-testid="stTooltipContent"] {
-    background: rgba(15, 23, 42, 0.95) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    border-radius: 10px !important;
-    backdrop-filter: blur(10px) !important;
+    background: var(--pdhub-bg-elevated) !important;
+    border: 1px solid var(--pdhub-border) !important;
+    border-radius: var(--pdhub-border-radius-sm) !important;
+    backdrop-filter: blur(12px) !important;
+    padding: 10px 14px !important;
+    font-size: 0.85rem !important;
 }
 
-/* Professional Toast/Notification */
+/* ============================================
+   Toast Notifications
+   ============================================ */
 [data-testid="stToast"] {
-    background: rgba(15, 23, 42, 0.95) !important;
-    border: 1px solid rgba(99, 102, 241, 0.3) !important;
-    border-radius: 12px !important;
-    backdrop-filter: blur(10px) !important;
+    background: var(--pdhub-bg-elevated) !important;
+    border: 1px solid var(--pdhub-border) !important;
+    border-radius: var(--pdhub-border-radius-md) !important;
+    backdrop-filter: blur(12px) !important;
+    box-shadow: var(--pdhub-shadow-lg) !important;
+}
+
+/* ============================================
+   Code Blocks
+   ============================================ */
+.stCode, code {
+    background: var(--pdhub-bg-elevated) !important;
+    border: 1px solid var(--pdhub-border) !important;
+    border-radius: var(--pdhub-border-radius-xs) !important;
+    font-size: 0.85rem !important;
+}
+
+pre {
+    background: var(--pdhub-bg-elevated) !important;
+    border: 1px solid var(--pdhub-border) !important;
+    border-radius: var(--pdhub-border-radius-sm) !important;
+    padding: 1rem !important;
+}
+
+/* ============================================
+   Links
+   ============================================ */
+a {
+    color: var(--pdhub-primary-light) !important;
+    text-decoration: none !important;
+    transition: var(--pdhub-transition-fast) !important;
+}
+
+a:hover {
+    color: var(--pdhub-primary) !important;
+    text-decoration: underline !important;
+}
+
+/* ============================================
+   Dividers
+   ============================================ */
+hr {
+    border: none !important;
+    height: 1px !important;
+    background: var(--pdhub-border) !important;
+    margin: 1.5rem 0 !important;
+}
+
+/* ============================================
+   Selection Banner (Jobs Page)
+   ============================================ */
+.selection-banner {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.08) 100%);
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    border-radius: var(--pdhub-border-radius-md);
+    padding: 16px 20px;
+    margin: 1rem 0;
+}
+
+.selection-info {
+    color: var(--pdhub-text-secondary);
+    font-size: 0.9rem;
+}
+
+.pdhub-muted {
+    color: var(--pdhub-text-muted);
+    font-size: 0.85rem;
 }
 
 </style>
@@ -737,14 +1305,13 @@ def page_header(
     icon: str = "",
     image_url: Optional[str] = None
 ) -> None:
-    """Render a consistent page header with high-impact visuals."""
-    style = f'background-image: linear-gradient(to right, rgba(0,0,0,0.7), rgba(0,0,0,0.2)), url("{image_url}");' if image_url else ""
+    """Render a consistent page header with professional styling."""
+    style = f'background-image: linear-gradient(to right, rgba(10,11,15,0.9), rgba(10,11,15,0.7)), url("{image_url}");' if image_url else ""
     extra_class = "pdhub-hero-with-image" if image_url else ""
-    icon_html = f'<div class="pdhub-hero-icon" style="font-size: 3rem; margin-bottom: 1rem;">{icon}</div>' if icon and not image_url else ""
-    
-    # Use NO NEWLINES AND NO INDENTATION to force st.markdown to treat as HTML
-    hero_html = f'<div class="pdhub-hero {extra_class}" style="{style}">{icon_html}<h1 class="pdhub-hero-title">{title}</h1><p class="pdhub-hero-subtitle" style="font-size: 1.2rem; opacity: 0.8; max-width: 800px; margin: 0 auto;">{subtitle}</p></div>'
-    
+    icon_html = f'<div class="pdhub-hero-icon">{icon}</div>' if icon and not image_url else ""
+
+    hero_html = f'<div class="pdhub-hero {extra_class}" style="{style}">{icon_html}<h1 class="pdhub-hero-title">{title}</h1><p class="pdhub-hero-subtitle">{subtitle}</p></div>'
+
     st.markdown(hero_html, unsafe_allow_html=True)
 
 
@@ -765,30 +1332,30 @@ def metric_card(
         icon: Optional emoji/icon
         delta: Optional change indicator
     """
-    variant_class = {
-        "default": "pdhub-metric",
-        "success": "pdhub-metric",
-        "warning": "pdhub-metric",
-        "error": "pdhub-metric",
-        "info": "pdhub-metric",
-        "gradient": "pdhub-metric",
-    }.get(variant, "pdhub-metric")
+    # Border color based on variant
+    border_colors = {
+        "success": "#22c55e",
+        "warning": "#f59e0b",
+        "error": "#ef4444",
+        "info": "#3b82f6",
+        "gradient": "#6366f1",
+    }
 
-    style = ""
-    if variant == "success": style = "border-top: 4px solid var(--pdhub-success);"
-    elif variant == "warning": style = "border-top: 4px solid var(--pdhub-warning);"
-    elif variant == "error": style = "border-top: 4px solid var(--pdhub-error);"
-    elif variant == "info": style = "border-top: 4px solid var(--pdhub-info);"
-    elif variant == "gradient": style = "background: var(--pdhub-gradient-primary); color: white;"
+    border_style = f"border-left: 3px solid {border_colors.get(variant, 'transparent')};" if variant != "default" else ""
 
-    icon_html = f'<div style="font-size: 1.5rem; margin-bottom: 0.5rem;">{icon}</div>' if icon else ""
-    delta_html = f'<div style="font-size: 0.8rem; font-weight: 600; margin-top: 0.5rem;">{delta}</div>' if delta else ""
+    if variant == "gradient":
+        bg_style = "background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.1) 100%);"
+    else:
+        bg_style = ""
+
+    icon_html = f'<div style="font-size: 1.25rem; margin-bottom: 0.5rem; opacity: 0.8;">{icon}</div>' if icon else ""
+    delta_html = f'<div style="font-size: 0.8rem; font-weight: 600; margin-top: 0.5rem; color: var(--pdhub-text-secondary);">{delta}</div>' if delta else ""
 
     st.markdown(f"""
-    <div class="{variant_class} pdhub-animate-fade-in" style="{style}">
+    <div class="pdhub-metric pdhub-animate-fade-in" style="{border_style} {bg_style}">
         {icon_html}
-        <div class="pdhub-metric-value" style="{'color: white;' if variant == 'gradient' else ''}">{value}</div>
-        <div class="pdhub-metric-label" style="{'color: rgba(255,255,255,0.8);' if variant == 'gradient' else ''}">{label}</div>
+        <div class="pdhub-metric-value">{value}</div>
+        <div class="pdhub-metric-label">{label}</div>
         {delta_html}
     </div>
     """, unsafe_allow_html=True)
@@ -987,68 +1554,97 @@ def card_end() -> None:
 # =============================================================================
 
 def sidebar_nav(current: str | None = None) -> None:
-    """Render a hyper-professional Lab-OS navigation system."""
-    # Custom CSS for the sidebar link buttons to make them look professional
+    """Render a professional navigation system."""
+    # Custom CSS for sidebar navigation
     st.sidebar.markdown("""
     <style>
+    /* Navigation Links */
     .pdhub-nav-link {
         display: flex;
         align-items: center;
-        padding: 10px 16px;
-        margin: 4px 12px;
-        border-radius: 12px;
-        color: #94a3b8;
+        padding: 10px 14px;
+        margin: 3px 10px;
+        border-radius: 8px;
+        color: #a1a9b8;
         text-decoration: none;
         font-weight: 500;
-        font-size: 0.9rem;
-        transition: all 0.3s ease;
+        font-size: 0.875rem;
+        transition: all 0.2s ease;
         border: 1px solid transparent;
-        background: rgba(255,255,255,0.02);
+        background: transparent;
     }
+
     .pdhub-nav-link:hover {
-        background: rgba(99, 102, 241, 0.1);
-        color: white;
-        transform: translateX(5px);
-        border-color: rgba(99, 102, 241, 0.3);
+        background: rgba(99, 102, 241, 0.08);
+        color: #f1f5f9;
+        border-color: rgba(99, 102, 241, 0.15);
     }
+
     .pdhub-nav-link-active {
-        background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.2));
-        color: white;
-        border-color: rgba(99, 102, 241, 0.5);
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        font-weight: 700;
+        background: rgba(99, 102, 241, 0.15);
+        color: #f1f5f9;
+        border-color: rgba(99, 102, 241, 0.3);
+        font-weight: 600;
     }
+
     .pdhub-nav-icon {
         width: 20px;
-        margin-right: 12px;
-        font-size: 1rem;
+        margin-right: 10px;
+        font-size: 0.95rem;
         display: flex;
         justify-content: center;
+    }
+
+    /* Sidebar Button Override */
+    [data-testid="stSidebar"] div.stButton > button {
+        background: transparent !important;
+        border: 1px solid transparent !important;
+        padding: 0.6rem 1rem !important;
+        font-size: 0.875rem !important;
+        font-weight: 500 !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        box-shadow: none !important;
+        color: #a1a9b8 !important;
+    }
+
+    [data-testid="stSidebar"] div.stButton > button:hover {
+        background: rgba(99, 102, 241, 0.08) !important;
+        border-color: rgba(99, 102, 241, 0.15) !important;
+        color: #f1f5f9 !important;
+        transform: none !important;
+    }
+
+    [data-testid="stSidebar"] div.stButton > button[kind="primary"] {
+        background: rgba(99, 102, 241, 0.15) !important;
+        border-color: rgba(99, 102, 241, 0.3) !important;
+        color: #f1f5f9 !important;
+        font-weight: 600 !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
     st.sidebar.markdown(f"""
     <div class="pdhub-sidebar-header">
-        <div class="pdhub-sidebar-logo">PDHUB PRO</div>
-        <div class="pdhub-sidebar-tagline">Advanced Biological OS</div>
+        <div class="pdhub-sidebar-logo">Protein Design Hub</div>
+        <div class="pdhub-sidebar-tagline">Computational Biology Platform</div>
     </div>
     """, unsafe_allow_html=True)
 
     nav_groups = {
-        "Workflows": [
+        "Analysis": [
             ("Home", "app.py", "🏠"),
             ("Predict", "pages/1_predict.py", "🔮"),
             ("Evaluate", "pages/2_evaluate.py", "📊"),
             ("Compare", "pages/3_compare.py", "⚖️"),
         ],
-        "Design Suites": [
-            ("Design", "pages/0_design.py", "✏️"),
+        "Design": [
+            ("Editor", "pages/0_design.py", "✏️"),
             ("Mutagenesis", "pages/10_mutation_scanner.py", "🧬"),
             ("Evolution", "pages/4_evolution.py", "📈"),
             ("MPNN Lab", "pages/8_mpnn.py", "🎯"),
         ],
-        "System": [
+        "Tools": [
             ("Batch", "pages/5_batch.py", "📦"),
             ("MSA", "pages/7_msa.py", "🧬"),
             ("Jobs", "pages/9_jobs.py", "📁"),
@@ -1056,66 +1652,50 @@ def sidebar_nav(current: str | None = None) -> None:
         ],
     }
 
-    # Since we can't reliably use st.switch_page from a raw HTML link in Streamlit
-    # without a page reload (which resets state), we use a streamlined button system
-    # that is PROFESSIONALLY STYLED to look like a modern SaaS navigation.
-    
     for group_name, pages in nav_groups.items():
         st.sidebar.markdown(f'<div class="pdhub-nav-group-title">{group_name}</div>', unsafe_allow_html=True)
         for label, target, icon in pages:
             is_active = current == label
-            
-            # Use columns to create a "Glow" indicator for active items
-            col_ind, col_btn = st.sidebar.columns([0.1, 0.9])
+
+            # Active indicator column
+            col_ind, col_btn = st.sidebar.columns([0.08, 0.92])
             with col_ind:
                 if is_active:
-                    st.markdown('<div style="width: 4px; height: 36px; background: #6366f1; border-radius: 4px; box-shadow: 0 0 10px #6366f1; margin-top: 2px;"></div>', unsafe_allow_html=True)
-            
+                    st.markdown(
+                        '<div style="width: 3px; height: 32px; background: linear-gradient(180deg, #6366f1, #8b5cf6); border-radius: 2px; margin-top: 4px;"></div>',
+                        unsafe_allow_html=True
+                    )
+
             with col_btn:
                 if st.button(
-                    f"{icon}  {label}", 
-                    key=f"nav_btn_{label}", 
+                    f"{icon}  {label}",
+                    key=f"nav_btn_{label}",
                     use_container_width=True,
                     type="primary" if is_active else "secondary"
                 ):
                     st.switch_page(target)
 
-    st.sidebar.markdown("<div style='margin-top: 2rem;'></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
 
 
 def sidebar_system_status() -> None:
-    """Render high-density system status in sidebar."""
+    """Render system status in sidebar."""
     st.sidebar.markdown("---")
-    
-    with st.sidebar.expander("🛡️ System Integrity", expanded=False):
-        # GPU Status
-        try:
-            import torch
-            if torch.cuda.is_available():
-                gpu_name = torch.cuda.get_device_name(0).split()[-1] # Simple name
-                st.markdown(f"""
-                <div style="font-size: 0.75rem; color: #10b981; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 6px;">
-                    <span style="width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 8px #10b981;"></span>
-                    GPU: {gpu_name} (ACTIVE)
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown("""
-                <div style="font-size: 0.75rem; color: #ef4444; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 6px;">
-                    <span style="width: 8px; height: 8px; background: #ef4444; border-radius: 50%;"></span>
-                    COMPUTE: CPU (FALLBACK)
-                </div>
-                """, unsafe_allow_html=True)
-        except Exception:
-            pass
+
+    with st.sidebar.expander("⚡ System Status", expanded=False):
+        # GPU Status (using robust detection)
+        st.markdown(get_gpu_status_html(), unsafe_allow_html=True)
 
         # Registry Check
         try:
-            from protein_design_hub.core.config import get_settings
             from protein_design_hub.predictors.registry import PredictorRegistry
-            settings = get_settings()
             preds = PredictorRegistry.list_available()
-            st.markdown(f"<div style='font-size: 0.7rem; color: #64748b;'>PREDICTORS: {len(preds)} Online</div>", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style="font-size: 0.8rem; color: #a1a9b8; display: flex; align-items: center; gap: 8px;">
+                <span style="width: 8px; height: 8px; background: #6366f1; border-radius: 50%;"></span>
+                Predictors: {len(preds)} available
+            </div>
+            """, unsafe_allow_html=True)
         except Exception:
             pass
 

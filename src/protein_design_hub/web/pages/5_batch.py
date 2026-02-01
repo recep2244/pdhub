@@ -6,7 +6,15 @@ import json
 import tempfile
 import time
 
-from protein_design_hub.web.ui import inject_base_css, sidebar_nav, sidebar_system_status
+from protein_design_hub.web.ui import (
+    inject_base_css,
+    sidebar_nav,
+    sidebar_system_status,
+    page_header,
+    section_header,
+    info_box,
+    metric_card,
+)
 
 st.set_page_config(page_title="Batch - Protein Design Hub", page_icon="📦", layout="wide")
 
@@ -56,41 +64,55 @@ if 'batch_history' not in st.session_state:
 if 'batch_start_time' not in st.session_state:
     st.session_state.batch_start_time = None
 
-# Title
-st.markdown("""
-<div style="text-align: center; padding: 20px;">
-    <h1 style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-               -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-               font-size: 2.5rem;">
-        📦 Batch Processing
-    </h1>
-    <p style="color: var(--pdhub-text-secondary);">Run multiple predictions, designs, or evaluations in parallel</p>
-</div>
-""", unsafe_allow_html=True)
+# Page Header
+page_header(
+    "Batch Processing",
+    "Run multiple predictions, designs, or evaluations in parallel",
+    "📦"
+)
 
 # Main tabs
 main_tabs = st.tabs(["📥 Input", "⚙️ Configure", "🚀 Run", "📊 Results"])
 
+# Example batch sequences
+BATCH_EXAMPLE = """>Ubiquitin
+MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
+>T1024
+MAAHKGAEHVVKASLDAGVKTVAGGLVVKAKALGGKDATMHLVAATLKKGYM
+>Villin_HP35
+LSDEDFKAVFGMTRSAFANLPLWKQQNLKKEKGLF"""
+
 # === INPUT TAB ===
 with main_tabs[0]:
-    st.markdown("### 📥 Input Sequences")
+    section_header("Input Sequences", "Add multiple sequences for batch processing", "📥")
 
-    input_method = st.radio(
-        "Input method",
-        ["Paste sequences", "Upload FASTA", "Upload CSV"],
-        horizontal=True
-    )
+    col_method, col_load = st.columns([3, 1])
+    with col_method:
+        input_method = st.radio(
+            "Input method",
+            ["Paste sequences", "Upload FASTA", "Upload CSV"],
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+    with col_load:
+        if st.button("📋 Load Example", use_container_width=True, type="secondary"):
+            st.session_state.batch_seq_input = BATCH_EXAMPLE
 
     sequences = []
 
     if input_method == "Paste sequences":
-        st.markdown("**Paste sequences (one per line or FASTA format):**")
+        info_box(
+            "Paste sequences in FASTA format (>name followed by sequence). Each sequence will be processed separately.",
+            variant="info"
+        )
 
         text_input = st.text_area(
             "Sequences",
             height=200,
+            value=st.session_state.get("batch_seq_input", ""),
             placeholder=">protein_1\nMKFLILLFNILCLFPVLAADNHGVGPQGAS...\n>protein_2\nMGSSHHHHHHSSGLVPRGSHM...",
-            key="batch_seq_input"
+            key="batch_seq_input",
+            label_visibility="collapsed"
         )
 
         if text_input:

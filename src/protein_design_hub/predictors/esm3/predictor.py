@@ -89,6 +89,7 @@ class ESM3Predictor(BasePredictor):
 
         esm3_python = os.getenv("ESM3_PYTHON")
         forge_token = os.getenv("ESM3_FORGE_TOKEN")
+        hf_token = os.getenv("ESM3_HF_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN") or os.getenv("HF_TOKEN")
         if esm3_python:
             runner = Path(__file__).resolve().parents[4] / "scripts" / "run_esm3.py"
             if not runner.exists():
@@ -99,6 +100,7 @@ class ESM3Predictor(BasePredictor):
                 "model_name": model_name,
                 "num_steps": num_steps,
                 "forge_token": forge_token,
+                "hf_token": hf_token,
                 "device": os.getenv("ESM3_DEVICE"),
             }
             input_json = output_dir / f"{input_data.job_id}_{self.name}.json"
@@ -192,7 +194,16 @@ class ESM3Predictor(BasePredictor):
                     original_error=e,
                 )
 
-            device = os.getenv("ESM3_DEVICE") or ("cuda" if torch.cuda.is_available() else "cpu")
+            requested_device = os.getenv("ESM3_DEVICE") or ""
+            device = requested_device or ("cuda" if torch.cuda.is_available() else "cpu")
+            if device.startswith("cuda"):
+                try:
+                    if not torch.cuda.is_available():
+                        device = "cpu"
+                except Exception:
+                    device = "cpu"
+            if hf_token:
+                os.environ["HUGGINGFACE_HUB_TOKEN"] = hf_token
             try:
                 model = ESM3.from_pretrained(model_name).to(device)
             except Exception as e:

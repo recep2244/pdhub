@@ -95,18 +95,6 @@ if st.session_state.get("evolution_job_to_load"):
     except Exception as e:
         st.error(f"Error loading job: {e}")
 
-# Title
-st.markdown("""
-<div style="text-align: center; padding: 20px;">
-    <h1 style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-               -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-               font-size: 2.5rem;">
-        🧬 Directed Evolution Workflow
-    </h1>
-    <p style="color: var(--pdhub-text-secondary);">Computationally evolve proteins toward desired properties</p>
-</div>
-""", unsafe_allow_html=True)
-
 # Main tabs
 main_tabs = st.tabs(["🎯 Setup", "🔬 Run Evolution", "📊 Results", "📚 Library Design"])
 

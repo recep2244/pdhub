@@ -54,8 +54,20 @@ class OpenMMGBSAMetric(BaseMetric):
         if not model_path.exists():
             raise EvaluationError(self.name, f"Model not found: {model_path}")
 
-        pdb = PDBFile(str(model_path))
-        modeller = Modeller(pdb.topology, pdb.positions)
+        modeller = None
+        try:
+            from pdbfixer import PDBFixer
+
+            fixer = PDBFixer(filename=str(model_path))
+            fixer.findMissingResidues()
+            fixer.findNonstandardResidues()
+            fixer.replaceNonstandardResidues()
+            fixer.findMissingAtoms()
+            fixer.addMissingAtoms()
+            modeller = Modeller(fixer.topology, fixer.positions)
+        except Exception:
+            pdb = PDBFile(str(model_path))
+            modeller = Modeller(pdb.topology, pdb.positions)
 
         # Add hydrogens; this will fail for unknown residues.
         try:
