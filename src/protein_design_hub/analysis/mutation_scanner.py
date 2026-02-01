@@ -73,6 +73,7 @@ class MutationResult:
     tm_score_to_base: Optional[float] = None
     clash_score: Optional[float] = None
     sasa_total: Optional[float] = None
+    extra_metrics: Dict[str, Any] = field(default_factory=dict)
     
     # Structure path
     structure_path: Optional[Path] = None
@@ -109,6 +110,7 @@ class MutationResult:
             "tm_score_to_base": self.tm_score_to_base,
             "clash_score": self.clash_score,
             "sasa_total": self.sasa_total,
+            "extra_metrics": self.extra_metrics,
             "is_beneficial": self.is_beneficial,
             "improvement_score": self.improvement_score,
             "success": self.success,
@@ -137,6 +139,7 @@ class MultiMutationVariant:
     tm_score_to_base: Optional[float] = None
     clash_score: Optional[float] = None
     sasa_total: Optional[float] = None
+    extra_metrics: Dict[str, Any] = field(default_factory=dict)
 
     structure_path: Optional[Path] = None
     prediction_time: float = 0.0
@@ -162,6 +165,7 @@ class MultiMutationVariant:
             "tm_score_to_base": self.tm_score_to_base,
             "clash_score": self.clash_score,
             "sasa_total": self.sasa_total,
+            "extra_metrics": self.extra_metrics,
             "structure_path": str(self.structure_path) if self.structure_path else None,
             "prediction_time": self.prediction_time,
             "success": self.success,
@@ -186,6 +190,7 @@ class MultiMutationResult:
     base_structure_path: Optional[Path] = None
     base_clash_score: Optional[float] = None
     base_sasa_total: Optional[float] = None
+    base_extra_metrics: Dict[str, Any] = field(default_factory=dict)
 
     variants: List[MultiMutationVariant] = field(default_factory=list)
     single_position_scans: List[SaturationMutagenesisResult] = field(default_factory=list)
@@ -212,6 +217,7 @@ class MultiMutationResult:
             "base_local_plddt_min": self.base_local_plddt_min,
             "base_clash_score": self.base_clash_score,
             "base_sasa_total": self.base_sasa_total,
+            "base_extra_metrics": self.base_extra_metrics,
             "base_structure_path": str(self.base_structure_path) if self.base_structure_path else None,
             "variants": [v.to_dict() for v in self.variants],
             "single_position_scans": [s.to_dict() for s in self.single_position_scans],
@@ -236,6 +242,7 @@ class SaturationMutagenesisResult:
     base_structure_path: Optional[Path] = None
     base_clash_score: Optional[float] = None
     base_sasa_total: Optional[float] = None
+    base_extra_metrics: Dict[str, Any] = field(default_factory=dict)
     
     # Mutation results
     mutations: List[MutationResult] = field(default_factory=list)
@@ -275,6 +282,7 @@ class SaturationMutagenesisResult:
             "base_local_plddt": self.base_local_plddt,
             "base_clash_score": self.base_clash_score,
             "base_sasa_total": self.base_sasa_total,
+            "base_extra_metrics": self.base_extra_metrics,
             "mutations": [m.to_dict() for m in self.mutations],
             "best_mutation": self.best_mutation.to_dict() if self.best_mutation else None,
             "beneficial_count": len(self.beneficial_mutations),
@@ -299,6 +307,7 @@ class MutationScanner:
         immune_active_chain: str = "A",
         max_workers: int = 4,
         output_dir: Optional[Path] = None,
+        evaluation_metrics: Optional[List[str]] = None,
     ):
         if predictor is None:
             predictor = "esmfold_api" if use_api else "esmfold_local"
@@ -312,6 +321,7 @@ class MutationScanner:
         self.max_workers = max_workers
         self.output_dir = output_dir or Path(tempfile.mkdtemp(prefix="mutation_scan_"))
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.evaluation_metrics = evaluation_metrics or []
         self._base_cache: Dict[Tuple[Any, ...], Tuple[str, List[float], Path]] = {}
 
         # Import metrics lazily
@@ -527,39 +537,61 @@ class MutationScanner:
         return pdb_text, per_residue_error
 
     def calculate_biophysical_metrics(
-        self, 
-        model_path: Path, 
-        reference_path: Optional[Path] = None
-    ) -> Dict[str, float]:
+        self,
+        model_path: Path,
+        reference_path: Optional[Path] = None,
+        evaluation_metrics: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """Calculate secondary metrics."""
         results = {}
-        if not self._metrics_available:
-            return results
-            
-        # 1. Clash Score
-        try:
-            clash_res = self._clash_metric.compute(model_path)
-            results['clash_score'] = clash_res.get('clash_score')
-        except Exception: pass
-            
-        # 2. SASA
-        try:
-            sasa_res = self._sasa_metric.compute(model_path)
-            results['sasa_total'] = sasa_res.get('sasa_total')
-        except Exception: pass
-            
-        if reference_path:
-            # 3. RMSD
+        if self._metrics_available:
+            # 1. Clash Score
             try:
-                rmsd_res = self._rmsd_metric.compute(model_path, reference_path)
-                results['rmsd'] = rmsd_res.get('rmsd')
-            except Exception: pass
-            
-            # 4. TM-score
+                clash_res = self._clash_metric.compute(model_path)
+                results['clash_score'] = clash_res.get('clash_score')
+            except Exception:
+                pass
+
+            # 2. SASA
             try:
-                tm_res = self._tm_metric.compute(model_path, reference_path)
-                results['tm_score'] = tm_res.get('tm_score')
-            except Exception: pass
+                sasa_res = self._sasa_metric.compute(model_path)
+                results['sasa_total'] = sasa_res.get('sasa_total')
+            except Exception:
+                pass
+
+            if reference_path:
+                # 3. RMSD
+                try:
+                    rmsd_res = self._rmsd_metric.compute(model_path, reference_path)
+                    results['rmsd'] = rmsd_res.get('rmsd')
+                except Exception:
+                    pass
+
+                # 4. TM-score
+                try:
+                    tm_res = self._tm_metric.compute(model_path, reference_path)
+                    results['tm_score'] = tm_res.get('tm_score')
+                except Exception:
+                    pass
+
+        # Additional evaluation metrics via CompositeEvaluator
+        extra_metrics = {}
+        selected = evaluation_metrics if evaluation_metrics is not None else self.evaluation_metrics
+        if selected:
+            try:
+                from protein_design_hub.evaluation.composite import CompositeEvaluator
+
+                base_metric_names = {"clash_score", "sasa", "tm_score", "rmsd"}
+                metrics_to_run = [m for m in selected if m not in base_metric_names]
+                if metrics_to_run:
+                    evaluator = CompositeEvaluator(metrics=metrics_to_run)
+                    eval_result = evaluator.evaluate(model_path, reference_path)
+                    extra_metrics = eval_result.metadata or {}
+            except Exception as exc:
+                extra_metrics = {"errors": [f"extra_metrics: {exc}"]}
+
+        if extra_metrics:
+            results["extra_metrics"] = extra_metrics
             
         return results
 
@@ -610,7 +642,10 @@ class MutationScanner:
         base_local_plddt = base_plddt[position - 1] if position <= len(base_plddt) else 0
         
         # Base metrics
-        base_metrics = self.calculate_biophysical_metrics(base_path)
+        base_metrics = self.calculate_biophysical_metrics(
+            base_path,
+            evaluation_metrics=self.evaluation_metrics,
+        )
         
         if progress_callback:
             progress_callback(0, 20, f"Base (WT) calculated")
@@ -633,7 +668,11 @@ class MutationScanner:
                 mut_local_plddt = mut_plddt[position - 1] if position <= len(mut_plddt) else 0
                 
                 # Biophsyical metrics
-                metrics = self.calculate_biophysical_metrics(mut_path, base_path)
+                metrics = self.calculate_biophysical_metrics(
+                    mut_path,
+                    base_path,
+                    evaluation_metrics=self.evaluation_metrics,
+                )
                 
                 result = MutationResult(
                     position=position,
@@ -649,6 +688,7 @@ class MutationScanner:
                     tm_score_to_base=metrics.get('tm_score'),
                     clash_score=metrics.get('clash_score'),
                     sasa_total=metrics.get('sasa_total'),
+                    extra_metrics=metrics.get("extra_metrics", {}),
                     structure_path=mut_path,
                     prediction_time=time.time() - mut_start,
                     success=True,
@@ -678,6 +718,7 @@ class MutationScanner:
             base_structure_path=base_path,
             base_clash_score=base_metrics.get('clash_score'),
             base_sasa_total=base_metrics.get('sasa_total'),
+            base_extra_metrics=base_metrics.get("extra_metrics", {}),
             mutations=mutation_results,
             total_time=time.time() - start_time,
             timestamp=datetime.datetime.now().isoformat(),
@@ -718,7 +759,10 @@ class MutationScanner:
         base_local_mean = sum(base_local_values) / len(base_local_values) if base_local_values else 0.0
         base_local_min = min(base_local_values) if base_local_values else 0.0
 
-        base_metrics = self.calculate_biophysical_metrics(base_path)
+        base_metrics = self.calculate_biophysical_metrics(
+            base_path,
+            evaluation_metrics=self.evaluation_metrics,
+        )
 
         # Run single-position scans
         scans: List[SaturationMutagenesisResult] = []
@@ -766,7 +810,11 @@ class MutationScanner:
                 mut_local_mean = sum(local_vals) / len(local_vals) if local_vals else 0.0
                 mut_local_min = min(local_vals) if local_vals else 0.0
 
-                metrics = self.calculate_biophysical_metrics(mut_path, base_path)
+                metrics = self.calculate_biophysical_metrics(
+                    mut_path,
+                    base_path,
+                    evaluation_metrics=self.evaluation_metrics,
+                )
 
                 variants.append(MultiMutationVariant(
                     positions=positions,
@@ -783,6 +831,7 @@ class MutationScanner:
                     tm_score_to_base=metrics.get('tm_score'),
                     clash_score=metrics.get('clash_score'),
                     sasa_total=metrics.get('sasa_total'),
+                    extra_metrics=metrics.get("extra_metrics", {}),
                     structure_path=mut_path,
                     prediction_time=time.time() - mut_start,
                     success=True,
@@ -813,6 +862,7 @@ class MutationScanner:
             base_structure_path=base_path,
             base_clash_score=base_metrics.get('clash_score'),
             base_sasa_total=base_metrics.get('sasa_total'),
+            base_extra_metrics=base_metrics.get("extra_metrics", {}),
             variants=variants,
             single_position_scans=scans,
             total_time=time.time() - start_time,

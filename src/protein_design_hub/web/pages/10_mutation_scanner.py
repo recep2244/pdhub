@@ -149,6 +149,7 @@ if st.session_state.get("scan_job_to_load"):
         st.error(f"Error loading job: {e}")
 
 def init_session_state():
+    default_eval_metrics = ["openmm_gbsa", "cad_score", "voromqa"]
     defaults = {
         'sequence': '', 'sequence_name': 'my_protein',
         'sequence_input_raw': '',
@@ -164,10 +165,15 @@ def init_session_state():
         'immune_active_chain': 'A',
         'immune_parse_error': None,
         'mutation_predictor': 'esmfold_api',
+        'mutation_eval_enabled': False,
+        'mutation_eval_metrics': default_eval_metrics,
         'baseline_predictors': ['esmfold_api'],
         'baseline_results': None,
         'baseline_sequence': None,
-        'scanner': MutationScanner(predictor='esmfold_api'),
+        'scanner': MutationScanner(
+            predictor='esmfold_api',
+            evaluation_metrics=[],
+        ),
         'afdb_enabled': False,
         'afdb_email': os.getenv("EBI_EMAIL", ""),
         'afdb_cache': {},
@@ -177,6 +183,24 @@ def init_session_state():
             st.session_state[key] = value
 
 init_session_state()
+
+def current_eval_metrics() -> List[str]:
+    if not st.session_state.get("mutation_eval_enabled"):
+        return []
+    return st.session_state.get("mutation_eval_metrics", [])
+
+def build_scanner(predictor_id: str) -> MutationScanner:
+    eval_metrics = current_eval_metrics()
+    if predictor_id == "immunebuilder":
+        return MutationScanner(
+            predictor=predictor_id,
+            immunebuilder_mode=st.session_state.immunebuilder_mode,
+            immune_chain_a=st.session_state.immune_chain_a,
+            immune_chain_b=st.session_state.immune_chain_b,
+            immune_active_chain=st.session_state.immune_active_chain,
+            evaluation_metrics=eval_metrics,
+        )
+    return MutationScanner(predictor=predictor_id, evaluation_metrics=eval_metrics)
 
 # Optional AFDB lookup in sidebar
 with st.sidebar.expander("🔍 AFDB Match", expanded=False):
@@ -251,6 +275,15 @@ def parse_ab_fasta(text: str) -> Dict[str, str]:
     if "A" not in chains or "B" not in chains:
         raise ValueError("FASTA must include >A and >B chains for ImmuneBuilder.")
     return chains
+
+def get_extra_metric(obj: Any, metric_name: str, field: str) -> Optional[float]:
+    extra = getattr(obj, "extra_metrics", None) or {}
+    metric = extra.get(metric_name)
+    if isinstance(metric, dict):
+        val = metric.get(field)
+        if isinstance(val, (int, float)):
+            return float(val)
+    return None
 
 def get_afdb_match_cached(sequence: str, email: str) -> Tuple[Optional[AFDBMatch], Optional[str]]:
     if not sequence:
@@ -504,16 +537,45 @@ selected_label = st.selectbox(
 selected_predictor = predictor_options[selected_label]
 if st.session_state.get("mutation_predictor") != selected_predictor:
     st.session_state.mutation_predictor = selected_predictor
-    if selected_predictor == "immunebuilder":
-        st.session_state.scanner = MutationScanner(
-            predictor=selected_predictor,
-            immunebuilder_mode=st.session_state.immunebuilder_mode,
-            immune_chain_a=st.session_state.immune_chain_a,
-            immune_chain_b=st.session_state.immune_chain_b,
-            immune_active_chain=st.session_state.immune_active_chain,
+    st.session_state.scanner = build_scanner(selected_predictor)
+
+# Mutagenesis evaluation settings
+st.markdown("#### Mutagenesis Evaluation")
+with st.expander("🔬 Advanced Evaluation Metrics", expanded=False):
+    prev_eval_enabled = st.session_state.get("mutation_eval_enabled", False)
+    prev_eval_metrics = list(st.session_state.get("mutation_eval_metrics", []))
+
+    eval_enabled = st.checkbox(
+        "Run extended evaluation per mutant (OpenMM/Voronota/etc.)",
+        value=prev_eval_enabled,
+        help="Metrics requiring a reference will use the wild-type base structure.",
+    )
+
+    metric_options: List[str] = []
+    if eval_enabled:
+        try:
+            from protein_design_hub.evaluation.composite import CompositeEvaluator
+
+            metric_options = [m["name"] for m in CompositeEvaluator.list_all_metrics()]
+        except Exception:
+            metric_options = []
+
+    selected_metrics = prev_eval_metrics
+    if eval_enabled:
+        selected_metrics = st.multiselect(
+            "Metrics to compute",
+            options=metric_options,
+            default=[m for m in prev_eval_metrics if m in metric_options] or prev_eval_metrics,
+            help="Use sparingly; some metrics (OpenMM, Rosetta) can be slow.",
         )
-    else:
-        st.session_state.scanner = MutationScanner(predictor=selected_predictor)
+
+    st.session_state.mutation_eval_enabled = eval_enabled
+    st.session_state.mutation_eval_metrics = selected_metrics
+
+    if (eval_enabled != prev_eval_enabled) or (selected_metrics != prev_eval_metrics):
+        st.session_state.scanner = build_scanner(st.session_state.mutation_predictor)
+        st.session_state.scan_results = None
+        st.session_state.multi_scan_results = None
 
 if "esm3" in baseline_predictors or selected_predictor == "esm3":
     st.info("ESM3 uses the EvolutionaryScale `esm` package; ESMFold uses `fair-esm`. Use separate environments if needed.")
@@ -559,13 +621,7 @@ if "immunebuilder" in baseline_predictors or selected_predictor == "immunebuilde
         st.session_state.multi_scan_results = None
 
     if selected_predictor == "immunebuilder":
-        st.session_state.scanner = MutationScanner(
-            predictor="immunebuilder",
-            immunebuilder_mode=st.session_state.immunebuilder_mode,
-            immune_chain_a=st.session_state.immune_chain_a,
-            immune_chain_b=st.session_state.immune_chain_b,
-            immune_active_chain=st.session_state.immune_active_chain,
-        )
+        st.session_state.scanner = build_scanner("immunebuilder")
 
 # 1. Input
 st.markdown("## 1️⃣ Input Sequence")
@@ -581,13 +637,7 @@ with seq_col:
                 active_chain = st.session_state.get("immune_active_chain", "A")
                 st.session_state.sequence = chains[active_chain]
                 if selected_predictor == "immunebuilder":
-                    st.session_state.scanner = MutationScanner(
-                        predictor="immunebuilder",
-                        immunebuilder_mode=st.session_state.immunebuilder_mode,
-                        immune_chain_a=st.session_state.immune_chain_a,
-                        immune_chain_b=st.session_state.immune_chain_b,
-                        immune_active_chain=st.session_state.immune_active_chain,
-                    )
+                    st.session_state.scanner = build_scanner("immunebuilder")
             except Exception as e:
                 st.session_state.immune_parse_error = str(e)
     placeholder = (
@@ -613,13 +663,7 @@ with seq_col:
                     active_chain = st.session_state.get("immune_active_chain", "A")
                     st.session_state.sequence = chains[active_chain]
                     if selected_predictor == "immunebuilder":
-                        st.session_state.scanner = MutationScanner(
-                            predictor="immunebuilder",
-                            immunebuilder_mode=st.session_state.immunebuilder_mode,
-                            immune_chain_a=st.session_state.immune_chain_a,
-                            immune_chain_b=st.session_state.immune_chain_b,
-                            immune_active_chain=st.session_state.immune_active_chain,
-                        )
+                        st.session_state.scanner = build_scanner("immunebuilder")
                 except Exception as e:
                     st.session_state.immune_parse_error = str(e)
                     st.session_state.sequence = ""
@@ -956,6 +1000,12 @@ if st.session_state.multi_scan_results:
             st.info("No successful variants produced.")
 
     with tab2:
+        include_cad = any(get_extra_metric(v, "cad_score", "cad_score") is not None for v in variants)
+        include_voromqa = any(get_extra_metric(v, "voromqa", "voromqa_score") is not None for v in variants)
+        include_openmm = any(
+            get_extra_metric(v, "openmm_gbsa", "openmm_potential_energy_kj_mol") is not None
+            for v in variants
+        )
         data = []
         for v in variants:
             mean_label = "Mean pLDDT"
@@ -977,6 +1027,15 @@ if st.session_state.multi_scan_results:
                 "RMSD (Å)": f"{v.rmsd_to_base:.2f}" if getattr(v, "rmsd_to_base", None) else "N/A",
                 "TM-score": f"{v.tm_score_to_base:.2f}" if getattr(v, "tm_score_to_base", None) else "N/A",
             })
+            if include_cad:
+                cad = get_extra_metric(v, "cad_score", "cad_score")
+                data[-1]["CAD-score"] = f"{cad:.3f}" if cad is not None else "N/A"
+            if include_voromqa:
+                voro = get_extra_metric(v, "voromqa", "voromqa_score")
+                data[-1]["VoroMQA"] = f"{voro:.3f}" if voro is not None else "N/A"
+            if include_openmm:
+                openmm = get_extra_metric(v, "openmm_gbsa", "openmm_potential_energy_kj_mol")
+                data[-1]["OpenMM (kJ/mol)"] = f"{openmm:.1f}" if openmm is not None else "N/A"
         st.dataframe(pd.DataFrame(data), use_container_width=True)
 
     with tab3:
@@ -1103,6 +1162,12 @@ if st.session_state.scan_results:
 
 
     with tab2:
+        include_cad = any(get_extra_metric(m, "cad_score", "cad_score") is not None for m in res.mutations)
+        include_voromqa = any(get_extra_metric(m, "voromqa", "voromqa_score") is not None for m in res.mutations)
+        include_openmm = any(
+            get_extra_metric(m, "openmm_gbsa", "openmm_potential_energy_kj_mol") is not None
+            for m in res.mutations
+        )
         data = []
         for m in res.mutations:
             if m.success:
@@ -1120,6 +1185,15 @@ if st.session_state.scan_results:
                     "SASA (Å²)": f"{m.sasa_total:.0f}" if m.sasa_total else "N/A",
                     "TM-score": f"{m.tm_score_to_base:.2f}" if m.tm_score_to_base else "N/A"
                 })
+                if include_cad:
+                    cad = get_extra_metric(m, "cad_score", "cad_score")
+                    data[-1]["CAD-score"] = f"{cad:.3f}" if cad is not None else "N/A"
+                if include_voromqa:
+                    voro = get_extra_metric(m, "voromqa", "voromqa_score")
+                    data[-1]["VoroMQA"] = f"{voro:.3f}" if voro is not None else "N/A"
+                if include_openmm:
+                    openmm = get_extra_metric(m, "openmm_gbsa", "openmm_potential_energy_kj_mol")
+                    data[-1]["OpenMM (kJ/mol)"] = f"{openmm:.1f}" if openmm is not None else "N/A"
         st.dataframe(pd.DataFrame(data), use_container_width=True)
 
     with tab3:
