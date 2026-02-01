@@ -247,8 +247,11 @@ nav[class*="st-emotion-cache"] {
    Professional Button System
    ============================================ */
 div.stButton > button,
+div.stButton button,
 div.stDownloadButton > button,
-div.stFormSubmitButton > button {
+div.stDownloadButton button,
+div.stFormSubmitButton > button,
+div.stFormSubmitButton button {
     background: var(--pdhub-button-bg) !important;
     border: 1px solid var(--pdhub-button-border) !important;
     color: var(--pdhub-text-heading) !important;
@@ -266,8 +269,11 @@ div.stFormSubmitButton > button {
 }
 
 div.stButton > button:hover,
+div.stButton button:hover,
 div.stDownloadButton > button:hover,
-div.stFormSubmitButton > button:hover {
+div.stDownloadButton button:hover,
+div.stFormSubmitButton > button:hover,
+div.stFormSubmitButton button:hover {
     transform: translateY(-2px) !important;
     border-color: var(--pdhub-button-border) !important;
     box-shadow: var(--pdhub-shadow-md) !important;
@@ -275,14 +281,20 @@ div.stFormSubmitButton > button:hover {
 }
 
 div.stButton > button:active,
+div.stButton button:active,
 div.stDownloadButton > button:active,
-div.stFormSubmitButton > button:active {
+div.stDownloadButton button:active,
+div.stFormSubmitButton > button:active,
+div.stFormSubmitButton button:active {
     transform: translateY(0) !important;
 }
 
 div.stButton > button[kind="primary"],
+div.stButton button[kind="primary"],
 div.stDownloadButton > button[kind="primary"],
-div.stFormSubmitButton > button[kind="primary"] {
+div.stDownloadButton button[kind="primary"],
+div.stFormSubmitButton > button[kind="primary"],
+div.stFormSubmitButton button[kind="primary"] {
     background: var(--pdhub-button-bg-strong) !important;
     border: 1px solid var(--pdhub-button-border) !important;
     color: var(--pdhub-text-heading) !important;
@@ -291,22 +303,31 @@ div.stFormSubmitButton > button[kind="primary"] {
 }
 
 div.stButton > button[kind="primary"]:hover,
+div.stButton button[kind="primary"]:hover,
 div.stDownloadButton > button[kind="primary"]:hover,
-div.stFormSubmitButton > button[kind="primary"]:hover {
+div.stDownloadButton button[kind="primary"]:hover,
+div.stFormSubmitButton > button[kind="primary"]:hover,
+div.stFormSubmitButton button[kind="primary"]:hover {
     box-shadow: var(--pdhub-shadow-md) !important;
     transform: translateY(-2px) !important;
 }
 
 div.stButton > button[kind="secondary"],
+div.stButton button[kind="secondary"],
 div.stDownloadButton > button[kind="secondary"],
-div.stFormSubmitButton > button[kind="secondary"] {
+div.stDownloadButton button[kind="secondary"],
+div.stFormSubmitButton > button[kind="secondary"],
+div.stFormSubmitButton button[kind="secondary"] {
     background: var(--pdhub-button-bg) !important;
     border: 1px solid var(--pdhub-button-border) !important;
 }
 
 div.stButton > button[kind="secondary"]:hover,
+div.stButton button[kind="secondary"]:hover,
 div.stDownloadButton > button[kind="secondary"]:hover,
-div.stFormSubmitButton > button[kind="secondary"]:hover {
+div.stDownloadButton button[kind="secondary"]:hover,
+div.stFormSubmitButton > button[kind="secondary"]:hover,
+div.stFormSubmitButton button[kind="secondary"]:hover {
     background: var(--pdhub-button-bg-hover) !important;
     border-color: var(--pdhub-button-border) !important;
 }
@@ -1617,8 +1638,11 @@ def sidebar_nav(current: str | None = None) -> None:
 
     /* Sidebar Button Override */
     [data-testid="stSidebar"] div.stButton > button,
+    [data-testid="stSidebar"] div.stButton button,
     [data-testid="stSidebar"] div.stDownloadButton > button,
-    [data-testid="stSidebar"] div.stFormSubmitButton > button {
+    [data-testid="stSidebar"] div.stDownloadButton button,
+    [data-testid="stSidebar"] div.stFormSubmitButton > button,
+    [data-testid="stSidebar"] div.stFormSubmitButton button {
         background: transparent !important;
         border: 1px solid transparent !important;
         padding: 0.6rem 1rem !important;
@@ -1631,8 +1655,11 @@ def sidebar_nav(current: str | None = None) -> None:
     }
 
     [data-testid="stSidebar"] div.stButton > button:hover,
+    [data-testid="stSidebar"] div.stButton button:hover,
     [data-testid="stSidebar"] div.stDownloadButton > button:hover,
-    [data-testid="stSidebar"] div.stFormSubmitButton > button:hover {
+    [data-testid="stSidebar"] div.stDownloadButton button:hover,
+    [data-testid="stSidebar"] div.stFormSubmitButton > button:hover,
+    [data-testid="stSidebar"] div.stFormSubmitButton button:hover {
         background: rgba(99, 102, 241, 0.08) !important;
         border-color: rgba(99, 102, 241, 0.15) !important;
         color: #f1f5f9 !important;
@@ -1640,8 +1667,11 @@ def sidebar_nav(current: str | None = None) -> None:
     }
 
     [data-testid="stSidebar"] div.stButton > button[kind="primary"],
+    [data-testid="stSidebar"] div.stButton button[kind="primary"],
     [data-testid="stSidebar"] div.stDownloadButton > button[kind="primary"],
-    [data-testid="stSidebar"] div.stFormSubmitButton > button[kind="primary"] {
+    [data-testid="stSidebar"] div.stDownloadButton button[kind="primary"],
+    [data-testid="stSidebar"] div.stFormSubmitButton > button[kind="primary"],
+    [data-testid="stSidebar"] div.stFormSubmitButton button[kind="primary"] {
         background: rgba(99, 102, 241, 0.15) !important;
         border-color: rgba(99, 102, 241, 0.3) !important;
         color: #f1f5f9 !important;
