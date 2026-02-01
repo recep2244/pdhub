@@ -24,6 +24,64 @@ from protein_design_hub.web.ui import (
 
 inject_base_css()
 
+
+def _summarize_metric_value(value):
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return f"{value:.4f}" if isinstance(value, float) else str(value)
+    if isinstance(value, list):
+        numeric = [v for v in value if isinstance(v, (int, float))]
+        if numeric:
+            mean_val = sum(numeric) / len(numeric)
+            return f"mean {mean_val:.4f} (n={len(numeric)})"
+        return f"{len(value)} items"
+    if isinstance(value, dict):
+        numeric_keys = {k: v for k, v in value.items() if isinstance(v, (int, float))}
+        if numeric_keys:
+            key, val = next(iter(numeric_keys.items()))
+            return f"{key}: {val:.4f}"
+        return f"{len(value)} fields"
+    return str(value)
+
+
+def _primary_metric_value(metric_name: str, result) -> Optional[str]:
+    field_map = {
+        "lddt": "lddt",
+        "qs_score": "qs_score",
+        "tm_score": "tm_score",
+        "rmsd": "rmsd",
+        "gdt_ts": "gdt_ts",
+        "gdt_ha": "gdt_ha",
+        "clash_score": "clash_score",
+        "contact_energy": "contact_energy",
+        "sasa": "sasa_total",
+        "interface_bsa": "interface_bsa_total",
+        "salt_bridges": "salt_bridge_count",
+        "openmm_gbsa": "openmm_gbsa_energy_kj_mol",
+        "rosetta_energy": "rosetta_total_score",
+        "rosetta_score_jd2": "rosetta_score_jd2_total_score",
+        "sequence_recovery": "sequence_recovery",
+        "disorder": "disorder_fraction",
+        "shape_complementarity": "shape_complementarity",
+        "cad_score": "cad_score",
+        "voromqa": "voromqa_score",
+        "lddt_pli": None,
+    }
+
+    field = field_map.get(metric_name)
+    if field and hasattr(result, field):
+        return _summarize_metric_value(getattr(result, field))
+
+    meta = getattr(result, "metadata", {}) or {}
+    metric_meta = meta.get(metric_name)
+    if isinstance(metric_meta, dict):
+        for key in ("score", "lddt_pli", "cad_score", "voromqa_score", "value"):
+            if key in metric_meta and isinstance(metric_meta[key], (int, float)):
+                return f"{metric_meta[key]:.4f}"
+        return _summarize_metric_value(metric_meta)
+    return _summarize_metric_value(metric_meta)
+
 # Page header
 page_header(
     "Structure Evaluation",
@@ -64,6 +122,7 @@ try:
         ],
         help="Reference-free metrics are great for design ranking. Reference-based metrics need a reference structure.",
     )
+    quick_metrics = list(quick_metrics)
 except Exception:
     quick_metrics = ["clash_score", "contact_energy", "sasa"]
 
@@ -352,6 +411,37 @@ if st.button("⚡ Run Quick Evaluation", type="primary", use_container_width=Tru
                     metric_card(f"{result.cad_score:.3f}", "CAD-score", "info", "🧭")
                 if result.voromqa_score is not None:
                     metric_card(f"{result.voromqa_score:.3f}", "VoroMQA", "info", "🧪")
+
+            # Detailed metrics table
+            st.markdown("### 📋 All Computed Metrics")
+            metric_info = {m["name"]: m for m in CompositeEvaluator.list_all_metrics()}
+            metric_rows = []
+            for metric_name in quick_metrics:
+                info = metric_info.get(metric_name, {})
+                value = _primary_metric_value(metric_name, result)
+                if value is not None:
+                    status = "OK"
+                elif info.get("requires_reference") and reference_path is None:
+                    status = "Skipped (needs reference)"
+                elif info.get("available") is False:
+                    status = "Unavailable"
+                else:
+                    status = "No result"
+
+                metric_rows.append(
+                    {
+                        "Metric": metric_name,
+                        "Status": status,
+                        "Value": value or "",
+                        "Requires Reference": bool(info.get("requires_reference")),
+                    }
+                )
+
+            if metric_rows:
+                st.dataframe(metric_rows, use_container_width=True, hide_index=True)
+
+            with st.expander("Raw metric outputs"):
+                st.json(result.metadata or {})
 
             # Save results if part of a job
             if chosen:

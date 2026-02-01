@@ -432,6 +432,7 @@ class EvaluationResult:
             "structure_path": str(self.structure_path),
             "reference_path": str(self.reference_path) if self.reference_path else None,
             "lddt": self.lddt,
+            "lddt_per_residue": self.lddt_per_residue,
             "tm_score": self.tm_score,
             "qs_score": self.qs_score,
             "rmsd": self.rmsd,
@@ -458,8 +459,13 @@ class EvaluationResult:
             "voromqa_residue_count": self.voromqa_residue_count,
             "voromqa_atom_count": self.voromqa_atom_count,
             "sequence_recovery": self.sequence_recovery,
+            "sequence_recovery_per_residue": self.sequence_recovery_per_residue,
             "disorder_fraction": self.disorder_fraction,
+            "disorder_per_residue": self.disorder_per_residue,
+            "disorder_regions": self.disorder_regions,
             "shape_complementarity": self.shape_complementarity,
+            "interface_residues_a": self.interface_residues_a,
+            "interface_residues_b": self.interface_residues_b,
             "metadata": self.metadata,
         }
 
