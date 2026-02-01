@@ -134,6 +134,12 @@ THEME_CSS = """
     --pdhub-accent: #8b5cf6;
     --pdhub-cyan: #06b6d4;
 
+    /* Button Palette (Neutral Grey) */
+    --pdhub-button-bg: #1f2430;
+    --pdhub-button-bg-hover: #2a3242;
+    --pdhub-button-bg-strong: #323a4b;
+    --pdhub-button-border: #3a4257;
+
     /* Status Colors - Refined */
     --pdhub-success: #22c55e;
     --pdhub-warning: #f59e0b;
@@ -243,9 +249,9 @@ nav[class*="st-emotion-cache"] {
 div.stButton > button,
 div.stDownloadButton > button,
 div.stFormSubmitButton > button {
-    background: var(--pdhub-bg-elevated) !important;
-    border: 1px solid var(--pdhub-border) !important;
-    color: var(--pdhub-text) !important;
+    background: var(--pdhub-button-bg) !important;
+    border: 1px solid var(--pdhub-button-border) !important;
+    color: var(--pdhub-text-heading) !important;
     padding: 0.65rem 1.25rem !important;
     border-radius: var(--pdhub-border-radius-sm) !important;
     font-weight: 500 !important;
@@ -263,9 +269,9 @@ div.stButton > button:hover,
 div.stDownloadButton > button:hover,
 div.stFormSubmitButton > button:hover {
     transform: translateY(-2px) !important;
-    border-color: var(--pdhub-primary-light) !important;
-    box-shadow: var(--pdhub-shadow-md), 0 0 0 1px var(--pdhub-primary-glow) !important;
-    background: rgba(99, 102, 241, 0.12) !important;
+    border-color: var(--pdhub-button-border) !important;
+    box-shadow: var(--pdhub-shadow-md) !important;
+    background: var(--pdhub-button-bg-hover) !important;
 }
 
 div.stButton > button:active,
@@ -277,32 +283,32 @@ div.stFormSubmitButton > button:active {
 div.stButton > button[kind="primary"],
 div.stDownloadButton > button[kind="primary"],
 div.stFormSubmitButton > button[kind="primary"] {
-    background: var(--pdhub-grad-glow) !important;
-    border: none !important;
+    background: var(--pdhub-button-bg-strong) !important;
+    border: 1px solid var(--pdhub-button-border) !important;
     color: var(--pdhub-text-heading) !important;
     font-weight: 600 !important;
-    box-shadow: var(--pdhub-shadow-sm), 0 4px 12px rgba(99, 102, 241, 0.3) !important;
+    box-shadow: var(--pdhub-shadow-sm) !important;
 }
 
 div.stButton > button[kind="primary"]:hover,
 div.stDownloadButton > button[kind="primary"]:hover,
 div.stFormSubmitButton > button[kind="primary"]:hover {
-    box-shadow: var(--pdhub-shadow-md), 0 8px 24px rgba(99, 102, 241, 0.4) !important;
+    box-shadow: var(--pdhub-shadow-md) !important;
     transform: translateY(-2px) !important;
 }
 
 div.stButton > button[kind="secondary"],
 div.stDownloadButton > button[kind="secondary"],
 div.stFormSubmitButton > button[kind="secondary"] {
-    background: transparent !important;
-    border: 1px solid var(--pdhub-border-strong) !important;
+    background: var(--pdhub-button-bg) !important;
+    border: 1px solid var(--pdhub-button-border) !important;
 }
 
 div.stButton > button[kind="secondary"]:hover,
 div.stDownloadButton > button[kind="secondary"]:hover,
 div.stFormSubmitButton > button[kind="secondary"]:hover {
-    background: var(--pdhub-bg-light) !important;
-    border-color: var(--pdhub-primary) !important;
+    background: var(--pdhub-button-bg-hover) !important;
+    border-color: var(--pdhub-button-border) !important;
 }
 
 /* ============================================
