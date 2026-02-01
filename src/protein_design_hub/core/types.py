@@ -407,6 +407,12 @@ class EvaluationResult:
     rosetta_score_jd2_total_score: Optional[float] = None
     rosetta_cartesian_ddg: Optional[float] = None
     foldx_ddg_kcal_mol: Optional[float] = None
+    cad_score: Optional[float] = None
+    cad_score_per_residue: Optional[list[float]] = None
+    voromqa_score: Optional[float] = None
+    voromqa_per_residue: Optional[list[float]] = None
+    voromqa_residue_count: Optional[int] = None
+    voromqa_atom_count: Optional[int] = None
     # Sequence recovery metrics
     sequence_recovery: Optional[float] = None
     sequence_recovery_per_residue: Optional[list[float]] = None
@@ -445,6 +451,12 @@ class EvaluationResult:
             "rosetta_score_jd2_total_score": self.rosetta_score_jd2_total_score,
             "rosetta_cartesian_ddg": self.rosetta_cartesian_ddg,
             "foldx_ddg_kcal_mol": self.foldx_ddg_kcal_mol,
+            "cad_score": self.cad_score,
+            "cad_score_per_residue": self.cad_score_per_residue,
+            "voromqa_score": self.voromqa_score,
+            "voromqa_per_residue": self.voromqa_per_residue,
+            "voromqa_residue_count": self.voromqa_residue_count,
+            "voromqa_atom_count": self.voromqa_atom_count,
             "sequence_recovery": self.sequence_recovery,
             "disorder_fraction": self.disorder_fraction,
             "shape_complementarity": self.shape_complementarity,

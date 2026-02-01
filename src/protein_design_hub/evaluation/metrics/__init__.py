@@ -12,6 +12,8 @@ from protein_design_hub.evaluation.metrics.interface_bsa import InterfaceBSAMetr
 from protein_design_hub.evaluation.metrics.salt_bridges import SaltBridgeMetric
 from protein_design_hub.evaluation.metrics.openmm_gbsa import OpenMMGBSAMetric
 from protein_design_hub.evaluation.metrics.rosetta_score_jd2 import RosettaScoreJd2Metric
+from protein_design_hub.evaluation.metrics.voronota_cadscore import VoronotaCADScoreMetric
+from protein_design_hub.evaluation.metrics.voronota_voromqa import VoronotaVoroMQAMetric
 
 __all__ = [
     "LDDTMetric",
@@ -26,4 +28,6 @@ __all__ = [
     "SaltBridgeMetric",
     "OpenMMGBSAMetric",
     "RosettaScoreJd2Metric",
+    "VoronotaCADScoreMetric",
+    "VoronotaVoroMQAMetric",
 ]

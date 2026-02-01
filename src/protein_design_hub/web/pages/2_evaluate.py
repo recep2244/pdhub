@@ -53,7 +53,15 @@ try:
     quick_metrics = st.sidebar.multiselect(
         "Metrics",
         options=_metric_names,
-        default=["clash_score", "contact_energy", "sasa", "interface_bsa", "salt_bridges"],
+        default=[
+            "clash_score",
+            "contact_energy",
+            "sasa",
+            "interface_bsa",
+            "salt_bridges",
+            "voromqa",
+            "cad_score",
+        ],
         help="Reference-free metrics are great for design ranking. Reference-based metrics need a reference structure.",
     )
 except Exception:
@@ -66,6 +74,11 @@ compute_bb_lddt = st.sidebar.checkbox("BB-lDDT (Backbone only)", value=False)
 compute_rmsd = st.sidebar.checkbox("RMSD & GDT (Rigid Scores)", value=True)
 compute_tm = st.sidebar.checkbox("TM-score", value=True)
 compute_cad = st.sidebar.checkbox("CAD-score", value=False, help="Requires voronota")
+
+if compute_cad and "cad_score" not in quick_metrics:
+    quick_metrics.append("cad_score")
+elif not compute_cad and "cad_score" in quick_metrics:
+    quick_metrics.remove("cad_score")
 
 # Interface metrics
 st.sidebar.subheader("Interface Metrics")
@@ -334,6 +347,11 @@ if st.button("⚡ Run Quick Evaluation", type="primary", use_container_width=Tru
                 st.markdown("<br>", unsafe_allow_html=True)
                 if result.rmsd is not None:
                     metric_card(f"{result.rmsd:.2f}", "RMSD (Å)", "success", "📐")
+                st.markdown("<br>", unsafe_allow_html=True)
+                if result.cad_score is not None:
+                    metric_card(f"{result.cad_score:.3f}", "CAD-score", "info", "🧭")
+                if result.voromqa_score is not None:
+                    metric_card(f"{result.voromqa_score:.3f}", "VoroMQA", "info", "🧪")
 
             # Save results if part of a job
             if chosen:
@@ -1054,7 +1072,12 @@ with st.expander("ℹ️ Metric Descriptions"):
     #### CAD-score (Contact Area Difference)
     Measures contact surface area similarity using Voronoi tessellation.
     - **Range**: 0-1 (higher is better)
-    - **Requires**: voronota_cadscore external tool
+    - **Requires**: voronota-cadscore external tool
+
+    #### VoroMQA
+    Voronoi-based model quality assessment (single-structure).
+    - **Range**: higher is better (unitless)
+    - **Requires**: voronota-voromqa external tool
 
     #### GDT-TS/GDT-HA (Global Distance Test)
     - **GDT-TS**: Percentage of residues within 1, 2, 4, 8 Å of reference

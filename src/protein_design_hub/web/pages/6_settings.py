@@ -419,7 +419,7 @@ with tabs[1]:
         st.markdown("---")
         st.markdown("### Evaluation Tools")
 
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
 
         with col1:
             st.markdown("**TMalign**")
@@ -432,6 +432,12 @@ with tabs[1]:
             st.caption("For comprehensive metrics (lDDT, DockQ, etc.)")
             if st.button("Install OpenStructure", key="install_ost"):
                 st.code("micromamba create -n ost -c conda-forge -c bioconda openstructure")
+
+        with col3:
+            st.markdown("**Voronota**")
+            st.caption("For CAD-score / VoroMQA evaluation")
+            if st.button("Install Voronota", key="install_voronota"):
+                st.code("conda install -c bioconda voronota")
 
     except Exception as e:
         st.error(f"Error: {e}")
@@ -557,10 +563,13 @@ with tabs[3]:
 
             st.markdown("### Evaluation Settings")
 
+            from protein_design_hub.evaluation.composite import CompositeEvaluator
+
+            available_metrics = [m["name"] for m in CompositeEvaluator.list_all_metrics()]
             eval_metrics = st.multiselect(
                 "Default metrics",
-                options=["lddt", "tm_score", "rmsd", "qs_score", "lddt_pli"],
-                default=settings.evaluation.metrics,
+                options=available_metrics,
+                default=[m for m in settings.evaluation.metrics if m in available_metrics],
             )
 
             lddt_radius = st.number_input(

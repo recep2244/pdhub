@@ -20,6 +20,8 @@ from protein_design_hub.evaluation.metrics.rosetta_score_jd2 import RosettaScore
 from protein_design_hub.evaluation.metrics.sequence_recovery import SequenceRecoveryMetric
 from protein_design_hub.evaluation.metrics.disorder import DisorderMetric
 from protein_design_hub.evaluation.metrics.shape_complementarity import ShapeComplementarityMetric
+from protein_design_hub.evaluation.metrics.voronota_cadscore import VoronotaCADScoreMetric
+from protein_design_hub.evaluation.metrics.voronota_voromqa import VoronotaVoroMQAMetric
 from protein_design_hub.core.types import EvaluationResult
 from protein_design_hub.core.config import Settings, get_settings
 from protein_design_hub.core.exceptions import EvaluationError
@@ -45,6 +47,8 @@ class CompositeEvaluator:
         "sequence_recovery": SequenceRecoveryMetric,
         "disorder": DisorderMetric,
         "shape_complementarity": ShapeComplementarityMetric,
+        "cad_score": VoronotaCADScoreMetric,
+        "voromqa": VoronotaVoroMQAMetric,
     }
 
     def __init__(
@@ -164,6 +168,14 @@ class CompositeEvaluator:
                     result.openmm_gbsa_energy_kj_mol = metric_result.get(
                         "openmm_gbsa_energy_kj_mol"
                     )
+                elif metric_name == "cad_score":
+                    result.cad_score = metric_result.get("cad_score")
+                    result.cad_score_per_residue = metric_result.get("cad_score_per_residue")
+                elif metric_name == "voromqa":
+                    result.voromqa_score = metric_result.get("voromqa_score")
+                    result.voromqa_per_residue = metric_result.get("voromqa_per_residue")
+                    result.voromqa_residue_count = metric_result.get("voromqa_residue_count")
+                    result.voromqa_atom_count = metric_result.get("voromqa_atom_count")
                 elif metric_name == "rosetta_score_jd2":
                     # Keep both: generic field + explicit score_jd2 field.
                     result.rosetta_total_score = metric_result.get("rosetta_total_score")
