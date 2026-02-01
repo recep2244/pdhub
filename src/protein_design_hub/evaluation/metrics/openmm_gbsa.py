@@ -59,7 +59,10 @@ class OpenMMGBSAMetric(BaseMetric):
 
         # Add hydrogens; this will fail for unknown residues.
         try:
-            ff = ForceField("amber14-all.xml", "amber14/tip3p.xml")
+            try:
+                ff = ForceField("amber14-all.xml", "amber14/implicit.xml")
+            except Exception:
+                ff = ForceField("amber14-all.xml", "amber14/tip3p.xml")
             modeller.addHydrogens(ff)
         except Exception as e:
             raise EvaluationError(
@@ -68,12 +71,22 @@ class OpenMMGBSAMetric(BaseMetric):
                 original_error=e,
             )
 
-        system = ff.createSystem(
-            modeller.topology,
-            nonbondedMethod=NoCutoff,
-            constraints=HBonds,
-            implicitSolvent=OBC2,
-        )
+        try:
+            system = ff.createSystem(
+                modeller.topology,
+                nonbondedMethod=NoCutoff,
+                constraints=HBonds,
+                implicitSolvent=OBC2,
+            )
+        except Exception as e:
+            if "implicitSolvent" in str(e):
+                system = ff.createSystem(
+                    modeller.topology,
+                    nonbondedMethod=NoCutoff,
+                    constraints=HBonds,
+                )
+            else:
+                raise
 
         integrator = openmm.VerletIntegrator(1.0 * unit.femtoseconds)
         platform = None
