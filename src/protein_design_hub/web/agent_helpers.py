@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import streamlit as st
+from protein_design_hub.agents.ollama_gpu import ensure_ollama_gpu, ollama_extra_body
 
 # ── LLM connectivity (cached to avoid blocking every page load) ──────
 
@@ -121,12 +122,15 @@ def ask_agent_advice(
     try:
         from openai import OpenAI
         client = OpenAI(base_url=cfg.base_url, api_key=cfg.api_key)
+        ensure_ollama_gpu(cfg.provider, cfg.model)
         resp = client.chat.completions.create(
             model=cfg.model,
             messages=[sys_msg, {"role": "user", "content": user_content}],
             temperature=cfg.temperature,
             max_tokens=max_tokens,
+            **ollama_extra_body(cfg.provider),
         )
+        ensure_ollama_gpu(cfg.provider, cfg.model)
         return resp.choices[0].message.content or "(empty response)"
     except Exception as e:
         return f"[Error] LLM call failed: {e}"
@@ -527,12 +531,15 @@ def _chat_llm_call(
     try:
         from openai import OpenAI
         client = OpenAI(base_url=cfg.base_url, api_key=cfg.api_key)
+        ensure_ollama_gpu(cfg.provider, cfg.model)
         resp = client.chat.completions.create(
             model=cfg.model,
             messages=[sys_msg] + messages,
             temperature=cfg.temperature,
             max_tokens=max_tokens,
+            **ollama_extra_body(cfg.provider),
         )
+        ensure_ollama_gpu(cfg.provider, cfg.model)
         return resp.choices[0].message.content or "(empty response)"
     except Exception as e:
         return f"[Error] LLM call failed: {e}"

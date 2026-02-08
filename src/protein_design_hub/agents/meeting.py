@@ -23,6 +23,7 @@ from typing import Dict, List, Literal, Optional, Sequence
 
 from protein_design_hub.agents.llm_agent import LLMAgent
 from protein_design_hub.agents import prompts as P
+from protein_design_hub.agents.ollama_gpu import ensure_ollama_gpu, ollama_extra_body
 
 # Re-export for convenience
 Discussion = List[Dict[str, str]]
@@ -53,6 +54,7 @@ def _call_llm(
     model = agent.resolved_model
     temp = temperature if temperature is not None else cfg.temperature
     agent_messages = [agent.system_message] + messages
+    ensure_ollama_gpu(cfg.provider, model)
 
     kwargs: dict = dict(
         model=model,
@@ -61,8 +63,10 @@ def _call_llm(
     )
     if cfg.max_tokens is not None:
         kwargs["max_tokens"] = cfg.max_tokens
+    kwargs.update(ollama_extra_body(cfg.provider))
 
     response = client.chat.completions.create(**kwargs)
+    ensure_ollama_gpu(cfg.provider, model)
     return response.choices[0].message.content or ""
 
 
