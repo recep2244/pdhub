@@ -19,6 +19,7 @@ from protein_design_hub.web.ui import (
 from protein_design_hub.web.agent_helpers import (
     render_contextual_insight,
     agent_sidebar_status,
+    render_all_experts_panel,
 )
 
 st.set_page_config(page_title="Design - Protein Design Hub", page_icon="🧬", layout="wide")
@@ -914,6 +915,37 @@ if seq:
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+
+        if st.session_state.current_structure:
+            selected_positions = sorted(st.session_state.selected_positions)
+            selected_preview = ", ".join(str(p) for p in selected_positions[:20])
+            if len(selected_positions) > 20:
+                selected_preview += ", ..."
+            plddt = st.session_state.plddt_scores or []
+            mean_plddt = (sum(plddt) / len(plddt)) if plddt else None
+            ligand_names = [l.get("name", "unknown") for l in st.session_state.ligands]
+            context_lines = [
+                f"Sequence name: {st.session_state.sequence_name}",
+                f"Sequence length: {len(seq)}",
+                f"Selected positions: {selected_preview or 'none'}",
+                f"Ligands attached: {', '.join(ligand_names) if ligand_names else 'none'}",
+            ]
+            if mean_plddt is not None:
+                context_lines.append(f"Mean pLDDT: {mean_plddt:.1f}")
+            render_all_experts_panel(
+                "All-Expert Review (design job)",
+                agenda=(
+                    "Review the current designed sequence, residue edits, ligand context, and "
+                    "predicted structure confidence. Recommend next engineering actions."
+                ),
+                context="\n".join(context_lines),
+                questions=(
+                    "Which residue edits or regions should be prioritized for the next design round?",
+                    "Any risky edits that could destabilize the fold or disrupt function?",
+                    "What validation steps should be run next before committing this design?",
+                ),
+                key_prefix="design_all",
+            )
 
     # === LIGANDS LIBRARY TAB ===
     with main_tabs[1]:

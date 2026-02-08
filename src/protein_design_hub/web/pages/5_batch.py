@@ -20,6 +20,7 @@ from protein_design_hub.web.ui import (
 from protein_design_hub.web.agent_helpers import (
     render_contextual_insight,
     agent_sidebar_status,
+    render_all_experts_panel,
 )
 
 st.set_page_config(page_title="Batch - Protein Design Hub", page_icon="📦", layout="wide")
@@ -566,6 +567,35 @@ with main_tabs[3]:
                     "batch_biophysics.csv",
                     mime="text/csv"
                 )
+
+            # All-experts review for batch outcomes
+            config = st.session_state.get('batch_config', {})
+            success_rate = (len(complete) / len(jobs)) if jobs else 0.0
+            sample_names = ", ".join(j["name"] for j in complete[:10])
+            if len(complete) > 10:
+                sample_names += ", ..."
+            context_lines = [
+                f"Batch type: {config.get('type', 'unknown')}",
+                f"Total jobs: {len(jobs)}",
+                f"Completed: {len(complete)}",
+                f"Failed: {len(failed)}",
+                f"Success rate: {success_rate:.1%}",
+                f"Sample completed job names: {sample_names or 'none'}",
+            ]
+            render_all_experts_panel(
+                "All-Expert Review (batch job)",
+                agenda=(
+                    "Assess the batch run quality, failure profile, and whether output "
+                    "is ready for downstream analysis."
+                ),
+                context="\n".join(context_lines),
+                questions=(
+                    "Do the completion/failure patterns suggest setup issues or expected noise?",
+                    "Which subset of completed jobs should be prioritized first?",
+                    "What changes should be made to the next batch run configuration?",
+                ),
+                key_prefix="batch_all",
+            )
 
         # Failed jobs
         if failed:

@@ -22,6 +22,7 @@ from protein_design_hub.web.ui import (
 from protein_design_hub.web.agent_helpers import (
     render_contextual_insight,
     agent_sidebar_status,
+    render_all_experts_panel,
 )
 
 st.set_page_config(page_title="Evolution - Protein Design Hub", page_icon="🧬", layout="wide")
@@ -544,6 +545,31 @@ with main_tabs[2]:
                     finally:
                         st.session_state.evo_folding = False
                         st.rerun()
+
+        mutation_summary = ", ".join(mutations_list[:25]) if mutations_list else "none"
+        if len(mutations_list) > 25:
+            mutation_summary += ", ..."
+        evo_context = "\n".join([
+            f"Starting sequence length: {len(orig_seq)}",
+            f"Generations: {len(generations)}",
+            f"Best fitness: {generations[-1]['best_fitness']:.4f}",
+            f"Mean fitness (last gen): {generations[-1]['mean_fitness']:.4f}",
+            f"Best sequence mutations: {mutation_summary}",
+        ])
+        render_all_experts_panel(
+            "All-Expert Review (evolution job)",
+            agenda=(
+                "Review directed evolution output and determine if the optimized sequence "
+                "is strong enough to move forward, plus what to test next."
+            ),
+            context=evo_context,
+            questions=(
+                "Is the fitness improvement convincing or likely overfit/noisy?",
+                "Which mutations are most likely causal vs. incidental?",
+                "What follow-up validation and screening strategy should be used?",
+            ),
+            key_prefix="evo_all",
+        )
 
     # Structure Viewer Section
     if st.session_state.get('evo_structure'):

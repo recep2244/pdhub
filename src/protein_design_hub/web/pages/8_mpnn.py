@@ -29,6 +29,7 @@ from protein_design_hub.web.agent_helpers import (
     render_agent_advice_panel,
     render_contextual_insight,
     agent_sidebar_status,
+    render_all_experts_panel,
 )
 
 st.set_page_config(page_title="MPNN Design - Protein Design Hub", page_icon="🎯", layout="wide")
@@ -469,6 +470,25 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=
                     ),
                     expert="Machine Learning Specialist",
                     key_prefix="mpnn_agent",
+                )
+
+                render_all_experts_panel(
+                    "All-Expert Review (MPNN design job)",
+                    agenda=(
+                        "Review ProteinMPNN design outputs and recommend which sequences "
+                        "to prioritize for folding validation and experimental follow-up."
+                    ),
+                    context=(
+                        f"Designed sequences: {len(result.sequences)}\n"
+                        f"Backbone: {backbone_path.name}\n"
+                        f"Top sequence summaries:\n" + "\n".join(seq_summaries)
+                    ),
+                    questions=(
+                        "Which designed sequences should be prioritized first and why?",
+                        "Any sequence-level red flags for expression/solubility/stability?",
+                        "What validation stack should run next before experiments?",
+                    ),
+                    key_prefix="mpnn_all",
                 )
 
         except Exception as e:

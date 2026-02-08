@@ -16,6 +16,7 @@ from protein_design_hub.web.ui import (
 from protein_design_hub.web.agent_helpers import (
     render_contextual_insight,
     agent_sidebar_status,
+    render_all_experts_panel,
 )
 
 st.set_page_config(page_title="MSA Analysis - Protein Design Hub", page_icon="🧬", layout="wide")
@@ -664,6 +665,7 @@ with main_tabs[4]:
 
                     calculator = PSSMCalculator()
                     suggestions = calculator.suggest_mutations(query_seq, result, threshold=threshold)
+                    st.session_state["msa_mutation_suggestions"] = suggestions
 
                     if suggestions:
                         st.markdown(f"**Found {len(suggestions)} beneficial mutations:**")
@@ -685,3 +687,31 @@ with main_tabs[4]:
 
                 except Exception as e:
                     st.error(f"Error: {e}")
+
+            suggestion_rows = st.session_state.get("msa_mutation_suggestions", []) or []
+            suggestion_preview = []
+            for s in suggestion_rows[:15]:
+                suggestion_preview.append(
+                    f"{s['original']}{s['position']}{s['mutant']} (+{s['improvement']:.2f})"
+                )
+            msa_context = "\n".join([
+                f"Alignment size: {len(alignment)} sequences",
+                f"Alignment length: {len(alignment[0]) if alignment else 0}",
+                f"Consensus length: {len(result.consensus_sequence)}",
+                f"Total information: {result.total_information:.2f} bits",
+                "Top suggested mutations: " + (", ".join(suggestion_preview) if suggestion_preview else "none"),
+            ])
+            render_all_experts_panel(
+                "All-Expert Review (MSA/PSSM job)",
+                agenda=(
+                    "Interpret conservation and PSSM-derived mutation opportunities and "
+                    "recommend a practical mutation strategy."
+                ),
+                context=msa_context,
+                questions=(
+                    "Which suggested mutations are safest vs. highest risk?",
+                    "Which positions should remain fixed because of conservation/function?",
+                    "What shortlist should be validated first and with which predictors?",
+                ),
+                key_prefix="msa_all",
+            )

@@ -9,7 +9,7 @@ from typing import Optional
 
 import streamlit as st
 
-from protein_design_hub.web.agent_helpers import agent_sidebar_status
+from protein_design_hub.web.agent_helpers import agent_sidebar_status, render_all_experts_panel
 
 from protein_design_hub.web.ui import (
     get_selected_backbone,
@@ -248,3 +248,27 @@ if jobs:
                             st.caption(f"...and {len(pdb_files) - 10} more")
             except Exception as e:
                 st.warning(f"Could not list files: {e}")
+
+        job_ctx = "\n".join([
+            f"Job ID: {selected_job['job_id']}",
+            f"Has prediction: {selected_job.get('has_prediction', False)}",
+            f"Has compare/eval: {selected_job.get('has_compare', False)}",
+            f"Has design: {selected_job.get('has_design', False)}",
+            f"Has mutation scan: {selected_job.get('has_scan', False)}",
+            f"Has evolution: {selected_job.get('has_evolution', False)}",
+            f"Job path: {job_path}",
+        ])
+        render_all_experts_panel(
+            "All-Expert Review (selected job)",
+            agenda=(
+                "Review this job's artifacts and determine quality, risks, and the "
+                "best next action in the workflow."
+            ),
+            context=job_ctx,
+            questions=(
+                "Is this job output sufficient for decision-making or does it need re-run/refinement?",
+                "Which downstream step should be executed next for this job?",
+                "Any reliability risks or missing artifacts to fix first?",
+            ),
+            key_prefix=f"job_all_{selected_job['job_id']}",
+        )
