@@ -25,6 +25,7 @@ from protein_design_hub.web.agent_helpers import (
     render_agent_advice_panel,
     render_contextual_insight,
     agent_sidebar_status,
+    render_all_experts_panel,
 )
 from protein_design_hub.web.visualizations import (
     create_structure_viewer,
@@ -994,6 +995,31 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                     default_question="Based on these prediction scores, what is the quality of this structure and what should I do next?",
                     expert="Structural Biologist",
                     key_prefix="predict_agent",
+                )
+
+                # All-experts investigation
+                all_ctx = "\n".join([
+                    f"Best pLDDT: {best['pLDDT']:.1f}",
+                    f"Average pLDDT: {avg:.1f}",
+                    f"Best pTM: {best.get('pTM', 0):.3f}",
+                    f"Models generated: {len(all_scores)}",
+                    "",
+                    "Per-model scores:",
+                    scores_ctx,
+                ])
+                render_all_experts_panel(
+                    "🧠 All-Expert Investigation (prediction results)",
+                    agenda=(
+                        "Interpret the prediction results and recommend next steps. "
+                        "Identify the most reliable model and any risks or uncertainties."
+                    ),
+                    context=all_ctx,
+                    questions=(
+                        "Which predictor/model is most reliable and why?",
+                        "Are there low-confidence regions or potential disorder to watch?",
+                        "Should we re-run with different methods or proceed to evaluation/refinement?",
+                    ),
+                    key_prefix="predict_all",
                 )
 
                 # Cross-page actions

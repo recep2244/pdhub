@@ -48,11 +48,7 @@ from protein_design_hub.web.agent_helpers import (
     render_agent_advice_panel,
     render_contextual_insight,
     agent_sidebar_status,
-    llm_available,
-)
-from protein_design_hub.agents.scientists import (
-    PRINCIPAL_INVESTIGATOR,
-    ALL_EXPERTS_TEAM_MEMBERS,
+    render_all_experts_panel,
 )
 from datetime import datetime
 from types import SimpleNamespace
@@ -237,79 +233,6 @@ def _format_top_variants(variants: List[MultiMutationVariant], is_immunebuilder:
         rows.append("- " + ", ".join(parts))
     return "\n".join(rows)
 
-
-def render_all_experts_panel(
-    title: str,
-    agenda: str,
-    context: str,
-    questions: Tuple[str, ...],
-    key_prefix: str,
-) -> None:
-    if not llm_available():
-        st.info("LLM backend is offline. Start your LLM (e.g. `ollama serve`) to run expert reviews.")
-        return
-
-    summary_key = f"{key_prefix}_summary"
-    transcript_key = f"{key_prefix}_transcript"
-    running_key = f"{key_prefix}_running"
-
-    with st.expander(title, expanded=False):
-        st.caption("All-expert panel: PI + Structural, Computational, ML, Immunology, Engineering, Biophysics, "
-                   "Refinement, QA, and Critic.")
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            run_btn = st.button("🧠 Run All-Expert Review", key=f"{key_prefix}_run", type="primary")
-        with c2:
-            if st.button("🗑 Clear", key=f"{key_prefix}_clr"):
-                st.session_state.pop(summary_key, None)
-                st.session_state.pop(transcript_key, None)
-                st.session_state.pop(running_key, None)
-                st.rerun()
-
-        if run_btn and not st.session_state.get(running_key):
-            st.session_state[running_key] = True
-            try:
-                from protein_design_hub.agents.meeting import run_meeting
-                from protein_design_hub.core.config import get_settings
-                settings = get_settings()
-                sd = Path("./outputs/meetings")
-                sn = f"{key_prefix}_{int(time.time())}"
-                with st.spinner("Running all-expert meeting... this may take a few minutes."):
-                    summary = run_meeting(
-                        meeting_type="team",
-                        agenda=agenda,
-                        agenda_questions=questions,
-                        contexts=(context,) if context else (),
-                        save_dir=sd,
-                        save_name=sn,
-                        team_lead=PRINCIPAL_INVESTIGATOR,
-                        team_members=ALL_EXPERTS_TEAM_MEMBERS,
-                        num_rounds=settings.llm.num_rounds,
-                        return_summary=True,
-                    )
-                st.session_state[summary_key] = summary
-                tp = sd / f"{sn}.json"
-                if tp.exists():
-                    with open(tp) as f:
-                        st.session_state[transcript_key] = json.load(f)
-            except Exception as e:
-                st.error(f"All-expert review failed: {e}")
-                if "Connection" in str(e) or "refused" in str(e):
-                    info_box("Make sure your LLM backend is running (e.g. `ollama serve`).", variant="warning", icon="⚠️")
-            finally:
-                st.session_state[running_key] = False
-                st.rerun()
-
-        if st.session_state.get(summary_key):
-            st.markdown("#### Summary")
-            st.markdown(st.session_state[summary_key])
-
-        if st.session_state.get(transcript_key):
-            with st.expander("📜 Transcript", expanded=False):
-                for turn in st.session_state[transcript_key]:
-                    an = turn.get("agent", "Unknown")
-                    msg = turn.get("message", "")
-                    st.markdown(f"**{an}:** {msg}")
 
 # Amino acid data
 AMINO_ACIDS = {

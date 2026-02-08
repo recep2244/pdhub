@@ -28,6 +28,7 @@ from protein_design_hub.web.agent_helpers import (
     render_agent_advice_panel,
     render_contextual_insight,
     agent_sidebar_status,
+    render_all_experts_panel,
 )
 
 inject_base_css()
@@ -854,6 +855,27 @@ if "compare_result" in st.session_state:
                 ),
                 expert="Computational Biologist",
                 key_prefix="compare_agent",
+            )
+
+            # All-experts investigation
+            compare_ctx_lines = [
+                f"Best predictor: {result.best_predictor.upper()}" if result.best_predictor else "Best predictor: N/A",
+                "Ranking:",
+                ranking_ctx,
+            ]
+            render_all_experts_panel(
+                "🧠 All-Expert Investigation (comparison results)",
+                agenda=(
+                    "Interpret the predictor ranking and evaluation metrics to select the "
+                    "best structure and recommend next steps."
+                ),
+                context="\n".join(compare_ctx_lines),
+                questions=(
+                    "Is the top-ranked predictor clearly superior? If not, why?",
+                    "Should we refine the top model or re-run with alternative settings/predictors?",
+                    "What validation metrics should be prioritized next?",
+                ),
+                key_prefix="compare_all",
             )
         else:
             empty_state("No ranking available", "Run comparison first", "📭")

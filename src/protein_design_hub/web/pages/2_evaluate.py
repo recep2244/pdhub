@@ -32,6 +32,7 @@ from protein_design_hub.web.agent_helpers import (
     render_agent_advice_panel,
     render_contextual_insight,
     agent_sidebar_status,
+    render_all_experts_panel,
 )
 
 inject_base_css()
@@ -1172,6 +1173,23 @@ if run_quick:
                     ),
                     expert="Liam",
                     key_prefix="eval_agent",
+                )
+
+                # All-experts investigation
+                eval_ctx = "Evaluation metrics:\n" + "\n".join(f"- {p}" for p in eval_ctx_parts)
+                render_all_experts_panel(
+                    "🧠 All-Expert Investigation (evaluation results)",
+                    agenda=(
+                        "Interpret the evaluation metrics and advise on structural quality, "
+                        "refinement needs, and readiness for downstream tasks."
+                    ),
+                    context=eval_ctx,
+                    questions=(
+                        "Is the model quality sufficient for downstream use (docking/design)?",
+                        "Which metrics indicate potential issues or refinement targets?",
+                        "What specific refinement or validation steps should be run next?",
+                    ),
+                    key_prefix="eval_all",
                 )
 
             # Cross-page navigation
