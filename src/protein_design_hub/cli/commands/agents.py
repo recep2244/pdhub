@@ -118,6 +118,13 @@ def agents_run(
     job_id: Optional[str] = typer.Option(
         None, "--job-id", "-j", help="Custom job identifier"
     ),
+    provider: Optional[str] = typer.Option(
+        None, "--provider",
+        help="Override LLM provider (ollama, deepseek, openai, gemini, kimi, ...)"
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model", help="Override LLM model name"
+    ),
     rounds: Optional[int] = typer.Option(
         None, "--rounds", help="Discussion rounds per meeting"
     ),
@@ -137,8 +144,8 @@ def agents_run(
         predictors=predictors,
         job_id=job_id,
         llm=True,
-        provider=None,
-        model=None,
+        provider=provider,
+        model=model,
         rounds=rounds,
     )
 

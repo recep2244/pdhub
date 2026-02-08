@@ -132,6 +132,20 @@ pdhub evaluate run model.pdb --reference native.pdb --metrics lddt,tm_score,voro
 # Full comparison pipeline
 pdhub compare run input.fasta --reference native.pdb --output ./comparison
 
+# Unified pipeline (step-only or LLM-guided)
+pdhub pipeline run input.fasta
+pdhub pipeline run input.fasta --llm
+
+# Preview pipeline steps (dry-run)
+pdhub pipeline plan input.fasta
+pdhub pipeline plan input.fasta --llm
+
+# LLM-guided pipeline shortcut
+pdhub agents run input.fasta --provider ollama
+
+# Standalone LLM meeting
+pdhub agents meet "Which predictor fits a 300-residue monomer?"
+
 # Launch web interface
 pdhub web
 ```
@@ -172,6 +186,13 @@ The comparison pipeline can be run with **one agent per step** (input → predic
 
 ```bash
 pdhub compare run input.fasta --agents
+```
+
+You can also use the unified pipeline with LLM-guided meetings:
+
+```bash
+pdhub pipeline run input.fasta --llm
+pdhub agents run input.fasta --provider ollama
 ```
 
 ## Project Structure
@@ -215,6 +236,12 @@ Example configuration:
 output:
   base_dir: "./outputs"
   save_all_models: true
+
+llm:
+  provider: "ollama"     # or deepseek, openai, gemini, kimi
+  temperature: 0.2
+  max_tokens: 4096
+  num_rounds: 1
 
 predictors:
   colabfold:

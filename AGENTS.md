@@ -121,6 +121,8 @@ Options:
   -r, --reference PATH    Reference structure
   -p, --predictors TEXT   Comma-separated predictors
   -j, --job-id TEXT       Job identifier
+  --provider TEXT         Override LLM provider (ollama, deepseek, openai, ...)
+  --model TEXT            Override LLM model name
   --rounds INTEGER        Rounds per meeting
 ```
 
