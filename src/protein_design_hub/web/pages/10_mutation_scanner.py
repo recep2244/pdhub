@@ -48,6 +48,11 @@ from protein_design_hub.web.agent_helpers import (
     render_agent_advice_panel,
     render_contextual_insight,
     agent_sidebar_status,
+    llm_available,
+)
+from protein_design_hub.agents.scientists import (
+    PRINCIPAL_INVESTIGATOR,
+    ALL_EXPERTS_TEAM_MEMBERS,
 )
 from datetime import datetime
 from types import SimpleNamespace
@@ -128,6 +133,183 @@ st.markdown("""
 .delta-negative { color: var(--pdhub-error); }
 </style>
 """, unsafe_allow_html=True)
+
+
+# ── LLM Expert Review Helpers ───────────────────────────────────────
+
+def _coerce_float_list(values: List[Any]) -> List[float]:
+    cleaned = []
+    for v in values:
+        try:
+            cleaned.append(float(v))
+        except Exception:
+            cleaned.append(float("nan"))
+    if cleaned and max(cleaned) <= 1.0:
+        cleaned = [v * 100.0 for v in cleaned]
+    return cleaned
+
+
+def _summarize_confidence(
+    sequence: str,
+    values: List[Any],
+    is_immunebuilder: bool,
+    top_k: int = 12,
+) -> Tuple[str, List[int]]:
+    if not sequence or not values:
+        return "", []
+    cleaned = _coerce_float_list(values)
+    pairs = []
+    for i, v in enumerate(cleaned[: len(sequence)]):
+        if v == v:  # not NaN
+            pairs.append((i + 1, v))
+    if not pairs:
+        return "", []
+
+    if is_immunebuilder:
+        pairs.sort(key=lambda x: x[1], reverse=True)
+        label = "Highest error positions (Å)"
+        threshold = 5.0
+        flagged = [pos for pos, v in pairs if v >= threshold]
+    else:
+        pairs.sort(key=lambda x: x[1])
+        label = "Lowest-confidence positions (pLDDT)"
+        threshold = 70.0
+        flagged = [pos for pos, v in pairs if v <= threshold]
+
+    top = pairs[:top_k]
+    lines = [f"{sequence[p-1]}{p} ({v:.1f})" for p, v in top]
+    return f"{label}: " + ", ".join(lines), flagged
+
+
+def _format_baseline_summary(baseline_results: Dict[str, Dict[str, Any]], label_by_value: Dict[str, str]) -> str:
+    lines = []
+    for pred_id, data in baseline_results.items():
+        name = label_by_value.get(pred_id, pred_id)
+        mean = data.get("mean_plddt")
+        runtime = data.get("runtime_seconds")
+        status = "OK" if data.get("success") else "FAILED"
+        mean_str = f"{mean:.2f}" if mean is not None else "N/A"
+        runtime_str = f"{runtime:.1f}s" if runtime else "N/A"
+        lines.append(f"- {name}: mean={mean_str}, runtime={runtime_str}, status={status}")
+    return "\n".join(lines)
+
+
+def _format_top_mutations(mutations: List[MutationResult], is_immunebuilder: bool, top_k: int = 8) -> str:
+    if not mutations:
+        return ""
+    rows = []
+    delta_label = "ΔpLDDT"
+    if is_immunebuilder:
+        delta_label = "ΔError"
+    for m in mutations[:top_k]:
+        parts = [f"{m.mutation_code}", f"{delta_label}={m.delta_mean_plddt:+.2f}"]
+        if m.rmsd_to_base is not None:
+            parts.append(f"RMSD={m.rmsd_to_base:.2f}Å")
+        if m.tm_score_to_base is not None:
+            parts.append(f"TM-score={m.tm_score_to_base:.2f}")
+        if m.clash_score is not None:
+            parts.append(f"Clash={m.clash_score:.1f}")
+        if m.sasa_total is not None:
+            parts.append(f"SASA={m.sasa_total:.0f}")
+        rows.append("- " + ", ".join(parts))
+    return "\n".join(rows)
+
+
+def _format_top_variants(variants: List[MultiMutationVariant], is_immunebuilder: bool, top_k: int = 6) -> str:
+    if not variants:
+        return ""
+    delta_label = "ΔpLDDT"
+    local_label = "Δlocal pLDDT"
+    if is_immunebuilder:
+        delta_label = "ΔError"
+        local_label = "Δlocal error"
+    rows = []
+    for v in variants[:top_k]:
+        parts = [
+            f"{v.mutation_code}",
+            f"{delta_label}={v.delta_mean_plddt:+.2f}",
+            f"{local_label}={v.delta_local_plddt:+.2f}",
+        ]
+        if getattr(v, "rmsd_to_base", None) is not None:
+            parts.append(f"RMSD={v.rmsd_to_base:.2f}Å")
+        if getattr(v, "tm_score_to_base", None) is not None:
+            parts.append(f"TM-score={v.tm_score_to_base:.2f}")
+        rows.append("- " + ", ".join(parts))
+    return "\n".join(rows)
+
+
+def render_all_experts_panel(
+    title: str,
+    agenda: str,
+    context: str,
+    questions: Tuple[str, ...],
+    key_prefix: str,
+) -> None:
+    if not llm_available():
+        st.info("LLM backend is offline. Start your LLM (e.g. `ollama serve`) to run expert reviews.")
+        return
+
+    summary_key = f"{key_prefix}_summary"
+    transcript_key = f"{key_prefix}_transcript"
+    running_key = f"{key_prefix}_running"
+
+    with st.expander(title, expanded=False):
+        st.caption("All-expert panel: PI + Structural, Computational, ML, Immunology, Engineering, Biophysics, "
+                   "Refinement, QA, and Critic.")
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            run_btn = st.button("🧠 Run All-Expert Review", key=f"{key_prefix}_run", type="primary")
+        with c2:
+            if st.button("🗑 Clear", key=f"{key_prefix}_clr"):
+                st.session_state.pop(summary_key, None)
+                st.session_state.pop(transcript_key, None)
+                st.session_state.pop(running_key, None)
+                st.rerun()
+
+        if run_btn and not st.session_state.get(running_key):
+            st.session_state[running_key] = True
+            try:
+                from protein_design_hub.agents.meeting import run_meeting
+                from protein_design_hub.core.config import get_settings
+                settings = get_settings()
+                sd = Path("./outputs/meetings")
+                sn = f"{key_prefix}_{int(time.time())}"
+                with st.spinner("Running all-expert meeting... this may take a few minutes."):
+                    summary = run_meeting(
+                        meeting_type="team",
+                        agenda=agenda,
+                        agenda_questions=questions,
+                        contexts=(context,) if context else (),
+                        save_dir=sd,
+                        save_name=sn,
+                        team_lead=PRINCIPAL_INVESTIGATOR,
+                        team_members=ALL_EXPERTS_TEAM_MEMBERS,
+                        num_rounds=settings.llm.num_rounds,
+                        return_summary=True,
+                    )
+                st.session_state[summary_key] = summary
+                tp = sd / f"{sn}.json"
+                if tp.exists():
+                    with open(tp) as f:
+                        st.session_state[transcript_key] = json.load(f)
+            except Exception as e:
+                st.error(f"All-expert review failed: {e}")
+                if "Connection" in str(e) or "refused" in str(e):
+                    info_box("Make sure your LLM backend is running (e.g. `ollama serve`).", variant="warning", icon="⚠️")
+            finally:
+                st.session_state[running_key] = False
+                st.rerun()
+
+        if st.session_state.get(summary_key):
+            st.markdown("#### Summary")
+            st.markdown(st.session_state[summary_key])
+
+        if st.session_state.get(transcript_key):
+            with st.expander("📜 Transcript", expanded=False):
+                for turn in st.session_state[transcript_key]:
+                    an = turn.get("agent", "Unknown")
+                    msg = turn.get("message", "")
+                    st.markdown(f"**{an}:** {msg}")
 
 # Amino acid data
 AMINO_ACIDS = {
@@ -538,6 +720,49 @@ if st.session_state.get("baseline_results"):
             }
         )
     st.dataframe(pd.DataFrame(baseline_rows), use_container_width=True)
+
+    # All-expert residue targeting suggestions
+    base_seq = st.session_state.get("sequence", "")
+    base_plddt = st.session_state.get("base_plddt_per_residue") or []
+    is_immune = (
+        ("immunebuilder" in baseline_predictors)
+        or (st.session_state.get("mutation_predictor") == "immunebuilder")
+    )
+    conf_summary, flagged_positions = _summarize_confidence(base_seq, base_plddt, is_immune)
+    selected_positions_sorted = sorted(st.session_state.get("selected_positions", set()))
+    selected_str = (
+        ", ".join(f"{base_seq[p-1]}{p}" for p in selected_positions_sorted[:15])
+        + (" ..." if len(selected_positions_sorted) > 15 else "")
+    ) if selected_positions_sorted and base_seq else "None"
+
+    baseline_summary = _format_baseline_summary(st.session_state.baseline_results, label_by_value)
+    context_lines = [
+        f"Sequence length: {len(base_seq)}" if base_seq else "",
+        f"Selected positions: {selected_str}",
+        conf_summary,
+        "Baseline predictors:\n" + baseline_summary if baseline_summary else "",
+    ]
+    context = "\n".join([line for line in context_lines if line])
+
+    agenda = (
+        "Review the baseline structure predictions and per-residue confidence. "
+        "Suggest which residues should be targeted for mutagenesis (stability, "
+        "function, or binding improvements). Prioritize a short list of positions."
+    )
+    questions = (
+        "Which residues are the best candidates to mutate based on confidence, "
+        "structural context (surface vs core), and predicted stability?",
+        "Which residues should be avoided due to functional importance or "
+        "structural risk?",
+        "Provide 5-10 residue positions to target, with short rationale for each.",
+    )
+    render_all_experts_panel(
+        "🧠 All-Expert Residue Targeting (after baseline)",
+        agenda=agenda,
+        context=context,
+        questions=questions,
+        key_prefix="mut_baseline",
+    )
 
 # Predictor for mutation scans
 mutation_option_labels = ["ESMFold API (ESM-2, <=400 aa)"]
@@ -1130,6 +1355,33 @@ if st.session_state.multi_scan_results:
         else:
             st.info("No variant selected.")
 
+    # All-expert investigation of multi-mutation results
+    if variants:
+        top_variants_text = _format_top_variants(variants, is_immunebuilder, top_k=6)
+        context_lines = [
+            f"Sequence length: {len(res.sequence)}",
+            f"Positions combined: {', '.join(str(p) for p in res.positions)}",
+            "Top variants:\n" + top_variants_text if top_variants_text else "",
+        ]
+        context = "\n".join([line for line in context_lines if line])
+        agenda = (
+            "Investigate multi-mutation results. Evaluate which combined variants are "
+            "most promising and whether any trade-offs or risks are apparent."
+        )
+        questions = (
+            "Which multi-mutation variants look most promising based on ΔpLDDT/Δerror and "
+            "structural similarity?",
+            "Are there red flags (high RMSD, interface disruption, packing issues)?",
+            "What next validation steps would you recommend before experiments?",
+        )
+        render_all_experts_panel(
+            "🧠 All-Expert Investigation (multi-mutation results)",
+            agenda=agenda,
+            context=context,
+            questions=questions,
+            key_prefix="mut_multi",
+        )
+
 # 5. Single-Position Results
 if st.session_state.scan_results:
     res = st.session_state.scan_results
@@ -1291,4 +1543,30 @@ if st.session_state.scan_results:
             ),
             expert="Protein Engineer",
             key_prefix="mut_agent",
+        )
+
+        # All-expert investigation of single-position mutagenesis
+        is_immune = getattr(res, "predictor", "") == "immunebuilder"
+        top_mut_text = _format_top_mutations(res.ranked_mutations, is_immune, top_k=8)
+        context_lines = [
+            f"Sequence length: {len(res.sequence)}",
+            f"Position scanned: {res.original_aa}{res.position}",
+            "Top mutations:\n" + top_mut_text if top_mut_text else "",
+        ]
+        context = "\n".join([line for line in context_lines if line])
+        agenda = (
+            "Investigate saturation mutagenesis results for the selected position. "
+            "Evaluate the top mutations and identify any risks or trade-offs."
+        )
+        questions = (
+            "Which mutations are most promising for stability or function?",
+            "Are there any substitutions that should be avoided and why?",
+            "Recommend the next 3-5 mutants to validate with high-accuracy predictors.",
+        )
+        render_all_experts_panel(
+            "🧠 All-Expert Investigation (single-position results)",
+            agenda=agenda,
+            context=context,
+            questions=questions,
+            key_prefix="mut_single",
         )

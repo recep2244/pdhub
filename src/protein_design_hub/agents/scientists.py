@@ -432,6 +432,18 @@ FULL_PIPELINE_TEAM_MEMBERS = (
     SCIENTIFIC_CRITIC,
 )
 
+# All experts team (used for exhaustive reviews)
+ALL_EXPERTS_TEAM_MEMBERS = (
+    STRUCTURAL_BIOLOGIST,
+    COMPUTATIONAL_BIOLOGIST,
+    MACHINE_LEARNING_SPECIALIST,
+    IMMUNOLOGIST,
+    PROTEIN_ENGINEER,
+    BIOPHYSICIST,
+    DIGITAL_RECEP,
+    LIAM,
+    SCIENTIFIC_CRITIC,
+)
 # MPNN / inverse folding design team
 MPNN_DESIGN_TEAM_MEMBERS = (
     PROTEIN_ENGINEER,
@@ -505,5 +517,11 @@ ALL_TEAMS = {
         "lead": DEFAULT_TEAM_LEAD,
         "members": FULL_PIPELINE_TEAM_MEMBERS,
         "description": "End-to-end pipeline review with all core experts",
+    },
+    "all_experts": {
+        "name": "All Experts Review Team",
+        "lead": DEFAULT_TEAM_LEAD,
+        "members": ALL_EXPERTS_TEAM_MEMBERS,
+        "description": "Comprehensive review with every scientist persona",
     },
 }

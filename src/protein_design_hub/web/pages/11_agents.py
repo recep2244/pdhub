@@ -705,6 +705,7 @@ with tabs[3]:
             ("Mutagenesis",   "Mutation scanning & sequence design",     S.DEFAULT_TEAM_LEAD, S.MUTAGENESIS_TEAM_MEMBERS),
             ("MPNN Design",   "ProteinMPNN inverse folding",             S.DEFAULT_TEAM_LEAD, S.MPNN_DESIGN_TEAM_MEMBERS),
             ("Full Pipeline", "End-to-end pipeline review (all experts)", S.DEFAULT_TEAM_LEAD, S.FULL_PIPELINE_TEAM_MEMBERS),
+            ("All Experts",   "Comprehensive review with all scientist personas", S.DEFAULT_TEAM_LEAD, S.ALL_EXPERTS_TEAM_MEMBERS),
         ]
         for name, desc, lead, members in _td:
             with st.container(border=True):
