@@ -16,17 +16,25 @@ from protein_design_hub.web.ui import (
     status_badge,
     metric_card,
     info_box,
+    workflow_breadcrumb,
 )
+from protein_design_hub.web.agent_helpers import agent_sidebar_status
 
 inject_base_css()
 sidebar_nav(current="Settings")
 sidebar_system_status()
+agent_sidebar_status()
 
 # Page header
 page_header(
     "Settings & Configuration",
     "Manage predictors, configure preferences, and monitor system health",
     "⚙️"
+)
+
+workflow_breadcrumb(
+    ["System Status", "Configure", "LLM Setup", "Test"],
+    current=1,
 )
 
 # Utility helpers
@@ -232,11 +240,22 @@ with tabs[1]:
                                     else:
                                         st.error("Update failed")
 
+                            confirm_key = f"confirm_uninstall_{pred_id}"
                             if st.button("🗑️ Uninstall", key=f"uninstall_{pred_id}", use_container_width=True, type="secondary"):
-                                st.warning("Confirm uninstall?")
-                                if st.button("Confirm", key=f"confirm_{pred_id}"):
-                                    predictor.installer.uninstall()
-                                    st.rerun()
+                                st.session_state[confirm_key] = True
+
+                            if st.session_state.get(confirm_key):
+                                st.warning("Are you sure you want to uninstall?")
+                                c_yes, c_no = st.columns(2)
+                                with c_yes:
+                                    if st.button("✅ Confirm", key=f"confirm_{pred_id}", use_container_width=True):
+                                        predictor.installer.uninstall()
+                                        st.session_state.pop(confirm_key, None)
+                                        st.rerun()
+                                with c_no:
+                                    if st.button("❌ Cancel", key=f"cancel_{pred_id}", use_container_width=True):
+                                        st.session_state.pop(confirm_key, None)
+                                        st.rerun()
                         else:
                             if st.button("📥 Install", key=f"install_{pred_id}", type="primary", use_container_width=True):
                                 with st.spinner(f"Installing {info['name']}..."):

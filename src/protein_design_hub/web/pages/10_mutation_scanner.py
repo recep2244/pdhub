@@ -40,6 +40,14 @@ from protein_design_hub.web.ui import (
     page_header,
     section_header,
     info_box,
+    metric_card_with_context,
+    workflow_breadcrumb,
+    cross_page_actions,
+)
+from protein_design_hub.web.agent_helpers import (
+    render_agent_advice_panel,
+    render_contextual_insight,
+    agent_sidebar_status,
 )
 from datetime import datetime
 from types import SimpleNamespace
@@ -54,6 +62,35 @@ st.set_page_config(
 inject_base_css()
 sidebar_nav(current="Mutagenesis")
 sidebar_system_status()
+agent_sidebar_status()
+
+# Workflow breadcrumb
+page_header(
+    "Mutation Scanner",
+    "Saturation mutagenesis and multi-mutation design with stability analysis",
+    "🧬",
+)
+workflow_breadcrumb(
+    ["Predict Structure", "Evaluate", "Scan Mutations", "Design"],
+    current=2,
+)
+
+with st.expander("📖 How mutation scanning works", expanded=False):
+    st.markdown("""
+**Saturation mutagenesis** tests every possible amino acid substitution at selected positions:
+1. Enter your protein sequence (or use a predicted structure)
+2. Select residue positions to scan (core residues for stability, surface for binding)
+3. The scanner predicts structures for all 19 mutations at each position
+4. Metrics (pLDDT, RMSD vs WT, clash score) rank stabilising vs destabilising mutations
+
+**Multi-mutation design** combines beneficial single mutations into variants.
+
+**Tips:**
+- Start with 2-3 positions to test the workflow (scanning 5+ positions takes longer)
+- **Buried positions** (low SASA) are riskier but can dramatically affect stability
+- **Surface positions** are safer to mutate and good for engineering binding
+- Mutations preserving pLDDT > 80 and RMSD < 1.0 Å are the safest candidates
+    """)
 
 # Enhanced CSS for mutation scanner interface
 st.markdown("""
@@ -341,25 +378,25 @@ def render_heatmap(results):
     for aa in aa_order:
         if aa == original_aa:
             values.append(0)
-            colors.append('#808080')
+            colors.append('#9ca3af')
             hover_texts.append(f"{aa} (WT)")
         else:
             mut = next((m for m in mutations if m.mutant_aa == aa), None)
             if mut and mut.success:
                 delta = mut.delta_mean_plddt
                 values.append(delta)
-                colors.append('#28a745' if delta > 0 else '#dc3545')
+                colors.append('#22c55e' if delta > 0 else '#ef4444')
                 delta_label = "ΔpLDDT"
                 if is_immunebuilder:
                     delta_label = "ΔError"
                 hover_texts.append(
                     f"<b>{mut.mutation_code}</b><br>"
-                    f"{delta_label}: {delta:+.2f}<br>"
-                    f"RMSD: {mut.rmsd_to_base:.2f} Å" if mut.rmsd_to_base else ""
+                    f"{delta_label}: {delta:+.2f}"
+                    + (f"<br>RMSD: {mut.rmsd_to_base:.2f} Å" if mut.rmsd_to_base else "")
                 )
             else:
                 values.append(None)
-                colors.append('#cccccc')
+                colors.append('#6b7280')
                 hover_texts.append("Failed")
                 
     fig = go.Figure(data=go.Bar(
@@ -420,13 +457,6 @@ def run_baseline_comparison(
                 }
         status.update(label="Baseline comparison complete", state="complete", expanded=False)
     return results
-
-# Main UI - Page Header
-page_header(
-    "Mutation Scanner",
-    "Comprehensive saturation mutagenesis with full biophysical metrics",
-    "🔬"
-)
 
 # Predictor selection
 show_advanced = st.checkbox(
@@ -776,27 +806,27 @@ if st.session_state.sequence:
         # 3. Selection
         st.markdown("### Residue Selection & pLDDT-Based Prioritization")
         seq = st.session_state.sequence
-        pldit = st.session_state.base_plddt_per_residue or []
+        plddt_per_res = st.session_state.base_plddt_per_residue or []
 
         col_plddt, col_select = st.columns([2, 1])
         with col_plddt:
-            if pldit:
+            if plddt_per_res:
                 if st.session_state.mutation_predictor == "immunebuilder":
                     threshold = st.slider("High-error threshold (Å)", 0.0, 20.0, 5.0)
                     if st.button("Auto-select high-error residues", use_container_width=True):
                         st.session_state.selected_positions = {
-                            i + 1 for i, v in enumerate(pldit) if v > threshold
+                            i + 1 for i, v in enumerate(plddt_per_res) if v > threshold
                         }
                         st.rerun()
                 else:
                     threshold = st.slider("Low-confidence threshold (pLDDT)", 40, 90, 70)
                     if st.button("Auto-select low-confidence residues", use_container_width=True):
                         st.session_state.selected_positions = {
-                            i + 1 for i, v in enumerate(pldit) if v < threshold
+                            i + 1 for i, v in enumerate(plddt_per_res) if v < threshold
                         }
                         st.rerun()
                 values = []
-                for v in pldit:
+                for v in plddt_per_res:
                     try:
                         values.append(float(v))
                     except Exception:
@@ -1131,9 +1161,9 @@ if st.session_state.scan_results:
         if best_mut:
             # Highlight Best Variant
             st.markdown(f"""
-            <div style="background: linear-gradient(90deg, #d4edda 0%, #c3e6cb 100%); padding: 15px; border-radius: 10px; border: 1px solid #28a745; margin-bottom: 20px;">
-                <h3 style="margin:0; color: #155724;">🏆 Best Candidate: {best_mut.mutation_code}</h3>
-                <p style="margin:5px 0 0 0; color: #155724;">
+            <div style="background: linear-gradient(90deg, rgba(16,185,129,0.15) 0%, rgba(34,197,94,0.15) 100%); padding: 15px; border-radius: 10px; border: 1px solid rgba(16,185,129,0.35); margin-bottom: 20px;">
+                <h3 style="margin:0; color: #10b981;">🏆 Best Candidate: {best_mut.mutation_code}</h3>
+                <p style="margin:5px 0 0 0; color: var(--pdhub-text, #e2e8f0);">
                     predicted to improve by <b>+{best_mut.delta_mean_plddt:.2f}</b> ({delta_label})
                 </p>
             </div>
@@ -1240,3 +1270,25 @@ if st.session_state.scan_results:
                 components.html(create_structure_viewer(Path(p2), height=300), height=320)
         else:
             st.info("Select a mutation from Recommendations to compare.")
+
+    # Agent advice on mutation results
+    if res.ranked_mutations:
+        top5 = res.ranked_mutations[:5]
+        mut_ctx_parts = [
+            f"- {m.mutation_code}: ΔpLDDT={m.delta_mean_plddt:+.2f}"
+            for m in top5
+        ]
+        render_agent_advice_panel(
+            page_context=(
+                f"Saturation mutagenesis results at position {res.position} of "
+                f"{len(res.sequence)}-residue protein.\n"
+                f"Wild-type residue: {res.sequence[res.position-1]}\n"
+                f"Top mutations:\n" + "\n".join(mut_ctx_parts)
+            ),
+            default_question=(
+                "Which of these mutations looks most promising for stability? "
+                "Are there any concerns about these substitutions?"
+            ),
+            expert="Protein Engineer",
+            key_prefix="mut_agent",
+        )

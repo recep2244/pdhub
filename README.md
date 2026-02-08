@@ -166,6 +166,14 @@ print(f"lDDT: {eval_result.lddt:.3f}")
 print(f"TM-score: {eval_result.tm_score:.3f}")
 ```
 
+### Multi-Agent Pipeline
+
+The comparison pipeline can be run with **one agent per step** (input → prediction → evaluation → comparison → report). Use `--agents` with the compare command or the Python API; see [AGENTS.md](AGENTS.md) for details.
+
+```bash
+pdhub compare run input.fasta --agents
+```
+
 ## Project Structure
 
 ```
@@ -176,6 +184,7 @@ protein_design_hub/
 │   └── default.yaml
 ├── src/protein_design_hub/
 │   ├── core/                 # Types, config, exceptions
+│   ├── agents/               # Multi-agent pipeline (per-step agents)
 │   ├── analysis/             # Mutation scanner + pipelines
 │   ├── io/                   # Parsers and writers
 │   ├── predictors/           # Predictor implementations

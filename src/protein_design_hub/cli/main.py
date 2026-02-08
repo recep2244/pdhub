@@ -15,6 +15,8 @@ from protein_design_hub.cli.commands import (
     design,
     backbone,
     energy,
+    agents,
+    pipeline,
 )
 
 app = typer.Typer(
@@ -33,6 +35,8 @@ app.add_typer(install.app, name="install", help="Install and manage prediction t
 app.add_typer(design.app, name="design", help="Sequence design and analysis")
 app.add_typer(backbone.app, name="backbone", help="Backbone generation tools")
 app.add_typer(energy.app, name="energy", help="Energy and scoring tools")
+app.add_typer(agents.app, name="agents", help="LLM agent meetings and diagnostics")
+app.add_typer(pipeline.app, name="pipeline", help="Run the full prediction pipeline")
 
 
 @app.command()

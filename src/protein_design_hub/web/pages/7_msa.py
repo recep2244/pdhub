@@ -10,6 +10,12 @@ from protein_design_hub.web.ui import (
     sidebar_system_status,
     page_header,
     section_header,
+    workflow_breadcrumb,
+    cross_page_actions,
+)
+from protein_design_hub.web.agent_helpers import (
+    render_contextual_insight,
+    agent_sidebar_status,
 )
 
 st.set_page_config(page_title="MSA Analysis - Protein Design Hub", page_icon="🧬", layout="wide")
@@ -18,14 +24,15 @@ st.set_page_config(page_title="MSA Analysis - Protein Design Hub", page_icon="�
 inject_base_css()
 sidebar_nav(current="MSA")
 sidebar_system_status()
+agent_sidebar_status()
 
 # Custom CSS
 st.markdown("""
 <style>
-.conservation-high { background-color: #1a5276; color: var(--pdhub-text-heading); }
-.conservation-medium { background-color: #5dade2; color: var(--pdhub-text-heading); }
-.conservation-low { background-color: #aed6f1; color: black; }
-.conservation-none { background-color: #1e2433; color: var(--pdhub-text-secondary); }
+.conservation-high { background-color: #1a5276; color: var(--pdhub-text-heading, #e5e7eb); }
+.conservation-medium { background-color: #2980b9; color: var(--pdhub-text-heading, #e5e7eb); }
+.conservation-low { background-color: #5dade2; color: var(--pdhub-bg, #0a0b0f); }
+.conservation-none { background-color: var(--pdhub-bg-card, #1e2433); color: var(--pdhub-text-secondary, #a1a9b8); }
 .msa-cell {
     display: inline-block;
     width: 20px;
@@ -56,6 +63,11 @@ page_header(
     "MSA & Evolutionary Analysis",
     "Analyze conservation, coevolution, and ancestral sequences",
     "🧬"
+)
+
+workflow_breadcrumb(
+    ["Input Sequences", "Align (MSA)", "Conservation", "Coevolution", "Design"],
+    current=1,
 )
 
 # Main tabs
@@ -160,9 +172,8 @@ with main_tabs[0]:
         uniprot_id = st.text_input("UniProt ID", placeholder="P12345")
         msa_method = st.selectbox("Method", ["MMseqs2 (fast)", "HHblits (sensitive)"])
 
-        if st.button("🔍 Generate MSA", disabled=not uniprot_id):
-            st.info("MSA generation would run MMseqs2/HHblits against UniRef databases")
-            st.warning("This feature requires backend MSA generation tools to be installed")
+        st.button("🔍 Generate MSA", disabled=True)
+        st.caption("🚧 Coming soon — requires backend MSA tools (MMseqs2/HHblits) to be installed")
 
     # Show alignment info
     if st.session_state.msa_alignment:

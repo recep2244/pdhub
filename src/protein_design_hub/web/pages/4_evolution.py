@@ -16,11 +16,20 @@ from protein_design_hub.web.ui import (
     card_end,
     empty_state,
     render_badge,
+    workflow_breadcrumb,
+    cross_page_actions,
+)
+from protein_design_hub.web.agent_helpers import (
+    render_contextual_insight,
+    agent_sidebar_status,
 )
 
 st.set_page_config(page_title="Evolution - Protein Design Hub", page_icon="🧬", layout="wide")
 
 inject_base_css()
+sidebar_nav(current="Evolution")
+sidebar_system_status()
+agent_sidebar_status()
 
 # Page header
 page_header(
@@ -29,8 +38,27 @@ page_header(
     "🧬"
 )
 
-sidebar_nav(current="Evolution")
-sidebar_system_status()
+workflow_breadcrumb(
+    ["Design Sequence", "Predict", "Directed Evolution", "Select Best"],
+    current=2,
+)
+
+with st.expander("📖 How directed evolution works", expanded=False):
+    st.markdown("""
+**Computational directed evolution** mimics natural evolution to optimize protein properties:
+
+1. **Start** with a parent sequence (wild-type or designed)
+2. **Generate** variants through random or targeted mutations
+3. **Screen** using structure prediction (pLDDT, stability scores)
+4. **Select** the best variants as parents for the next round
+5. **Repeat** for multiple generations
+
+**Parameters:**
+- **Population size** — larger = more diverse exploration, slower per generation
+- **Mutation rate** — 1-3 mutations/sequence is typical; more = higher risk
+- **Fitness function** — pLDDT, stability, or custom metric to optimize
+- **Generations** — 3-5 rounds usually converges for simple improvements
+    """)
 
 # Page-specific CSS (uses theme variables)
 st.markdown("""
@@ -66,9 +94,9 @@ st.markdown("""
     margin: 2px;
     font-weight: 500;
 }
-.metric-pill-blue { background: var(--pdhub-info-light); color: #1976d2; }
-.metric-pill-green { background: var(--pdhub-success-light); color: #388e3c; }
-.metric-pill-orange { background: var(--pdhub-warning-light); color: #f57c00; }
+.metric-pill-blue { background: var(--pdhub-info-light); color: var(--pdhub-info, #3b82f6); }
+.metric-pill-green { background: var(--pdhub-success-light); color: var(--pdhub-success, #22c55e); }
+.metric-pill-orange { background: var(--pdhub-warning-light); color: var(--pdhub-warning, #f59e0b); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -126,12 +154,17 @@ with main_tabs[0]:
         uploaded = st.file_uploader("Or upload FASTA", type=["fasta", "fa"])
         if uploaded:
             content = uploaded.read().decode()
+            seq_lines = []
             for line in content.strip().split('\n'):
-                if not line.startswith('>') and line.strip():
-                    st.session_state.evolution_sequence = ''.join(
+                if line.startswith('>'):
+                    continue
+                if line.strip():
+                    seq_lines.append(''.join(
                         c for c in line.strip().upper() if c in "ACDEFGHIKLMNPQRSTVWY"
-                    )
-                    st.rerun()
+                    ))
+            if seq_lines:
+                st.session_state.evolution_sequence = ''.join(seq_lines)
+                st.rerun()
 
     with col_info:
         if st.session_state.evolution_sequence:

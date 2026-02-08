@@ -16,15 +16,26 @@ from protein_design_hub.web.ui import (
     section_header,
     info_box,
     metric_card,
+    metric_card_with_context,
     progress_steps,
     set_selected_backbone,
     sidebar_nav,
     sidebar_system_status,
     list_output_structures,
+    workflow_breadcrumb,
+    cross_page_actions,
+)
+from protein_design_hub.web.agent_helpers import (
+    render_agent_advice_panel,
+    render_contextual_insight,
+    agent_sidebar_status,
 )
 
 st.set_page_config(page_title="MPNN Design - Protein Design Hub", page_icon="🎯", layout="wide")
 inject_base_css()
+sidebar_nav(current="MPNN Lab")
+sidebar_system_status()
+agent_sidebar_status()
 
 # Page-specific styling
 st.markdown("""
@@ -38,7 +49,7 @@ st.markdown("""
 }
 
 .mpnn-settings-card {
-    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    background: var(--pdhub-bg-elevated, rgba(28, 30, 42, 0.95));
     border-radius: var(--pdhub-border-radius-lg);
     padding: var(--pdhub-space-lg);
     border: 1px solid var(--pdhub-border);
@@ -116,8 +127,28 @@ page_header(
     "🎯"
 )
 
-sidebar_nav(current="MPNN Lab")
-sidebar_system_status()
+workflow_breadcrumb(
+    ["Predict Structure", "Evaluate", "Design Sequence (MPNN)", "Validate"],
+    current=2,
+)
+
+with st.expander("📖 ProteinMPNN sequence design guide", expanded=False):
+    st.markdown("""
+**ProteinMPNN** designs new amino acid sequences that fold into a given backbone structure.
+
+**How to use:**
+1. Upload a PDB backbone (from prediction or experimental structure)
+2. Set **temperature** (controls sequence diversity):
+   - `0.1` = conservative (high sequence recovery, safe)
+   - `0.3` = moderate (good diversity/quality balance, recommended)
+   - `0.5+` = diverse (creative designs, may need validation)
+3. Optionally **fix positions** you want to keep unchanged (e.g. active site residues)
+4. Run and review designed sequences with biophysical metrics
+
+**Self-consistency check:** Re-predict designed sequences with ESMFold/ColabFold. If TM-score > 0.9 to the template, the design likely folds correctly.
+
+**Sequence recovery:** ProteinMPNN typically recovers 30-50% of native sequence. Higher recovery means the design is closer to natural proteins.
+    """)
 
 # Main content
 col_a, col_b = st.columns([2, 1])
@@ -414,6 +445,32 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=
 
                 st.caption(f"Results saved to: `{job_dir}`")
 
+                # Agent advice on MPNN design results
+                seq_summaries = []
+                for s in result.sequences[:5]:
+                    try:
+                        m = compute_sequence_metrics(s.sequence)
+                        seq_summaries.append(
+                            f"- {s.id}: len={len(s.sequence)}, pI={m.isoelectric_point:.1f}, "
+                            f"charge={m.net_charge_ph7:.1f}, GRAVY={m.gravy:.3f}, "
+                            f"instability={m.instability_index:.1f}"
+                        )
+                    except Exception:
+                        seq_summaries.append(f"- {s.id}: len={len(s.sequence)}")
+
+                render_agent_advice_panel(
+                    page_context=(
+                        f"ProteinMPNN designed {len(result.sequences)} sequences.\n"
+                        f"Top 5 sequences:\n" + "\n".join(seq_summaries)
+                    ),
+                    default_question=(
+                        "Evaluate these designed sequences. Which ones look most "
+                        "promising for expression and stability? Any red flags?"
+                    ),
+                    expert="Machine Learning Specialist",
+                    key_prefix="mpnn_agent",
+                )
+
         except Exception as e:
             info_box(
                 f"An error occurred: {e}",
@@ -427,15 +484,13 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=
 # Tips section
 st.markdown("---")
 with st.expander("💡 Tips for using ProteinMPNN"):
-    st.markdown("""
-    **Temperature Settings:**
-    - **0.1** (default): Conservative designs, high sequence recovery
-    - **0.2-0.3**: Balanced diversity and recovery
-    - **0.5+**: More diverse, novel sequences
+    st.markdown("""**Temperature Settings:**
+- **0.1** (default): Conservative designs, high sequence recovery
+- **0.2-0.3**: Balanced diversity and recovery
+- **0.5+**: More diverse, novel sequences
 
-    **Best Practices:**
-    - Start with a well-resolved backbone structure (< 2.5 resolution)
-    - Use 16-32 sequences initially, then filter by metrics
-    - Lower temperature for stability, higher for novelty
-    - Consider running multiple rounds with different temperatures
-    """)
+**Best Practices:**
+- Start with a well-resolved backbone structure (< 2.5 Å resolution)
+- Use 16-32 sequences initially, then filter by metrics
+- Lower temperature for stability, higher for novelty
+- Consider running multiple rounds with different temperatures""")

@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import json
 
-st.set_page_config(page_title="Compare - Protein Design Hub", page_icon="", layout="wide")
+st.set_page_config(page_title="Compare - Protein Design Hub", page_icon="⚖️", layout="wide")
 
 from protein_design_hub.web.ui import (
     inject_base_css,
@@ -15,14 +15,25 @@ from protein_design_hub.web.ui import (
     section_header,
     info_box,
     metric_card,
+    metric_card_with_context,
     card_start,
     card_end,
     empty_state,
     render_badge,
-    status_badge
+    status_badge,
+    workflow_breadcrumb,
+    cross_page_actions,
+)
+from protein_design_hub.web.agent_helpers import (
+    render_agent_advice_panel,
+    render_contextual_insight,
+    agent_sidebar_status,
 )
 
 inject_base_css()
+sidebar_nav(current="Compare")
+sidebar_system_status()
+agent_sidebar_status()
 
 # =============================================================================
 # Page-specific CSS for Compare page
@@ -389,11 +400,30 @@ st.markdown(COMPARE_CSS, unsafe_allow_html=True)
 page_header(
     "Compare Predictions",
     "Run multiple predictors and compare results with detailed analysis",
-    ""
+    "⚖️"
 )
 
-sidebar_nav(current="Compare")
-sidebar_system_status()
+workflow_breadcrumb(
+    ["Sequence Input", "Predict", "Evaluate", "Compare", "Refine / Design"],
+    current=3,
+)
+
+with st.expander("📖 How comparison works", expanded=False):
+    st.markdown("""
+**This page compares multiple predictor outputs** for the same protein sequence.
+
+**What gets compared:**
+- **pLDDT / pTM** — per-predictor confidence scores
+- **Structural quality** — clash score, Ramachandran, energy
+- **Fold similarity** — RMSD and TM-score between predictions
+
+**The composite ranking** weighs: lDDT (40%), TM-score (30%), clash quality (15%), pTM confidence (15%).
+
+**When to use this page:**
+- After running 2+ predictors on the same sequence
+- To decide which structure to use for downstream analysis
+- To identify regions where predictors disagree (may indicate disorder or flexibility)
+    """)
 
 # =============================================================================
 # Predictor Configuration
@@ -401,21 +431,21 @@ sidebar_system_status()
 PREDICTORS = {
     "ColabFold": {
         "id": "colabfold",
-        "icon": "",
+        "icon": "🔬",
         "color": "#3b82f6",
         "css_class": "predictor-pill-colabfold",
         "desc": "AlphaFold2 with MSA",
     },
     "Chai-1": {
         "id": "chai1",
-        "icon": "",
+        "icon": "🧪",
         "color": "#a855f7",
         "css_class": "predictor-pill-chai1",
         "desc": "Multi-modal diffusion",
     },
     "Boltz-2": {
         "id": "boltz2",
-        "icon": "",
+        "icon": "⚡",
         "color": "#f59e0b",
         "css_class": "predictor-pill-boltz2",
         "desc": "Fast diffusion model",
@@ -471,7 +501,7 @@ with st.sidebar.expander("Evaluation Metrics", expanded=False):
 # =============================================================================
 # SECTION 1: Predictor Selection Display
 # =============================================================================
-section_header("Selected Predictors", "Models that will be compared", "")
+section_header("Selected Predictors", "Models that will be compared", "🎯")
 
 if predictors_to_run:
     pills_html = ['<div class="predictor-pills">']
@@ -496,14 +526,14 @@ if predictors_to_run:
     </div>
     ''', unsafe_allow_html=True)
 else:
-    info_box("Select at least one predictor from the sidebar", variant="warning", icon="")
+    info_box("Select at least one predictor from the sidebar", variant="warning", icon="⚠️")
 
 st.markdown("<div style='height: 1.5rem;'></div>", unsafe_allow_html=True)
 
 # =============================================================================
 # SECTION 2: Sequence Input with Analysis Panel
 # =============================================================================
-section_header("Input Sequence", "Enter protein sequence for comparison", "")
+section_header("Input Sequence", "Enter protein sequence for comparison", "📝")
 
 col_input, col_analysis = st.columns([2, 1])
 
@@ -545,13 +575,13 @@ with col_input:
 
     # Multi-chain indicator
     if sequence_input and ":" in sequence_input:
-        st.info(" **Multi-chain complex detected** - Chains separated by `:`")
+        st.info("🔗 **Multi-chain complex detected** — Chains separated by `:`")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_analysis:
     st.markdown('<div class="analysis-panel">', unsafe_allow_html=True)
-    st.markdown('<div class="analysis-title"> Sequence Analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="analysis-title">📊 Sequence Analysis</div>', unsafe_allow_html=True)
 
     if sequence_input:
         # Parse sequence
@@ -567,13 +597,13 @@ with col_analysis:
         # Complexity
         if total_len < 150:
             complexity = "Low"
-            complexity_icon = ""
+            complexity_icon = "⚡"
         elif total_len < 500:
             complexity = "Medium"
-            complexity_icon = ""
+            complexity_icon = "⏱️"
         else:
             complexity = "High"
-            complexity_icon = ""
+            complexity_icon = "🐢"
 
         st.markdown(f'''
         <div class="analysis-stat">
@@ -596,13 +626,13 @@ with col_analysis:
 
         # Chain breakdown for multi-chain
         if num_chains > 1:
-            st.markdown("<div style='margin-top: 1rem; font-size: 0.8rem; color: #a1a9b8;'>Chain Lengths:</div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top: 1rem; font-size: 0.8rem; color: var(--pdhub-text-secondary, #a1a9b8);'>Chain Lengths:</div>", unsafe_allow_html=True)
             for i, chain in enumerate(chains):
-                st.markdown(f"<div style='font-size: 0.85rem; color: #f1f5f9; padding: 2px 0;'>Chain {chr(65+i)}: {len(chain)} aa</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size: 0.85rem; color: var(--pdhub-text, #f1f5f9); padding: 2px 0;'>Chain {chr(65+i)}: {len(chain)} aa</div>", unsafe_allow_html=True)
     else:
         st.markdown('''
-        <div style="text-align: center; padding: 2rem 1rem; color: #6b7280;">
-            <div style="font-size: 2rem; margin-bottom: 0.5rem;"></div>
+        <div style="text-align: center; padding: 2rem 1rem; color: var(--pdhub-text-muted, #6b7280);">
+            <div style="font-size: 2rem; margin-bottom: 0.5rem;">🧬</div>
             <div>Enter a sequence to see analysis</div>
         </div>
         ''', unsafe_allow_html=True)
@@ -612,7 +642,7 @@ with col_analysis:
 # =============================================================================
 # SECTION 3: Reference Structure (Optional)
 # =============================================================================
-section_header("Reference Structure", "Optional: provide ground truth for evaluation", "")
+section_header("Reference Structure", "Optional: provide ground truth for evaluation", "📏")
 
 col_ref, col_output = st.columns([1, 1])
 
@@ -629,7 +659,7 @@ with col_ref:
     )
 
     if reference_file:
-        st.success(f" Reference loaded: {reference_file.name}")
+        st.success(f"✅ Reference loaded: {reference_file.name}")
     else:
         st.markdown("<div style='color: #6b7280; font-size: 0.85rem; margin-top: 0.5rem;'>No reference - ranking will use pLDDT</div>", unsafe_allow_html=True)
 
@@ -665,7 +695,7 @@ col_status, col_actions = st.columns([2, 1])
 
 with col_status:
     st.markdown('<div class="run-header">', unsafe_allow_html=True)
-    st.markdown('<span class="run-title"> Run Comparison</span>', unsafe_allow_html=True)
+    st.markdown('<span class="run-title">🚀 Run Comparison</span>', unsafe_allow_html=True)
 
     if is_ready:
         st.markdown(f'''
@@ -690,13 +720,13 @@ with col_status:
     if is_ready:
         st.markdown(f"Will run **{len(predictors_to_run)}** predictors with **{num_models}** models each")
         if reference_file:
-            st.markdown(f" Reference: `{reference_file.name}` - full evaluation metrics enabled")
+            st.markdown(f"📏 Reference: `{reference_file.name}` — full evaluation metrics enabled")
         else:
-            st.markdown(" No reference - ranking by pLDDT confidence")
+            st.markdown("ℹ️ No reference — ranking by pLDDT confidence")
 
 with col_actions:
     run_comparison = st.button(
-        " Run Comparison",
+        "🚀 Run Comparison",
         type="primary",
         use_container_width=True,
         disabled=not is_ready
@@ -741,12 +771,12 @@ if run_comparison:
             predictor_list = [predictor_map[p] for p in predictors_to_run]
 
             # Run workflow with status
-            with st.status(" Running comparison pipeline...", expanded=True) as status:
-                st.write(" Initializing workflow...")
+            with st.status("⏳ Running comparison pipeline...", expanded=True) as status:
+                st.write("📝 Initializing workflow...")
 
                 workflow = PredictionWorkflow(settings)
 
-                st.write(f" Running {len(predictor_list)} predictors: {', '.join(predictors_to_run)}")
+                st.write(f"🚀 Running {len(predictor_list)} predictors: {', '.join(predictors_to_run)}")
 
                 result = workflow.run(
                     input_path=input_path,
@@ -756,7 +786,7 @@ if run_comparison:
                     job_id=job_id,
                 )
 
-                status.update(label=" Comparison Complete!", state="complete", expanded=False)
+                status.update(label="✅ Comparison Complete!", state="complete", expanded=False)
 
             # Store results in session state
             st.session_state["compare_result"] = result
@@ -780,27 +810,27 @@ if "compare_result" in st.session_state:
     # Results header
     st.markdown(f'''
     <div class="results-header">
-        <div class="results-title"> Comparison Results</div>
+        <div class="results-title">✨ Comparison Results</div>
         <div class="results-subtitle">Job: {job_id}</div>
     </div>
     ''', unsafe_allow_html=True)
 
     # Best predictor highlight
     if result.best_predictor:
-        st.markdown(f"###  Best Predictor: **{result.best_predictor.upper()}**")
+        st.markdown(f"### 🏆 Best Predictor: **{result.best_predictor.upper()}**")
 
     # Results tabs
     tab_ranking, tab_metrics, tab_viewer, tab_download = st.tabs([
-        " Ranking", " Metrics", " Structure Viewer", " Downloads"
+        "🏆 Ranking", "📊 Metrics", "🔬 Structure Viewer", "💾 Downloads"
     ])
 
     with tab_ranking:
-        section_header("Predictor Ranking", "Ordered by evaluation score", "")
+        section_header("Predictor Ranking", "Ordered by evaluation score", "🏆")
 
         if result.ranking:
             for i, (name, score) in enumerate(result.ranking, 1):
                 rank_class = "gold" if i == 1 else "silver" if i == 2 else "bronze" if i == 3 else ""
-                medal = "" if i == 1 else "" if i == 2 else "" if i == 3 else f"#{i}"
+                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"#{i}"
 
                 st.markdown(f'''
                 <div class="ranking-item {rank_class}">
@@ -811,11 +841,25 @@ if "compare_result" in st.session_state:
                     <div class="ranking-score">{score:.3f}</div>
                 </div>
                 ''', unsafe_allow_html=True)
+            # Agent advice on comparison results
+            ranking_ctx = "\n".join(
+                f"- Rank {i}: {name} (score: {score:.3f})"
+                for i, (name, score) in enumerate(result.ranking, 1)
+            )
+            render_agent_advice_panel(
+                page_context=f"Predictor comparison ranking:\n{ranking_ctx}",
+                default_question=(
+                    "Which predictor produced the best structure and why? "
+                    "Should I refine the top result or try different parameters?"
+                ),
+                expert="Computational Biologist",
+                key_prefix="compare_agent",
+            )
         else:
-            empty_state("No ranking available", "Run comparison first", "")
+            empty_state("No ranking available", "Run comparison first", "📭")
 
     with tab_metrics:
-        section_header("Detailed Metrics", "Per-predictor evaluation results", "")
+        section_header("Detailed Metrics", "Per-predictor evaluation results", "📊")
 
         # Prediction summary table
         st.markdown("#### Prediction Results")
@@ -823,7 +867,7 @@ if "compare_result" in st.session_state:
         for name, pred in result.prediction_results.items():
             pred_data.append({
                 "Predictor": name.upper(),
-                "Status": " Success" if pred.success else " Failed",
+                "Status": "✅ Success" if pred.success else "❌ Failed",
                 "Structures": len(pred.structure_paths),
                 "Runtime (s)": f"{pred.runtime_seconds:.1f}",
                 "Best pLDDT": f"{max((s.plddt for s in pred.scores if s.plddt), default=0):.1f}"
@@ -917,7 +961,7 @@ if "compare_result" in st.session_state:
             st.plotly_chart(fig, use_container_width=True)
 
     with tab_viewer:
-        section_header("Structure Viewer", "Visualize predicted structures", "")
+        section_header("Structure Viewer", "Visualize predicted structures", "🔬")
 
         job_dir = Path(st.session_state.get("compare_output_dir", output_dir)) / job_id
         structure_files = list(job_dir.glob("**/*.pdb")) + list(job_dir.glob("**/*.cif"))
@@ -939,7 +983,7 @@ if "compare_result" in st.session_state:
 
                     with open(selected_structure, "rb") as f:
                         st.download_button(
-                            f" Download",
+                            f"📥 Download",
                             data=f.read(),
                             file_name=selected_structure.name,
                             mime="chemical/x-pdb" if selected_structure.suffix == ".pdb" else "chemical/x-cif",
@@ -964,14 +1008,14 @@ if "compare_result" in st.session_state:
                     if ref_path:
                         st.caption(f"Aligned with reference: {ref_path.name}")
         else:
-            empty_state("No structures found", "Run a comparison to generate structures", "")
+            empty_state("No structures found", "Run a comparison to generate structures", "📭")
 
     with tab_download:
-        section_header("Download Results", "Export structures and reports", "")
+        section_header("Download Results", "Export structures and reports", "💾")
 
         job_dir = Path(st.session_state.get("compare_output_dir", output_dir)) / job_id
 
-        st.info(f" Results saved to: `{job_dir}`")
+        st.info(f"📁 Results saved to: `{job_dir}`")
 
         col_files, col_report = st.columns(2)
 
@@ -986,7 +1030,7 @@ if "compare_result" in st.session_state:
                         st.markdown(f"`{sf.parent.name}/{sf.name}`")
                     with col_dl:
                         with open(sf, "rb") as f:
-                            st.download_button("", data=f.read(), file_name=sf.name, key=f"dl_{sf.name}")
+                            st.download_button("📥 Download", data=f.read(), file_name=sf.name, key=f"dl_{sf.name}")
 
                 if len(structure_files) > 10:
                     st.caption(f"...and {len(structure_files) - 10} more files")
@@ -998,8 +1042,8 @@ if "compare_result" in st.session_state:
             report_path = job_dir / "report" / "report.html"
             if report_path.exists():
                 st.download_button(
-                    " Download HTML Report",
-                    data=open(report_path).read(),
+                    "📥 Download HTML Report",
+                    data=report_path.read_text(),
                     file_name="comparison_report.html",
                     mime="text/html",
                     use_container_width=True
@@ -1010,8 +1054,8 @@ if "compare_result" in st.session_state:
             summary_path = job_dir / "prediction_summary.json"
             if summary_path.exists():
                 st.download_button(
-                    " Download JSON Summary",
-                    data=open(summary_path).read(),
+                    "📥 Download JSON Summary",
+                    data=summary_path.read_text(),
                     file_name="prediction_summary.json",
                     mime="application/json",
                     use_container_width=True
@@ -1022,7 +1066,7 @@ st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
 # =============================================================================
 # SECTION 6: Load Existing Results
 # =============================================================================
-section_header("Load Existing Results", "View previous comparison jobs", "")
+section_header("Load Existing Results", "View previous comparison jobs", "📂")
 
 existing_results = st.text_input(
     "Path to job directory",
@@ -1038,7 +1082,7 @@ if existing_results and Path(existing_results).exists():
     structure_files = list(job_path.glob("**/*.pdb")) + list(job_path.glob("**/*.cif"))
 
     if structure_files:
-        st.success(f" Found {len(structure_files)} structure(s) in `{job_path.name}`")
+        st.success(f"✅ Found {len(structure_files)} structure(s) in `{job_path.name}`")
 
         col_list, col_view = st.columns([1, 2])
 
@@ -1053,7 +1097,7 @@ if existing_results and Path(existing_results).exists():
             if selected_structure:
                 with open(selected_structure, "rb") as f:
                     st.download_button(
-                        f" Download {selected_structure.name}",
+                        f"📥 Download {selected_structure.name}",
                         data=f.read(),
                         file_name=selected_structure.name,
                         mime="chemical/x-pdb" if selected_structure.suffix == ".pdb" else "chemical/x-cif",
@@ -1089,11 +1133,11 @@ if existing_results and Path(existing_results).exists():
         st.markdown("### Results Summary")
 
         for pred_name, pred_info in summary.get("predictors", {}).items():
-            with st.expander(f" **{pred_name.upper()}**", expanded=False):
+            with st.expander(f"🔮 **{pred_name.upper()}**", expanded=False):
                 col_1, col_2, col_3 = st.columns(3)
                 with col_1:
-                    status = " Success" if pred_info.get("success") else " Failed"
-                    st.markdown(f"**Status:** {status}")
+                    st_label = "✅ Success" if pred_info.get("success") else "❌ Failed"
+                    st.markdown(f"**Status:** {st_label}")
                 with col_2:
                     st.markdown(f"**Structures:** {pred_info.get('num_structures', 0)}")
                 with col_3:
@@ -1115,7 +1159,7 @@ st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
 # =============================================================================
 # Info Section
 # =============================================================================
-with st.expander(" About Comparison", expanded=False):
+with st.expander("ℹ️ About Comparison", expanded=False):
     st.markdown("""
 ### How Comparison Works
 

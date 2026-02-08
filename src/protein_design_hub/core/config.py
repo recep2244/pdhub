@@ -252,6 +252,106 @@ class GPUConfig(BaseModel):
     allow_tf32: bool = True
 
 
+# Provider presets: name → (base_url, default_model, default_api_key)
+LLM_PROVIDER_PRESETS: dict[str, tuple[str, str, str]] = {
+    "ollama":   ("http://localhost:11434/v1",  "llama3.2:latest",   "ollama"),
+    "lmstudio": ("http://localhost:1234/v1",   "default",           "lm-studio"),
+    "vllm":     ("http://localhost:8000/v1",   "default",           "vllm"),
+    "llamacpp": ("http://localhost:8080/v1",   "default",           "llamacpp"),
+    "deepseek": ("https://api.deepseek.com/v1","deepseek-chat",     ""),
+    "openai":   ("https://api.openai.com/v1",  "gpt-4o",           ""),
+    "gemini":   ("https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-2.5-flash", ""),
+    "kimi":     ("https://api.moonshot.cn/v1",  "kimi-k2",          ""),
+}
+
+
+class LLMConfig(BaseModel):
+    """LLM configuration for agent meetings.
+
+    Supports any OpenAI-compatible API backend.  Pre-configured
+    providers (set ``provider`` and optionally ``model``):
+
+    **Local (no API key needed):**
+      - ``ollama``     → http://localhost:11434/v1  (llama3.2, qwen2.5, deepseek-r1, …)
+      - ``lmstudio``   → http://localhost:1234/v1
+      - ``vllm``       → http://localhost:8000/v1
+      - ``llamacpp``   → http://localhost:8080/v1
+
+    **Cloud (API key required):**
+      - ``deepseek``   → https://api.deepseek.com/v1        ($0.28/1M in)
+      - ``openai``     → https://api.openai.com/v1          (gpt-4o)
+      - ``gemini``     → https://generativelanguage.googleapis.com/v1beta/openai/  (free tier)
+      - ``kimi``       → https://api.moonshot.cn/v1          (kimi-k2)
+
+    Or use ``custom`` and set ``base_url`` manually.
+    """
+
+    provider: str = Field(
+        default="ollama",
+        description=(
+            "LLM provider preset: ollama, lmstudio, vllm, llamacpp, "
+            "deepseek, openai, gemini, kimi, or custom"
+        ),
+    )
+    base_url: str = Field(
+        default="",
+        description="Base URL (auto-set from provider if empty)"
+    )
+    model: str = Field(
+        default="",
+        description="Model name (auto-set from provider if empty)"
+    )
+    api_key: str = Field(
+        default="",
+        description="API key (auto-set from provider if empty; reads env var as fallback)"
+    )
+    temperature: float = Field(
+        default=0.2,
+        description="Sampling temperature for meetings"
+    )
+    max_tokens: Optional[int] = Field(
+        default=4096,
+        description="Max tokens per response (None = model default)"
+    )
+    num_rounds: int = Field(
+        default=1,
+        description="Default number of discussion rounds per meeting"
+    )
+
+    def resolve(self) -> "LLMConfig":
+        """Return a copy with provider defaults filled in."""
+        import os
+        preset = LLM_PROVIDER_PRESETS.get(self.provider, (None, None, None))
+        preset_url, preset_model, preset_key = preset
+
+        base_url = self.base_url or preset_url or "http://localhost:11434/v1"
+        model = self.model or preset_model or "llama3.2:latest"
+
+        # API key: explicit > env var > preset
+        api_key = self.api_key
+        if not api_key:
+            env_map = {
+                "openai":   "OPENAI_API_KEY",
+                "deepseek": "DEEPSEEK_API_KEY",
+                "gemini":   "GEMINI_API_KEY",
+                "kimi":     "MOONSHOT_API_KEY",
+            }
+            env_var = env_map.get(self.provider, "")
+            api_key = os.environ.get(env_var, "") if env_var else ""
+        if not api_key:
+            api_key = preset_key or "no-key"
+
+        return LLMConfig(
+            provider=self.provider,
+            base_url=base_url,
+            model=model,
+            api_key=api_key,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            num_rounds=self.num_rounds,
+        )
+
+
 class WebConfig(BaseModel):
     """Web UI configuration."""
 
@@ -274,6 +374,7 @@ class Settings(BaseSettings):
     installation: InstallationConfig = Field(default_factory=InstallationConfig)
     gpu: GPUConfig = Field(default_factory=GPUConfig)
     web: WebConfig = Field(default_factory=WebConfig)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
 
     @classmethod
     def from_yaml(cls, path: Path) -> "Settings":

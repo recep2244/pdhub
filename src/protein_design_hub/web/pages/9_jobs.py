@@ -9,6 +9,8 @@ from typing import Optional
 
 import streamlit as st
 
+from protein_design_hub.web.agent_helpers import agent_sidebar_status
+
 from protein_design_hub.web.ui import (
     get_selected_backbone,
     get_selected_model,
@@ -27,14 +29,15 @@ from protein_design_hub.web.ui import (
     render_badge, # Added for new UI
     card_start,   # Added for new UI
     card_end,     # Added for new UI
+    workflow_breadcrumb,
+    cross_page_actions,
 )
 
 st.set_page_config(page_title="Jobs - Protein Design Hub", page_icon="📁", layout="wide")
 inject_base_css()
-
-# Page-specific styling
-# Inherit global theme
-
+sidebar_nav(current="Jobs")
+sidebar_system_status()
+agent_sidebar_status()
 
 # Header
 page_header(
@@ -43,8 +46,10 @@ page_header(
     "📁"
 )
 
-sidebar_nav(current="Jobs")
-sidebar_system_status()
+workflow_breadcrumb(
+    ["Run Jobs", "Browse Results", "Analyze", "Export"],
+    current=1,
+)
 
 try:
     from protein_design_hub.core.config import get_settings
@@ -123,7 +128,7 @@ with col_stats2: metric_card(sum(1 for j in jobs if j["has_prediction"]), "Predi
 with col_stats3: metric_card(len([j for j in jobs if j.get('has_scan') or j.get('has_evolution')]), "Analyses", "warning", "🧬")
 
 st.markdown("<br>", unsafe_allow_html=True)
-section_header("Registry Index", f"Showing {len(jobs)} most recent runs", "🏢")
+section_header("Registry Index", f"Showing {len(jobs)} most recent runs", "📋")
 
 # Grid layout for jobs
 cols_per_row = 2
@@ -168,10 +173,12 @@ for i in range(0, len(jobs), cols_per_row):
 
                 with act_cols[0]:
                     if job["has_prediction"]:
-                        if st.button("📊 Evaluate", key=f"eval_{job_id}", use_container_width=True):
+                        if st.button("📊 Evaluate", key=f"eval_{job_id}", use_container_width=True, disabled=not inferred_model):
                             if inferred_model:
                                 set_selected_model(inferred_model)
                                 st.switch_page("pages/2_evaluate.py")
+                        if not inferred_model:
+                            st.caption("No structure file found")
 
                     if job.get("has_evolution"):
                         if st.button("🧬 View Evo", key=f"vevo_{job_id}", use_container_width=True):

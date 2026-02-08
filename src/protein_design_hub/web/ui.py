@@ -18,9 +18,11 @@ SESSION_SELECTED_BACKBONE = "pdhub_selected_backbone_path"
 # GPU Detection Utility
 # =============================================================================
 
+@st.cache_data(ttl=120, show_spinner=False)
 def detect_gpu() -> Dict[str, Any]:
     """
     Robust GPU detection that falls back to nvidia-smi when PyTorch fails.
+    Cached for 120s to avoid slow subprocess/torch calls on every rerun.
 
     Returns a dict with:
         - available: bool
@@ -850,6 +852,8 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 }
 .metric-card-success { border-color: rgba(16,185,129,0.6); box-shadow: 0 0 0 1px rgba(16,185,129,0.2); }
 .metric-card-warning { border-color: rgba(245,158,11,0.6); box-shadow: 0 0 0 1px rgba(245,158,11,0.2); }
+.metric-card-error { border-color: rgba(239,68,68,0.6); box-shadow: 0 0 0 1px rgba(239,68,68,0.2); }
+.metric-card-info { border-color: rgba(59,130,246,0.6); box-shadow: 0 0 0 1px rgba(59,130,246,0.2); }
 .metric-value {
     font-size: 1.6rem;
     font-weight: 700;
@@ -1693,6 +1697,7 @@ def sidebar_nav(current: str | None = None) -> None:
             ("Predict", "pages/1_predict.py", "🔮"),
             ("Evaluate", "pages/2_evaluate.py", "📊"),
             ("Compare", "pages/3_compare.py", "⚖️"),
+            ("Agents", "pages/11_agents.py", "🤖"),
         ],
         "Design": [
             ("Editor", "pages/0_design.py", "✏️"),
@@ -1760,8 +1765,9 @@ def sidebar_system_status() -> None:
 # Utility Functions
 # =============================================================================
 
+@st.cache_data(ttl=30, show_spinner=False)
 def list_output_structures(base_dir: Path, limit: int = 200) -> List[Path]:
-    """List recent structure files under outputs."""
+    """List recent structure files under outputs. Cached 30s for performance."""
     base_dir = Path(base_dir)
     if not base_dir.exists():
         return []
@@ -1830,3 +1836,101 @@ def get_selected_model() -> Optional[Path]:
 def get_selected_backbone() -> Optional[Path]:
     v = st.session_state.get(SESSION_SELECTED_BACKBONE)
     return Path(v) if v else None
+
+
+# =============================================================================
+# Scientific Dashboard Components (Phase 1A)
+# =============================================================================
+
+def metric_card_with_context(
+    value: Union[str, int, float],
+    label: str,
+    metric_name: str = "",
+    icon: str = "",
+    delta: str = "",
+) -> None:
+    """Display a metric card that auto-colors based on scientific thresholds.
+
+    If *metric_name* is provided and value is numeric, the card border and
+    value text color are set automatically using ``scientific_context``.
+    """
+    color = "transparent"
+    ctx_html = ""
+    try:
+        if metric_name and isinstance(value, (int, float)):
+            from protein_design_hub.web.scientific_context import interpret_metric
+            ctx = interpret_metric(metric_name, float(value))
+            color = ctx["color"]
+            ctx_html = (
+                f'<div style="font-size:.72rem;color:{color};font-weight:600;'
+                f'margin-top:4px;text-transform:uppercase;letter-spacing:.04em">'
+                f'{ctx["label"]}</div>'
+                f'<div style="font-size:.73rem;color:var(--pdhub-text-muted);'
+                f'margin-top:2px;line-height:1.4">{ctx["description"]}</div>'
+            )
+    except Exception:
+        pass
+
+    icon_html = f'<div style="font-size:1.15rem;margin-bottom:4px;opacity:.8">{icon}</div>' if icon else ""
+    delta_html = f'<div style="font-size:.78rem;font-weight:600;margin-top:4px;color:var(--pdhub-text-secondary)">{delta}</div>' if delta else ""
+
+    val_color = f"color:{color};" if color != "transparent" else ""
+
+    st.markdown(
+        f'<div class="pdhub-metric pdhub-animate-fade-in" style="border-left:3px solid {color}">'
+        f'{icon_html}'
+        f'<div class="pdhub-metric-value" style="{val_color}">{value}</div>'
+        f'<div class="pdhub-metric-label">{label}</div>'
+        f'{ctx_html}{delta_html}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def chart_card(title: str, subtitle: str = "") -> None:
+    """Render a chart container header. Use before ``st.plotly_chart``."""
+    sub = f'<span style="color:var(--pdhub-text-muted);font-size:.8rem;margin-left:auto">{subtitle}</span>' if subtitle else ""
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
+        f'<span style="font-weight:600;font-size:.95rem;color:var(--pdhub-text-heading)">{title}</span>'
+        f'{sub}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def workflow_breadcrumb(steps: List[str], current: int = 0) -> None:
+    """Horizontal breadcrumb showing workflow progress across pages."""
+    parts = []
+    for i, step in enumerate(steps):
+        if i < current:
+            parts.append(f'<span style="color:#22c55e;font-weight:600;font-size:.82rem">&#10003; {step}</span>')
+        elif i == current:
+            parts.append(
+                f'<span style="color:var(--pdhub-primary-light);font-weight:700;font-size:.82rem;'
+                f'border-bottom:2px solid var(--pdhub-primary);padding-bottom:2px">{step}</span>'
+            )
+        else:
+            parts.append(f'<span style="color:var(--pdhub-text-muted);font-size:.82rem">{step}</span>')
+    sep = ' <span style="color:var(--pdhub-text-muted);margin:0 6px">&#8594;</span> '
+    st.markdown(
+        f'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;'
+        f'padding:8px 14px;background:var(--pdhub-bg-card);border:1px solid var(--pdhub-border);'
+        f'border-radius:10px;margin-bottom:12px">{sep.join(parts)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def cross_page_actions(actions: List[Dict[str, str]]) -> None:
+    """Render a row of cross-page navigation buttons.
+
+    Each action dict: {"label": "...", "page": "pages/2_evaluate.py", "icon": "..."}
+    """
+    cols = st.columns(len(actions))
+    for i, act in enumerate(actions):
+        with cols[i]:
+            if st.button(
+                f'{act.get("icon", "")} {act["label"]}',
+                key=f'xpage_{act["label"]}_{i}',
+                use_container_width=True,
+            ):
+                st.switch_page(act["page"])

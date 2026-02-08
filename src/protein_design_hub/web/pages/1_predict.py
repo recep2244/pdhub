@@ -15,8 +15,16 @@ from protein_design_hub.web.ui import (
     page_header,
     section_header,
     metric_card,
+    metric_card_with_context,
     info_box,
     empty_state,
+    workflow_breadcrumb,
+    cross_page_actions,
+)
+from protein_design_hub.web.agent_helpers import (
+    render_agent_advice_panel,
+    render_contextual_insight,
+    agent_sidebar_status,
 )
 from protein_design_hub.web.visualizations import (
     create_structure_viewer,
@@ -357,8 +365,9 @@ PREDICTORS = {
 # Helper Functions
 # =============================================================================
 
+@st.cache_data(show_spinner=False)
 def analyze_sequence(sequence: str) -> Dict[str, Any]:
-    """Analyze input sequence with comprehensive properties."""
+    """Analyze input sequence with comprehensive properties. Cached by sequence."""
     if not sequence or sequence.strip() == "":
         return {}
 
@@ -480,6 +489,7 @@ def main():
     # Sidebar
     sidebar_nav(current="Predict")
     sidebar_system_status()
+    agent_sidebar_status()
 
     # Page Header
     page_header(
@@ -487,6 +497,32 @@ def main():
         "Transform protein sequences into accurate 3D structures using AI",
         "🔮"
     )
+
+    # Workflow breadcrumb
+    workflow_breadcrumb(
+        ["Sequence Input", "Predict", "Evaluate", "Refine / Design", "Export"],
+        current=1,
+    )
+
+    # Quick start guide
+    with st.expander("📖 Quick start: How to predict a structure", expanded=False):
+        st.markdown("""
+**Step-by-step:**
+1. **Select a predictor** below (ESMFold is fastest, ColabFold is most accurate)
+2. **Enter your sequence** in the input area (paste raw AA sequence or upload FASTA)
+3. **Click "Run Prediction"** and wait for results
+4. **Review** pLDDT scores and 3D structure viewer
+
+**Example sequence** — Human ubiquitin (76 residues):
+```
+MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
+```
+
+**Which predictor to choose?**
+- **ESMFold** — fastest (seconds), no MSA needed, good for well-known folds
+- **ColabFold** — most accurate for novel proteins, uses MSA, ~2-10 min
+- **Chai-1** / **Boltz-2** — best for complexes and ligand-bound proteins, GPU required
+        """)
 
     # Initialize session state
     if "selected_predictors" not in st.session_state:
@@ -908,19 +944,23 @@ def main():
                         })
 
             if all_scores:
-                # Summary cards
+                # Summary cards with scientific context
                 best = max(all_scores, key=lambda x: x["pLDDT"])
                 avg = sum(s["pLDDT"] for s in all_scores) / len(all_scores)
 
                 c1, c2, c3, c4 = st.columns(4)
                 with c1:
-                    metric_card(f"{best['pLDDT']:.1f}", "Best pLDDT", "success", "🏆")
+                    metric_card_with_context(best['pLDDT'], "Best pLDDT", metric_name="plddt", icon="🏆")
                 with c2:
-                    metric_card(f"{avg:.1f}", "Average pLDDT", "info", "📈")
+                    metric_card_with_context(avg, "Average pLDDT", metric_name="plddt", icon="📈")
                 with c3:
-                    metric_card(f"{best.get('pTM', 0):.2f}" if best.get('pTM') else "N/A", "pTM", "gradient", "🎯")
+                    ptm_val = best.get('pTM', 0)
+                    if ptm_val:
+                        metric_card_with_context(ptm_val, "pTM Score", metric_name="ptm", icon="🎯")
+                    else:
+                        metric_card("N/A", "pTM Score", "default", "🎯")
                 with c4:
-                    metric_card(str(len(all_scores)), "Models", "info", "🔢")
+                    metric_card(str(len(all_scores)), "Models Generated", "info", "🔢")
 
                 st.markdown("---")
 
@@ -930,19 +970,41 @@ def main():
                 st.dataframe(
                     df.style.format({"pLDDT": "{:.1f}", "pTM": "{:.3f}", "ipTM": "{:.3f}"})
                     .background_gradient(subset=["pLDDT"], cmap="RdYlGn"),
-                    use_container_width=True
+                    use_container_width=True,
                 )
 
-                # Quality interpretation
-                st.markdown("##### Quality Guide")
-                if best["pLDDT"] >= 90:
-                    st.success("🌟 **Excellent** — High confidence, atomic-level accuracy")
-                elif best["pLDDT"] >= 70:
-                    st.info("✅ **Good** — Reliable backbone, some side-chain uncertainty")
-                elif best["pLDDT"] >= 50:
-                    st.warning("⚠️ **Moderate** — Use as rough model only")
-                else:
-                    st.error("❌ **Poor** — Low confidence, structure may be incorrect")
+                # AI Scientific Analysis
+                st.markdown("---")
+                render_contextual_insight(
+                    "Prediction",
+                    {"Best pLDDT": f"{best['pLDDT']:.1f}",
+                     "Average pLDDT": f"{avg:.1f}",
+                     "pTM": f"{best.get('pTM', 0):.3f}",
+                     "Models": len(all_scores)},
+                    key_prefix="predict_ctx",
+                )
+
+                # Agent advice on prediction results
+                scores_ctx = "\n".join(
+                    f"- {s['Predictor']} model {s['Model']}: pLDDT={s['pLDDT']:.1f}, pTM={s.get('pTM', 0):.2f}"
+                    for s in all_scores
+                )
+                render_agent_advice_panel(
+                    page_context=f"Prediction results:\n{scores_ctx}",
+                    default_question="Based on these prediction scores, what is the quality of this structure and what should I do next?",
+                    expert="Structural Biologist",
+                    key_prefix="predict_agent",
+                )
+
+                # Cross-page actions
+                st.markdown("---")
+                section_header("Next Steps", "Continue your analysis workflow", "➡️")
+                cross_page_actions([
+                    {"label": "Evaluate Structure", "page": "pages/2_evaluate.py", "icon": "📊"},
+                    {"label": "Compare Predictors", "page": "pages/3_compare.py", "icon": "⚖️"},
+                    {"label": "Scan Mutations", "page": "pages/10_mutation_scanner.py", "icon": "🧬"},
+                    {"label": "MPNN Design", "page": "pages/8_mpnn.py", "icon": "🎯"},
+                ])
 
         with tab_download:
             output_files = []
@@ -964,13 +1026,12 @@ def main():
                             st.download_button("Download", file.read(), f["name"], "chemical/x-pdb", key=f"dl_{f['name']}", use_container_width=True)
 
                 st.markdown("---")
-                if st.button("📦 Download All as ZIP", use_container_width=True):
-                    import zipfile, io
-                    buf = io.BytesIO()
-                    with zipfile.ZipFile(buf, "w") as zf:
-                        for f in output_files:
-                            zf.write(f["path"], f["name"])
-                    st.download_button("💾 Save ZIP", buf.getvalue(), "prediction_results.zip", "application/zip", key="dl_all")
+                import zipfile, io
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w") as zf:
+                    for f in output_files:
+                        zf.write(f["path"], f["name"])
+                st.download_button("📦 Download All as ZIP", buf.getvalue(), "prediction_results.zip", "application/zip", key="dl_all", use_container_width=True)
             else:
                 empty_state("No Files", "No structure files found", "📭")
 

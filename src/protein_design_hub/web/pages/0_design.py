@@ -13,14 +13,21 @@ from protein_design_hub.web.ui import (
     page_header,
     section_header,
     info_box,
+    workflow_breadcrumb,
+    cross_page_actions,
+)
+from protein_design_hub.web.agent_helpers import (
+    render_contextual_insight,
+    agent_sidebar_status,
 )
 
 st.set_page_config(page_title="Design - Protein Design Hub", page_icon="🧬", layout="wide")
 
 # Base theme + navigation
 inject_base_css()
-sidebar_nav(current="Design")
+sidebar_nav(current="Editor")
 sidebar_system_status()
+agent_sidebar_status()
 
 # Custom CSS for shiny, interactive interface
 st.markdown("""
@@ -241,6 +248,11 @@ page_header(
     "Interactive Protein Designer",
     "Click residues to select, modify multiple at once, attach ligands",
     "🧬"
+)
+
+workflow_breadcrumb(
+    ["Design Sequence", "Predict", "Evaluate", "Refine"],
+    current=0,
 )
 
 # === TOP SECTION: Input and Quick Actions ===
@@ -576,7 +588,7 @@ if seq:
             if len(st.session_state.selected_positions) == 1:
                 scan_pos = list(st.session_state.selected_positions)[0] + 1
                 st.markdown(f"""
-                <div style="background-color: #f0f2f6; padding: 10px; border-radius: 8px; border: 1px solid #764ba2; margin-bottom: 15px;">
+                <div style="background: var(--pdhub-bg-card, rgba(18,20,28,0.9)); padding: 10px; border-radius: 8px; border: 1px solid var(--pdhub-primary, #6366f1); margin-bottom: 15px; color: var(--pdhub-text, #f1f5f9);">
                     <strong>🚀 Deep Analysis:</strong> Want to find the best mutation for position {scan_pos}?
                 </div>
                 """, unsafe_allow_html=True)

@@ -34,9 +34,18 @@ def compare_run(
         "--job-id", "-j",
         help="Custom job identifier"
     ),
+    use_agents: bool = typer.Option(
+        False,
+        "--agents", "-a",
+        help="Use multi-agent step pipeline (one agent per step)"
+    ),
+    use_llm_agents: bool = typer.Option(
+        False,
+        "--llm-agents",
+        help="Use LLM-guided multi-agent pipeline (Virtual-Lab style: team meetings + step agents)"
+    ),
 ):
     """Run full comparison pipeline: predict with all tools, then evaluate."""
-    from protein_design_hub.pipeline.workflow import PredictionWorkflow
     from protein_design_hub.core.config import get_settings
 
     if not input_file.exists():
@@ -54,7 +63,20 @@ def compare_run(
     if predictors:
         predictor_list = [p.strip() for p in predictors.split(",")]
 
+    # Determine mode
+    if use_llm_agents:
+        mode_label = "LLM-guided multi-agent pipeline"
+        agent_mode = "llm"
+    elif use_agents:
+        mode_label = "multi-agent step pipeline"
+        agent_mode = "step"
+    else:
+        mode_label = None
+        agent_mode = None
+
     console.print(f"\n[bold blue]Protein Design Hub - Comparison Pipeline[/bold blue]\n")
+    if mode_label:
+        console.print(f"  [dim]Mode: {mode_label}[/dim]")
     console.print(f"  Input: {input_file}")
     if reference:
         console.print(f"  Reference: {reference}")
@@ -64,23 +86,47 @@ def compare_run(
     def progress_callback(stage: str, item: str, current: int, total: int):
         pass  # Could be used for more detailed progress
 
-    workflow = PredictionWorkflow(settings, progress_callback)
-
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         console=console,
     ) as progress:
-        task = progress.add_task("Running comparison pipeline...", total=None)
+        progress.add_task("Running comparison pipeline...", total=None)
 
         try:
-            result = workflow.run(
-                input_path=input_file,
-                output_dir=output,
-                reference_path=reference,
-                predictors=predictor_list,
-                job_id=job_id,
-            )
+            if agent_mode is not None:
+                from protein_design_hub.agents import AgentOrchestrator
+
+                orchestrator = AgentOrchestrator(
+                    mode=agent_mode,
+                    progress_callback=progress_callback,
+                )
+                agent_result = orchestrator.run(
+                    input_path=input_file,
+                    output_dir=output,
+                    reference_path=reference,
+                    predictors=predictor_list,
+                    job_id=job_id,
+                )
+                if not agent_result.success:
+                    console.print(f"[red]Error: {agent_result.message}[/red]")
+                    if agent_result.error:
+                        console.print(f"[red]{agent_result.error}[/red]")
+                    raise typer.Exit(1)
+                result = agent_result.context.comparison_result
+            else:
+                from protein_design_hub.pipeline.workflow import PredictionWorkflow
+
+                workflow = PredictionWorkflow(settings, progress_callback)
+                result = workflow.run(
+                    input_path=input_file,
+                    output_dir=output,
+                    reference_path=reference,
+                    predictors=predictor_list,
+                    job_id=job_id,
+                )
+        except typer.Exit:
+            raise
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
             raise typer.Exit(1)

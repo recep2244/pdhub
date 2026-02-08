@@ -8,6 +8,11 @@ from protein_design_hub.cli.commands import (
     design,
     backbone,
     energy,
+    agents,
+    pipeline,
 )
 
-__all__ = ["predict", "evaluate", "compare", "install", "design", "backbone", "energy"]
+__all__ = [
+    "predict", "evaluate", "compare", "install", "design",
+    "backbone", "energy", "agents", "pipeline",
+]

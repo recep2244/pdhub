@@ -14,6 +14,12 @@ from protein_design_hub.web.ui import (
     section_header,
     info_box,
     metric_card,
+    workflow_breadcrumb,
+    cross_page_actions,
+)
+from protein_design_hub.web.agent_helpers import (
+    render_contextual_insight,
+    agent_sidebar_status,
 )
 
 st.set_page_config(page_title="Batch - Protein Design Hub", page_icon="📦", layout="wide")
@@ -22,6 +28,7 @@ st.set_page_config(page_title="Batch - Protein Design Hub", page_icon="📦", la
 inject_base_css()
 sidebar_nav(current="Batch")
 sidebar_system_status()
+agent_sidebar_status()
 
 # Custom CSS
 st.markdown("""
@@ -69,6 +76,11 @@ page_header(
     "Batch Processing",
     "Run multiple predictions, designs, or evaluations in parallel",
     "📦"
+)
+
+workflow_breadcrumb(
+    ["Configure Batch", "Run Predictions", "Evaluate All", "Export"],
+    current=0,
 )
 
 # Main tabs
@@ -564,11 +576,10 @@ with main_tabs[3]:
 
         # Full results JSON
         st.markdown("---")
-        if st.button("📥 Download Full Results (JSON)"):
-            results_json = json.dumps(st.session_state.batch_jobs, indent=2, default=str)
-            st.download_button(
-                "Download JSON",
-                results_json,
-                "batch_results.json",
-                mime="application/json"
-            )
+        results_json = json.dumps(st.session_state.batch_jobs, indent=2, default=str)
+        st.download_button(
+            "📥 Download Full Results (JSON)",
+            results_json,
+            "batch_results.json",
+            mime="application/json",
+        )

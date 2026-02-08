@@ -19,14 +19,25 @@ from protein_design_hub.web.ui import (
     sidebar_nav,
     sidebar_system_status,
     metric_card,
+    metric_card_with_context,
     card_start,
     card_end,
     empty_state,
     render_badge,
     info_box,
+    workflow_breadcrumb,
+    cross_page_actions,
+)
+from protein_design_hub.web.agent_helpers import (
+    render_agent_advice_panel,
+    render_contextual_insight,
+    agent_sidebar_status,
 )
 
 inject_base_css()
+sidebar_nav(current="Evaluate")
+sidebar_system_status()
+agent_sidebar_status()
 
 # =============================================================================
 # Page-specific CSS for enhanced UI
@@ -442,16 +453,41 @@ def _primary_metric_value(metric_name: str, result) -> Optional[str]:
 page_header(
     "Structure Evaluation",
     "Comprehensive evaluation with 18+ metrics including lDDT, TM-score, DockQ, and energy calculations",
-    "📊"
+    "📊",
 )
 
-sidebar_nav(current="Evaluate")
-sidebar_system_status()
+workflow_breadcrumb(
+    ["Sequence Input", "Predict", "Evaluate", "Refine / Design", "Export"],
+    current=2,
+)
+
+with st.expander("📖 Understanding evaluation metrics", expanded=False):
+    st.markdown("""
+**Key metrics at a glance:**
+
+| Metric | What it measures | Good value | Action if bad |
+|--------|-----------------|------------|---------------|
+| **pLDDT** | Per-residue confidence | > 90 | Re-predict with ColabFold |
+| **Clash Score** | Steric clashes (MolProbity) | < 10 | Refine with AMBER |
+| **TM-score** | Global fold vs reference | > 0.7 | Check alignment |
+| **RMSD** | Deviation from reference (Å) | < 2.0 | Check domain alignment |
+| **Contact Energy** | Residue-residue contacts | < -30 | Review packing |
+| **SASA** | Solvent accessibility (Å²) | Depends on size | Check for exposed hydrophobics |
+
+**How to evaluate:**
+1. Upload a PDB/CIF file (from prediction) or select from recent outputs
+2. Optionally upload a **reference** structure for RMSD/TM-score comparison
+3. Click **Run Evaluation** to compute all metrics
+4. Use the **AI Analysis** button to get expert interpretation
+    """)
 
 # Initialize metric selection
 try:
     from protein_design_hub.evaluation.composite import CompositeEvaluator
-    _all = CompositeEvaluator.list_all_metrics()
+    @st.cache_data(show_spinner=False)
+    def _cached_list_metrics():
+        return CompositeEvaluator.list_all_metrics()
+    _all = _cached_list_metrics()
     _metric_names = [m["name"] for m in _all]
     _metric_info = {m["name"]: m for m in _all}
 except Exception:
@@ -621,6 +657,11 @@ with col_preview:
 # SECTION 2: Input Structures
 # =============================================================================
 section_header("Input Structures", "Upload or select structures to evaluate", "📁")
+
+# Initialize variables before column blocks to avoid NameError
+model_file = None
+chosen = None
+reference_file = None
 
 col_upload, col_visual = st.columns([1, 1])
 
@@ -858,7 +899,7 @@ with col_visual:
 section_header("Run Evaluation", "Execute selected metrics on your structure", "🚀")
 
 # Determine readiness
-has_model = chosen is not None or ('model_file' in dir() and model_file is not None)
+has_model = chosen is not None or model_file is not None
 has_reference = reference_file is not None
 needs_reference_for_metrics = any(m in ref_based_metrics or m in interface_metrics for m in quick_metrics)
 is_ready = has_model and (not needs_reference_for_metrics or has_reference)
@@ -991,57 +1032,56 @@ if run_quick:
             # Metric results grid
             st.markdown("### Results Summary")
 
-            # Group metrics by category
-            structural_metrics = []
-            energy_metrics = []
-            quality_metrics = []
-
+            # --- Metric cards with scientific context ---
+            # Structural
+            struct_items = []
             if result.clash_score is not None:
-                structural_metrics.append(("Clash Score", f"{result.clash_score:.2f}", "💥", "error"))
+                struct_items.append(("Clash Score", result.clash_score, "clash_score", "💥"))
             if result.sasa_total is not None:
-                structural_metrics.append(("SASA (Å²)", f"{result.sasa_total:.1f}", "🌐", "info"))
+                struct_items.append(("SASA (A\u00b2)", result.sasa_total, "sasa", "\U0001f310"))
             if result.interface_bsa_total is not None:
-                structural_metrics.append(("Interface BSA", f"{result.interface_bsa_total:.1f}", "🔗", "info"))
+                struct_items.append(("Interface BSA", result.interface_bsa_total, "interface_bsa", "\U0001f517"))
 
-            if result.contact_energy is not None:
-                energy_metrics.append(("Contact Energy", f"{result.contact_energy:.2f}", "🔋", "warning"))
-            if result.contact_energy_per_residue is not None:
-                energy_metrics.append(("Energy/Res", f"{result.contact_energy_per_residue:.3f}", "⚡", "warning"))
-            if result.salt_bridge_count is not None:
-                energy_metrics.append(("Salt Bridges", f"{result.salt_bridge_count}", "🧂", "info"))
-
-            if result.tm_score is not None:
-                quality_metrics.append(("TM-Score", f"{result.tm_score:.3f}", "📏", "gradient"))
-            if result.rmsd is not None:
-                quality_metrics.append(("RMSD (Å)", f"{result.rmsd:.2f}", "📐", "success"))
-            if result.lddt is not None:
-                quality_metrics.append(("lDDT", f"{result.lddt:.3f}", "🎯", "success"))
-            if result.cad_score is not None:
-                quality_metrics.append(("CAD-score", f"{result.cad_score:.3f}", "🧭", "info"))
-            if result.voromqa_score is not None:
-                quality_metrics.append(("VoroMQA", f"{result.voromqa_score:.3f}", "🧪", "info"))
-
-            # Display metrics in organized columns
-            if structural_metrics:
+            if struct_items:
                 st.markdown("#### Structural Metrics")
-                cols = st.columns(len(structural_metrics))
-                for i, (label, value, icon, variant) in enumerate(structural_metrics):
+                cols = st.columns(len(struct_items))
+                for i, (label, val, mname, icon) in enumerate(struct_items):
                     with cols[i]:
-                        metric_card(value, label, variant, icon)
+                        metric_card_with_context(val, label, metric_name=mname, icon=icon)
 
-            if energy_metrics:
+            # Energy
+            energy_items = []
+            if result.contact_energy is not None:
+                energy_items.append(("Contact Energy", result.contact_energy, "contact_energy", "\U0001f50b"))
+            if result.salt_bridge_count is not None:
+                energy_items.append(("Salt Bridges", result.salt_bridge_count, "salt_bridges", "\U0001f9c2"))
+
+            if energy_items:
                 st.markdown("#### Energy Metrics")
-                cols = st.columns(len(energy_metrics))
-                for i, (label, value, icon, variant) in enumerate(energy_metrics):
+                cols = st.columns(len(energy_items))
+                for i, (label, val, mname, icon) in enumerate(energy_items):
                     with cols[i]:
-                        metric_card(value, label, variant, icon)
+                        metric_card_with_context(val, label, metric_name=mname, icon=icon)
 
-            if quality_metrics:
+            # Quality
+            quality_items = []
+            if result.tm_score is not None:
+                quality_items.append(("TM-Score", result.tm_score, "tm_score", "\U0001f4cf"))
+            if result.rmsd is not None:
+                quality_items.append(("RMSD (A)", result.rmsd, "rmsd", "\U0001f4d0"))
+            if result.lddt is not None:
+                quality_items.append(("lDDT", result.lddt, "lddt", "\U0001f3af"))
+            if result.cad_score is not None:
+                quality_items.append(("CAD-score", result.cad_score, "cad_score", "\U0001f9ed"))
+            if result.voromqa_score is not None:
+                quality_items.append(("VoroMQA", result.voromqa_score, "voromqa_score", "\U0001f9ea"))
+
+            if quality_items:
                 st.markdown("#### Quality Metrics")
-                cols = st.columns(min(len(quality_metrics), 4))
-                for i, (label, value, icon, variant) in enumerate(quality_metrics):
+                cols = st.columns(min(len(quality_items), 4))
+                for i, (label, val, mname, icon) in enumerate(quality_items):
                     with cols[i % len(cols)]:
-                        metric_card(value, label, variant, icon)
+                        metric_card_with_context(val, label, metric_name=mname, icon=icon)
 
             # Detailed metrics table
             st.markdown("### 📋 All Computed Metrics")
@@ -1096,6 +1136,53 @@ if run_quick:
                 mime="application/json",
                 use_container_width=True,
             )
+
+            # Agent advice on evaluation results
+            eval_ctx_parts = []
+            if result.clash_score is not None:
+                eval_ctx_parts.append(f"Clash Score: {result.clash_score:.2f}")
+            if result.contact_energy is not None:
+                eval_ctx_parts.append(f"Contact Energy: {result.contact_energy:.2f}")
+            if result.sasa_total is not None:
+                eval_ctx_parts.append(f"SASA: {result.sasa_total:.1f} Å²")
+            if result.lddt is not None:
+                eval_ctx_parts.append(f"lDDT: {result.lddt:.3f}")
+            if result.tm_score is not None:
+                eval_ctx_parts.append(f"TM-score: {result.tm_score:.3f}")
+            if result.rmsd is not None:
+                eval_ctx_parts.append(f"RMSD: {result.rmsd:.2f} Å")
+            if result.cad_score is not None:
+                eval_ctx_parts.append(f"CAD-score: {result.cad_score:.3f}")
+            if result.voromqa_score is not None:
+                eval_ctx_parts.append(f"VoroMQA: {result.voromqa_score:.3f}")
+
+            if eval_ctx_parts:
+                # AI contextual insight
+                render_contextual_insight(
+                    "Evaluation",
+                    {p.split(":")[0].strip(): p.split(":")[1].strip() for p in eval_ctx_parts},
+                    key_prefix="eval_ctx",
+                )
+
+                render_agent_advice_panel(
+                    page_context="Evaluation metrics:\n" + "\n".join(f"- {p}" for p in eval_ctx_parts),
+                    default_question=(
+                        "Interpret these evaluation metrics. Is this structure suitable for "
+                        "downstream use (docking, design)? Should it be refined?"
+                    ),
+                    expert="Liam",
+                    key_prefix="eval_agent",
+                )
+
+            # Cross-page navigation
+            st.markdown("---")
+            section_header("Next Steps", "Continue your workflow", "➡️")
+            cross_page_actions([
+                {"label": "Compare Predictors", "page": "pages/3_compare.py", "icon": "⚖️"},
+                {"label": "Scan Mutations", "page": "pages/10_mutation_scanner.py", "icon": "🧬"},
+                {"label": "MPNN Design", "page": "pages/8_mpnn.py", "icon": "🎯"},
+            ])
+
         except Exception as e:
             st.error(f"Evaluation failed: {e}")
             import traceback
@@ -1187,7 +1274,7 @@ if run_comprehensive:
             with col1:
                 lddt = global_metrics.get("lddt")
                 if lddt is not None:
-                    quality = "success" if lddt > 0.7 else "warning" if lddt > 0.5 else ""
+                    quality = "success" if lddt > 0.7 else "warning" if lddt > 0.5 else "error"
                     st.markdown(
                         f"""
                     <div class="metric-card metric-card-{quality}">
@@ -1203,7 +1290,7 @@ if run_comprehensive:
             with col2:
                 rmsd = global_metrics.get("rmsd_ca") or global_metrics.get("rmsd")
                 if rmsd is not None:
-                    quality = "success" if rmsd < 2 else "warning" if rmsd < 4 else ""
+                    quality = "success" if rmsd < 2 else "warning" if rmsd < 4 else "error"
                     st.markdown(
                         f"""
                     <div class="metric-card metric-card-{quality}">
@@ -1219,7 +1306,7 @@ if run_comprehensive:
             with col3:
                 tm = global_metrics.get("tm_score")
                 if tm is not None:
-                    quality = "success" if tm > 0.7 else "warning" if tm > 0.5 else ""
+                    quality = "success" if tm > 0.7 else "warning" if tm > 0.5 else "error"
                     st.markdown(
                         f"""
                     <div class="metric-card metric-card-{quality}">
@@ -1235,7 +1322,7 @@ if run_comprehensive:
             with col4:
                 qs = global_metrics.get("qs_score")
                 if qs is not None:
-                    quality = "success" if qs > 0.7 else "warning" if qs > 0.5 else ""
+                    quality = "success" if qs > 0.7 else "warning" if qs > 0.5 else "error"
                     st.markdown(
                         f"""
                     <div class="metric-card metric-card-{quality}">
@@ -1315,13 +1402,13 @@ if run_comprehensive:
                             quality = "success"
                         elif dockq >= 0.49:
                             dockq_class = "Medium Quality"
-                            quality = ""
+                            quality = "info"
                         elif dockq >= 0.23:
                             dockq_class = "Acceptable"
                             quality = "warning"
                         else:
                             dockq_class = "Incorrect"
-                            quality = "warning"
+                            quality = "error"
 
                         st.markdown(
                             f"""
@@ -1857,18 +1944,4 @@ with st.expander("ℹ️ Metric Descriptions"):
     """
     )
 
-# OpenStructure status
-with st.sidebar.expander("🔧 Tool Status"):
-    try:
-        from protein_design_hub.evaluation.ost_runner import get_ost_runner
-
-        runner = get_ost_runner()
-
-        if runner.is_available():
-            version = runner.get_version()
-            st.success(f"OpenStructure: v{version}")
-        else:
-            st.error("OpenStructure: Not available")
-            st.info("Install: `micromamba create -n ost -c conda-forge -c bioconda openstructure`")
-    except Exception as e:
-        st.error(f"Error checking tools: {e}")
+# OpenStructure status is shown in the sidebar "Tool Status" expander above
