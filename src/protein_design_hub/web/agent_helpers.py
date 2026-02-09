@@ -627,7 +627,8 @@ def render_all_experts_panel(
     model_override: str = "",
 ) -> None:
     """Run a team meeting with all experts and render summary + transcript."""
-    if not llm_available():
+    llm_online = llm_available()
+    if not llm_online:
         st.info(
             "Current LLM backend looks offline. You can still run with an alternate provider "
             "using the override controls below."
@@ -751,15 +752,38 @@ def render_all_experts_panel(
                 f"model=`{model_override or 'configured default'}`"
             )
 
+        cfg = _get_llm_cfg()
+        cfg_provider = cfg.provider if cfg else "unknown"
+        cfg_model = cfg.model if cfg else "unknown"
+        effective_provider_label = effective_provider or cfg_provider
+        effective_model_label = effective_model or cfg_model
+        st.caption(
+            f"Effective backend: provider=`{effective_provider_label}`, "
+            f"model=`{effective_model_label}`"
+        )
+
+        run_disabled = (not llm_online) and (not effective_provider and not effective_model)
+
         c1, c2 = st.columns([1, 1])
         with c1:
-            run_btn = st.button("🧠 Run All-Expert Review", key=f"{key_prefix}_run", type="primary")
+            run_btn = st.button(
+                "🧠 Run All-Expert Review",
+                key=f"{key_prefix}_run",
+                type="primary",
+                disabled=run_disabled,
+            )
         with c2:
             if st.button("🗑 Clear", key=f"{key_prefix}_clr"):
                 st.session_state.pop(summary_key, None)
                 st.session_state.pop(transcript_key, None)
                 st.session_state.pop(running_key, None)
                 st.rerun()
+
+        if run_disabled:
+            st.caption(
+                "Run is disabled because the current backend is offline and no alternate "
+                "provider/model override is set."
+            )
 
         if run_btn and not st.session_state.get(running_key):
             st.session_state[running_key] = True
