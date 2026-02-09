@@ -207,6 +207,15 @@ def _format_top_mutations(mutations: List[MutationResult], is_immunebuilder: boo
             parts.append(f"Clash={m.clash_score:.1f}")
         if m.sasa_total is not None:
             parts.append(f"SASA={m.sasa_total:.0f}")
+        ost_lddt = get_ost_global_metric(m, "lddt")
+        ost_rmsd = get_ost_global_metric(m, "rmsd_ca")
+        ost_qs = get_ost_global_metric(m, "qs_score")
+        if ost_lddt is not None:
+            parts.append(f"OST-lDDT={ost_lddt:.3f}")
+        if ost_rmsd is not None:
+            parts.append(f"OST-RMSD(CA)={ost_rmsd:.2f}Å")
+        if ost_qs is not None:
+            parts.append(f"OST-QS={ost_qs:.3f}")
         rows.append("- " + ", ".join(parts))
     return "\n".join(rows)
 
@@ -230,6 +239,15 @@ def _format_top_variants(variants: List[MultiMutationVariant], is_immunebuilder:
             parts.append(f"RMSD={v.rmsd_to_base:.2f}Å")
         if getattr(v, "tm_score_to_base", None) is not None:
             parts.append(f"TM-score={v.tm_score_to_base:.2f}")
+        ost_lddt = get_ost_global_metric(v, "lddt")
+        ost_rmsd = get_ost_global_metric(v, "rmsd_ca")
+        ost_qs = get_ost_global_metric(v, "qs_score")
+        if ost_lddt is not None:
+            parts.append(f"OST-lDDT={ost_lddt:.3f}")
+        if ost_rmsd is not None:
+            parts.append(f"OST-RMSD(CA)={ost_rmsd:.2f}Å")
+        if ost_qs is not None:
+            parts.append(f"OST-QS={ost_qs:.3f}")
         rows.append("- " + ", ".join(parts))
     return "\n".join(rows)
 
@@ -342,6 +360,7 @@ def init_session_state():
         'mutation_predictor': 'esmfold_api',
         'mutation_eval_enabled': True,
         'mutation_eval_metrics': default_eval_metrics,
+        'mutation_ost_comprehensive': False,
         'baseline_predictors': ['esmfold_api'],
         'baseline_results': None,
         'baseline_sequence': None,
@@ -349,9 +368,11 @@ def init_session_state():
         'baseline_evaluation_predictor': None,
         'mut_review_provider': "current",
         'mut_review_model': "",
+        'mut_review_custom_provider': "",
         'scanner': MutationScanner(
             predictor='esmfold_api',
             evaluation_metrics=default_eval_metrics,
+            run_openstructure_comprehensive=False,
         ),
         'afdb_enabled': False,
         'afdb_email': os.getenv("EBI_EMAIL", ""),
@@ -368,9 +389,17 @@ def _expert_review_overrides() -> Tuple[str, str]:
     """Return provider/model overrides for expert panels on this page."""
     mode = st.session_state.get("mut_review_provider", "current")
     model = (st.session_state.get("mut_review_model") or "").strip()
+    custom_provider = (st.session_state.get("mut_review_custom_provider") or "").strip()
+
+    if mode == "current":
+        return "", model
+    if mode == "custom":
+        return custom_provider, model
+    if mode == "ollama":
+        return "ollama", model or "qwen2.5:14b"
     if mode == "deepseek":
         return "deepseek", model or "deepseek-chat"
-    return "", model
+    return mode, model
 
 def current_eval_metrics() -> List[str]:
     if not st.session_state.get("mutation_eval_enabled"):
@@ -379,6 +408,7 @@ def current_eval_metrics() -> List[str]:
 
 def build_scanner(predictor_id: str) -> MutationScanner:
     eval_metrics = current_eval_metrics()
+    run_ost = bool(st.session_state.get("mutation_ost_comprehensive", False))
     if predictor_id == "immunebuilder":
         return MutationScanner(
             predictor=predictor_id,
@@ -387,8 +417,13 @@ def build_scanner(predictor_id: str) -> MutationScanner:
             immune_chain_b=st.session_state.immune_chain_b,
             immune_active_chain=st.session_state.immune_active_chain,
             evaluation_metrics=eval_metrics,
+            run_openstructure_comprehensive=run_ost,
         )
-    return MutationScanner(predictor=predictor_id, evaluation_metrics=eval_metrics)
+    return MutationScanner(
+        predictor=predictor_id,
+        evaluation_metrics=eval_metrics,
+        run_openstructure_comprehensive=run_ost,
+    )
 
 # Optional AFDB lookup in sidebar
 with st.sidebar.expander("🔍 AFDB Match", expanded=False):
@@ -471,6 +506,21 @@ def get_extra_metric(obj: Any, metric_name: str, field: str) -> Optional[float]:
         val = metric.get(field)
         if isinstance(val, (int, float)):
             return float(val)
+    return None
+
+
+def get_ost_global_metric(obj: Any, field: str) -> Optional[float]:
+    """Read one global OpenStructure metric from obj.extra_metrics."""
+    extra = getattr(obj, "extra_metrics", None) or {}
+    ost = extra.get("ost_comprehensive")
+    if not isinstance(ost, dict):
+        return None
+    global_metrics = ost.get("global")
+    if not isinstance(global_metrics, dict):
+        return None
+    val = global_metrics.get(field)
+    if isinstance(val, (int, float)):
+        return float(val)
     return None
 
 def get_afdb_match_cached(sequence: str, email: str) -> Tuple[Optional[AFDBMatch], Optional[str]]:
@@ -677,24 +727,77 @@ if st.button("🧪 Run Baseline Comparison", use_container_width=True, disabled=
 
 # Expert-review backend override for all mutagenesis meetings on this page
 with st.expander("🧠 Expert Review Backend (optional second opinion)", expanded=False):
+    try:
+        from protein_design_hub.core.config import LLM_PROVIDER_PRESETS
+
+        provider_options = ["current", "ollama", "deepseek"] + [
+            p for p in LLM_PROVIDER_PRESETS.keys()
+            if p not in {"ollama", "deepseek"}
+        ] + ["custom"]
+        provider_default_model = {
+            provider: preset[1] for provider, preset in LLM_PROVIDER_PRESETS.items()
+        }
+    except Exception:
+        provider_options = ["current", "ollama", "deepseek", "custom"]
+        provider_default_model = {
+            "ollama": "qwen2.5:14b",
+            "deepseek": "deepseek-chat",
+        }
+
+    selected_provider = st.session_state.get("mut_review_provider", "current")
+    if selected_provider not in provider_options:
+        selected_provider = "current"
+
     st.session_state.mut_review_provider = st.selectbox(
         "Expert panel provider",
-        options=["current", "deepseek"],
-        index=0 if st.session_state.get("mut_review_provider", "current") == "current" else 1,
-        format_func=lambda x: "Current configured provider" if x == "current" else "DeepSeek (secondary check)",
+        options=provider_options,
+        index=provider_options.index(selected_provider),
+        format_func=lambda x: {
+            "current": "Current configured provider",
+            "ollama": "Ollama (local, recommended: qwen2.5:14b)",
+            "deepseek": "DeepSeek (secondary cloud check)",
+            "custom": "Custom provider/model",
+        }.get(x, x),
         key="mut_review_provider_select",
     )
-    if st.session_state.mut_review_provider == "deepseek":
+
+    current_override = st.session_state.mut_review_provider
+    if current_override == "custom":
+        st.session_state.mut_review_custom_provider = st.text_input(
+            "Custom provider ID",
+            value=st.session_state.get("mut_review_custom_provider", ""),
+            key="mut_review_custom_provider_input",
+            help="Example: openrouter, custom, or another provider preset name.",
+        ).strip()
         st.session_state.mut_review_model = st.text_input(
-            "DeepSeek model (optional)",
-            value=st.session_state.get("mut_review_model", "deepseek-chat") or "deepseek-chat",
+            "Custom model ID",
+            value=st.session_state.get("mut_review_model", ""),
             key="mut_review_model_input",
-            help="Leave as deepseek-chat unless you want another DeepSeek model ID.",
+            help="Leave empty to use provider default if available.",
         )
-        st.caption("Requires `DEEPSEEK_API_KEY` in the environment.")
+        st.caption(
+            "Set provider/model here only for mutagenesis expert panels. "
+            "This does not change global app configuration."
+        )
+    elif current_override == "current":
+        st.session_state.mut_review_custom_provider = ""
+        st.session_state.mut_review_model = st.text_input(
+            "Model override (optional)",
+            value=st.session_state.get("mut_review_model", ""),
+            key="mut_review_model_input",
+            help="Leave empty to keep the globally configured model.",
+        ).strip()
     else:
-        st.session_state.mut_review_model = ""
-        st.caption("Uses the provider/model configured on the Agents page.")
+        st.session_state.mut_review_custom_provider = ""
+        suggested_model = provider_default_model.get(current_override, "")
+        st.session_state.mut_review_model = st.text_input(
+            "Model (optional)",
+            value=st.session_state.get("mut_review_model", suggested_model) or suggested_model,
+            key="mut_review_model_input",
+            help="Leave as default unless you need a specific model.",
+        ).strip()
+        if current_override == "deepseek":
+            st.caption("Requires `DEEPSEEK_API_KEY` in the environment.")
 
 if st.session_state.get("baseline_results"):
     if st.session_state.get("baseline_sequence") != st.session_state.sequence:
@@ -955,6 +1058,7 @@ st.markdown("#### Mutagenesis Evaluation")
 with st.expander("🔬 Advanced Evaluation Metrics", expanded=False):
     prev_eval_enabled = st.session_state.get("mutation_eval_enabled", False)
     prev_eval_metrics = list(st.session_state.get("mutation_eval_metrics", []))
+    prev_ost_enabled = bool(st.session_state.get("mutation_ost_comprehensive", False))
 
     eval_enabled = st.checkbox(
         "Run extended evaluation per mutant (OpenMM/Voronota/etc.)",
@@ -980,10 +1084,28 @@ with st.expander("🔬 Advanced Evaluation Metrics", expanded=False):
             help="Use sparingly; some metrics (OpenMM, Rosetta) can be slow.",
         )
 
+    ost_comprehensive = st.checkbox(
+        "Run OpenStructure comprehensive comparison for each mutant (slow)",
+        value=prev_ost_enabled,
+        help=(
+            "Compares each mutant against the baseline structure using OpenStructure "
+            "global/per-chain/interface metrics. Use for shortlisted candidates."
+        ),
+    )
+    st.caption(
+        "Requires OpenStructure availability in your environment. "
+        "If unavailable, results keep running and log a metric warning."
+    )
+
     st.session_state.mutation_eval_enabled = eval_enabled
     st.session_state.mutation_eval_metrics = selected_metrics
+    st.session_state.mutation_ost_comprehensive = ost_comprehensive
 
-    if (eval_enabled != prev_eval_enabled) or (selected_metrics != prev_eval_metrics):
+    if (
+        (eval_enabled != prev_eval_enabled)
+        or (selected_metrics != prev_eval_metrics)
+        or (ost_comprehensive != prev_ost_enabled)
+    ):
         st.session_state.scanner = build_scanner(st.session_state.mutation_predictor)
         st.session_state.scan_results = None
         st.session_state.multi_scan_results = None
@@ -1282,6 +1404,45 @@ if st.session_state.sequence:
                 + (" ..." if len(selected_positions_sorted) > 20 else "")
             )
 
+        # Baseline expert guidance directly after base-structure prediction.
+        # This runs even if the full baseline-comparison action was not used.
+        if not st.session_state.get("baseline_results"):
+            is_immune = st.session_state.get("mutation_predictor") == "immunebuilder"
+            conf_summary, _ = _summarize_confidence(
+                seq,
+                st.session_state.get("base_plddt_per_residue") or [],
+                is_immune,
+            )
+            selected_str = (
+                ", ".join(f"{seq[p-1]}{p}" for p in selected_positions_sorted[:20])
+                + (" ..." if len(selected_positions_sorted) > 20 else "")
+            ) if selected_positions_sorted else "None"
+
+            context_lines = [
+                f"Sequence length: {len(seq)}",
+                f"Predictor: {label_by_value.get(st.session_state.get('mutation_predictor'), st.session_state.get('mutation_predictor'))}",
+                f"Baseline mean score: {st.session_state.get('base_plddt', 0.0):.2f}",
+                f"Selected positions: {selected_str}",
+                conf_summary,
+            ]
+            review_provider, review_model = _expert_review_overrides()
+            render_all_experts_panel(
+                "🧠 All-Expert Residue Targeting (after base prediction)",
+                agenda=(
+                    "Interpret baseline structure confidence and identify the most valuable "
+                    "residue positions for mutagenesis."
+                ),
+                context="\n".join([line for line in context_lines if line]),
+                questions=(
+                    "Which residues should be mutated first and why?",
+                    "Which residues should be avoided due to likely structural or functional risk?",
+                    "Recommend a ranked shortlist of 5-10 positions for scanning.",
+                ),
+                key_prefix="mut_basepred",
+                provider_override=review_provider,
+                model_override=review_model,
+            )
+
         # Single-position scan
         if st.session_state.selected_position:
             pos = st.session_state.selected_position
@@ -1460,6 +1621,18 @@ if st.session_state.multi_scan_results:
             get_extra_metric(v, "openmm_gbsa", "openmm_potential_energy_kj_mol") is not None
             for v in variants
         )
+        ost_fields = [
+            ("lddt", "OST lDDT"),
+            ("rmsd_ca", "OST RMSD(CA, Å)"),
+            ("qs_score", "OST QS-score"),
+            ("tm_score", "OST TM-score"),
+            ("gdt_ts", "OST GDT-TS"),
+            ("gdt_ha", "OST GDT-HA"),
+        ]
+        include_ost = {
+            field: any(get_ost_global_metric(v, field) is not None for v in variants)
+            for field, _ in ost_fields
+        }
         data = []
         for v in variants:
             mean_label = "Mean pLDDT"
@@ -1490,6 +1663,15 @@ if st.session_state.multi_scan_results:
             if include_openmm:
                 openmm = get_extra_metric(v, "openmm_gbsa", "openmm_potential_energy_kj_mol")
                 data[-1]["OpenMM (kJ/mol)"] = f"{openmm:.1f}" if openmm is not None else "N/A"
+            for field, label in ost_fields:
+                if include_ost[field]:
+                    value = get_ost_global_metric(v, field)
+                    if value is None:
+                        data[-1][label] = "N/A"
+                    elif field in {"rmsd_ca"}:
+                        data[-1][label] = f"{value:.2f}"
+                    else:
+                        data[-1][label] = f"{value:.3f}"
         st.dataframe(pd.DataFrame(data), use_container_width=True)
 
     with tab3:
@@ -1544,13 +1726,15 @@ if st.session_state.multi_scan_results:
         context = "\n".join([line for line in context_lines if line])
         agenda = (
             "Investigate multi-mutation results. Evaluate which combined variants are "
-            "most promising and whether any trade-offs or risks are apparent."
+            "most promising and whether any trade-offs or risks are apparent. "
+            "Produce a detailed ranked report with explicit validation priorities."
         )
         questions = (
             "Which multi-mutation variants look most promising based on ΔpLDDT/Δerror and "
             "structural similarity?",
             "Are there red flags (high RMSD, interface disruption, packing issues)?",
             "What next validation steps would you recommend before experiments?",
+            "Provide a ranked shortlist with rationale and confidence for each variant.",
         )
         review_provider, review_model = _expert_review_overrides()
         render_all_experts_panel(
@@ -1652,6 +1836,18 @@ if st.session_state.scan_results:
             get_extra_metric(m, "openmm_gbsa", "openmm_potential_energy_kj_mol") is not None
             for m in res.mutations
         )
+        ost_fields = [
+            ("lddt", "OST lDDT"),
+            ("rmsd_ca", "OST RMSD(CA, Å)"),
+            ("qs_score", "OST QS-score"),
+            ("tm_score", "OST TM-score"),
+            ("gdt_ts", "OST GDT-TS"),
+            ("gdt_ha", "OST GDT-HA"),
+        ]
+        include_ost = {
+            field: any(get_ost_global_metric(m, field) is not None for m in res.mutations)
+            for field, _ in ost_fields
+        }
         data = []
         for m in res.mutations:
             if m.success:
@@ -1678,6 +1874,15 @@ if st.session_state.scan_results:
                 if include_openmm:
                     openmm = get_extra_metric(m, "openmm_gbsa", "openmm_potential_energy_kj_mol")
                     data[-1]["OpenMM (kJ/mol)"] = f"{openmm:.1f}" if openmm is not None else "N/A"
+                for field, label in ost_fields:
+                    if include_ost[field]:
+                        value = get_ost_global_metric(m, field)
+                        if value is None:
+                            data[-1][label] = "N/A"
+                        elif field in {"rmsd_ca"}:
+                            data[-1][label] = f"{value:.2f}"
+                        else:
+                            data[-1][label] = f"{value:.3f}"
         st.dataframe(pd.DataFrame(data), use_container_width=True)
 
     with tab3:
@@ -1737,12 +1942,14 @@ if st.session_state.scan_results:
         context = "\n".join([line for line in context_lines if line])
         agenda = (
             "Investigate saturation mutagenesis results for the selected position. "
-            "Evaluate the top mutations and identify any risks or trade-offs."
+            "Evaluate the top mutations and identify any risks or trade-offs. "
+            "Generate a detailed recommendation report."
         )
         questions = (
             "Which mutations are most promising for stability or function?",
             "Are there any substitutions that should be avoided and why?",
             "Recommend the next 3-5 mutants to validate with high-accuracy predictors.",
+            "Provide a ranked list with confidence, risks, and follow-up checks per mutant.",
         )
         review_provider, review_model = _expert_review_overrides()
         render_all_experts_panel(

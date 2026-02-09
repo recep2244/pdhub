@@ -308,6 +308,7 @@ class MutationScanner:
         max_workers: int = 4,
         output_dir: Optional[Path] = None,
         evaluation_metrics: Optional[List[str]] = None,
+        run_openstructure_comprehensive: bool = False,
     ):
         if predictor is None:
             predictor = "esmfold_api" if use_api else "esmfold_local"
@@ -322,6 +323,7 @@ class MutationScanner:
         self.output_dir = output_dir or Path(tempfile.mkdtemp(prefix="mutation_scan_"))
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.evaluation_metrics = evaluation_metrics or []
+        self.run_openstructure_comprehensive = run_openstructure_comprehensive
         self._base_cache: Dict[Tuple[Any, ...], Tuple[str, List[float], Path]] = {}
 
         # Import metrics lazily
@@ -591,6 +593,22 @@ class MutationScanner:
                     extra_metrics = eval_result.metadata or {}
             except Exception as exc:
                 extra_metrics = {"errors": [f"extra_metrics: {exc}"]}
+
+        # Optional full OpenStructure comparison against baseline reference.
+        # This is intentionally expensive and best used for shortlisted mutants.
+        if reference_path and self.run_openstructure_comprehensive:
+            try:
+                from protein_design_hub.evaluation.composite import CompositeEvaluator
+
+                ost_evaluator = CompositeEvaluator(metrics=["tm_score"])
+                ost_result = ost_evaluator.evaluate_comprehensive(model_path, reference_path)
+                extra_metrics["ost_comprehensive"] = ost_result
+            except Exception as exc:
+                errs = extra_metrics.get("errors", [])
+                if not isinstance(errs, list):
+                    errs = [str(errs)]
+                errs.append(f"ost_comprehensive: {exc}")
+                extra_metrics["errors"] = errs
 
         if extra_metrics:
             results["extra_metrics"] = extra_metrics
