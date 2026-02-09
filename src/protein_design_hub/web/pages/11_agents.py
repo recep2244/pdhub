@@ -24,7 +24,14 @@ from protein_design_hub.web.ui import (
     empty_state,
     workflow_breadcrumb,
 )
-from protein_design_hub.web.agent_helpers import agent_sidebar_status, render_agent_chatbot
+from protein_design_hub.web.agent_helpers import (
+    agent_sidebar_status,
+    render_agent_chatbot,
+    render_model_switcher,
+    list_available_models,
+    switch_llm_model,
+    switch_llm_provider,
+)
 
 inject_base_css()
 sidebar_nav(current="Agents")
@@ -104,7 +111,7 @@ st.markdown("""<style>
 
 page_header(
     "Agent Pipeline",
-    "LLM-guided protein design with 10 specialist scientist agents",
+    "LLM-guided protein design with 10 specialist scientists and 12-step pipeline",
     "🤖",
 )
 
@@ -128,7 +135,7 @@ with c3:
     _sv = "success" if _conn and _mok else "warning" if _conn else "error"
     metric_card(_st, "LLM Status", _sv, "🔗")
 with c4:
-    metric_card("10 steps", "Pipeline", "default", "📋")
+    metric_card("12 steps", "Pipeline", "default", "📋")
 
 if not _conn:
     info_box(
@@ -186,20 +193,24 @@ with tabs[1]:
     # Quick-start guide
     with st.expander("📖 How does the pipeline work? (click to expand)", expanded=False):
         st.markdown("""
-**The Agent Pipeline runs your protein through a multi-step workflow:**
+**The Agent Pipeline runs your protein through a 12-step workflow:**
 
 | Step | What happens | Agent type |
 |------|-------------|------------|
 | 1. **Parse Input** | Reads your FASTA, validates sequence, counts residues | Compute |
-| 2. **Planning Meeting** | LLM agents discuss which predictors to use and why | LLM Team |
-| 3. **Structure Prediction** | Runs selected predictors (ESMFold, ColabFold, etc.) | Compute |
-| 4. **Prediction Review** | Structural Biologist + Liam assess prediction quality | LLM Team |
-| 5. **Evaluation** | Computes metrics: pLDDT, clash score, Ramachandran, etc. | Compute |
-| 6. **Comparison** | Ranks predictors by composite score | Compute |
-| 7. **Evaluation Review** | Biophysicist + Liam interpret metrics, flag concerns | LLM Team |
-| 8. **Refinement Strategy** | Digital Recep + Liam advise on structure refinement | LLM Team |
-| 9. **Mutagenesis Planning** | Protein Engineer + ML Specialist plan mutations/design | LLM Team |
-| 10. **Report** | Saves results, metrics, and meeting summaries to disk | Compute |
+| 2. **Input Review** | LLM validates sequence quality, flags Cys/Pro/Gly patterns | LLM Review |
+| 3. **Planning Meeting** | LLM agents discuss which predictors to use and why | LLM Team |
+| 4. **Structure Prediction** | Runs selected predictors (ESMFold, ColabFold, etc.) | Compute |
+| 5. **Prediction Review** | Reviews pLDDT, pTM, runtime, per-residue confidence | LLM Review |
+| 6. **Evaluation** | Computes 20+ metrics: clash, VoroMQA, CAD, Rosetta, etc. | Compute |
+| 7. **Comparison** | Ranks predictors by composite score | Compute |
+| 8. **Evaluation Review** | Interprets ALL metrics, assigns PASS/WARN/FAIL verdict | LLM Review |
+| 9. **Refinement Strategy** | Advises on structure refinement targets | LLM Review |
+| 10. **Mutagenesis Planning** | Plans mutations/design based on evaluation verdicts | LLM Review |
+| 11. **Executive Summary** | Synthesizes all meeting outcomes into narrative report | LLM Report |
+| 12. **Report** | Saves results, metrics, verdicts and summaries to disk | Compute |
+
+Each LLM review step produces a **structured verdict** (PASS / WARN / FAIL) with key findings.
 
 ---
 **Quick Example — Predict a small protein:**
@@ -210,8 +221,9 @@ with tabs[1]:
 
 **Performance tips:**
 - **Step-only mode** is much faster (seconds to minutes) — use for quick predictions
-- **LLM-guided mode** adds ~30-60s per meeting (depends on your LLM backend speed)
-- Use **Ollama with a small model** (e.g. `llama3.2:3b`) for faster LLM responses
+- **LLM-guided mode** adds ~5-15s per meeting with `qwen2.5:14b` on GPU
+- Default model: **qwen2.5:14b** (fast, concise). Alternative: **deepseek-r1:14b** (deeper reasoning)
+- Switch models in **LLM Status** tab or via the **Model** dropdown in pipeline settings
 - For large proteins (>500 residues), expect longer prediction times
         """)
 
@@ -298,7 +310,17 @@ with tabs[1]:
                 prov_names = ["ollama","lmstudio","vllm","llamacpp","deepseek","openai","gemini","kimi"]
                 ci = 0
             provider = st.selectbox("LLM Provider", prov_names, index=ci, key="p_prov")
-            model_ov = st.text_input("Model override (empty = use provider default)", key="p_mov")
+
+            # Model selector: show available models from backend
+            _avail_models = list_available_models()
+            _cur_model = _cfg.model if _cfg else ""
+            if _cur_model and _cur_model not in _avail_models:
+                _avail_models = [_cur_model] + _avail_models
+            _model_opts = ["(provider default)"] + _avail_models
+            _mi = _model_opts.index(_cur_model) if _cur_model in _model_opts else 0
+            _sel_model = st.selectbox("Model", _model_opts, index=_mi, key="p_mov")
+            model_ov = "" if _sel_model == "(provider default)" else _sel_model
+
             num_rounds = st.slider("Discussion rounds per meeting", 1, 5, 1, key="p_rnd")
 
     st.markdown("---")
@@ -466,16 +488,44 @@ with tabs[1]:
                     with rc3:
                         st.code(f"{sc:.3f}", language=None)
 
+            # ── Step Verdicts ──────────────────────────────────────
+            if ctx and ctx.step_verdicts:
+                section_header("Step Verdicts", "Structured pass/warn/fail from LLM reviews", "🏷️")
+                vcols = st.columns(min(len(ctx.step_verdicts), 5))
+                _verdict_colors = {"PASS": "success", "WARN": "warning", "FAIL": "error"}
+                _verdict_icons = {"PASS": "✅", "WARN": "⚠️", "FAIL": "❌"}
+                for i, (step, vdict) in enumerate(ctx.step_verdicts.items()):
+                    status = vdict.get("status", "PASS")
+                    with vcols[i % len(vcols)]:
+                        metric_card(
+                            status,
+                            step.replace("_", " ").title(),
+                            _verdict_colors.get(status, "info"),
+                            _verdict_icons.get(status, "🏷️"),
+                        )
+                        findings = vdict.get("key_findings", [])
+                        if findings:
+                            for f in findings[:3]:
+                                st.caption(f"• {_esc(str(f))}")
+
+            # ── LLM Agent Discussions ─────────────────────────────
             if ctx and ctx.extra:
-                _lk = [("plan","Planning Meeting"),("prediction_review","Prediction Review"),
-                       ("evaluation_review","Evaluation Review"),("refinement_review","Refinement Strategy"),
-                       ("mutagenesis_plan","Mutagenesis & Design Planning")]
-                if any(ctx.extra.get(k) for k,_ in _lk):
+                _lk = [
+                    ("input_review", "Input Review"),
+                    ("plan", "Planning Meeting"),
+                    ("prediction_review", "Prediction Review"),
+                    ("evaluation_review", "Evaluation Review"),
+                    ("refinement_review", "Refinement Strategy"),
+                    ("mutagenesis_plan", "Mutagenesis & Design Planning"),
+                    ("executive_summary", "Executive Summary"),
+                ]
+                if any(ctx.extra.get(k) for k, _ in _lk):
                     section_header("LLM Agent Discussions", "", "🧠")
                     for key, title in _lk:
                         txt = ctx.extra.get(key)
                         if txt:
-                            with st.expander(f"📝 {title}", expanded=(key == "refinement_review")):
+                            expanded = key in ("executive_summary", "refinement_review")
+                            with st.expander(f"📝 {title}", expanded=expanded):
                                 st.markdown(txt)
 
             if ctx and ctx.job_dir:
@@ -722,10 +772,16 @@ with tabs[3]:
 with tabs[4]:
     section_header("LLM Backend Status", "Configuration, connectivity, and provider presets", "⚙️")
 
+    # ── Quick model switcher ────────────────────────────────────────
+    with st.container(border=True):
+        st.markdown("#### Switch Model")
+        render_model_switcher(key_prefix="llm_status")
+
     cr, _ = st.columns([1, 4])
     with cr:
         if st.button("🔄 Refresh Status", key="btn_ref_llm", use_container_width=True):
             _check_llm.clear()
+            list_available_models.clear()
             st.rerun()
 
     try:
@@ -816,7 +872,12 @@ with tabs[4]:
         local_p, cloud_p = [], []
         for name, (url, model, _) in LLM_PROVIDER_PRESETS.items():
             is_loc = name in ("ollama", "lmstudio", "vllm", "llamacpp")
-            entry = (name, url, model, name == cfg.provider)
+            display_model = model
+            if name == "ollama" and model in {"llama3.2", "llama3.2:latest"}:
+                display_model = "qwen2.5:14b"
+            elif name != "ollama" and name != cfg.provider:
+                display_model = "provider default"
+            entry = (name, url, display_model, name == cfg.provider)
             (local_p if is_loc else cloud_p).append(entry)
 
         cl, cc = st.columns(2)
@@ -950,7 +1011,7 @@ with tabs[5]:
 st.markdown("")
 st.markdown(
     '<div style="text-align:center;color:var(--pdhub-text-muted);font-size:.73rem;padding:2rem 0">'
-    'Protein Design Hub &bull; 10 scientist agents &bull; 8 team configs &bull; 10-step LLM pipeline'
+    'Protein Design Hub &bull; 10 scientist agents &bull; 8 team configs &bull; 12-step LLM pipeline'
     '</div>',
     unsafe_allow_html=True,
 )

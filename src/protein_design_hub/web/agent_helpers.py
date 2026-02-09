@@ -628,8 +628,10 @@ def render_all_experts_panel(
 ) -> None:
     """Run a team meeting with all experts and render summary + transcript."""
     if not llm_available():
-        st.info("LLM backend is offline. Start your LLM (e.g. `ollama serve`) to run expert reviews.")
-        return
+        st.info(
+            "Current LLM backend looks offline. You can still run with an alternate provider "
+            "using the override controls below."
+        )
 
     summary_key = f"{key_prefix}_summary"
     transcript_key = f"{key_prefix}_transcript"
@@ -640,6 +642,115 @@ def render_all_experts_panel(
             "All-expert panel: PI + Structural, Computational, ML, Immunology, "
             "Engineering, Biophysics, Refinement, QA, and Critic."
         )
+        effective_provider = provider_override
+        effective_model = model_override
+
+        # Built-in backend override for every all-expert panel.
+        # Page-specific overrides (if passed) take precedence.
+        if not provider_override and not model_override:
+            ov_key = f"{key_prefix}_ov_enable"
+            mode_key = f"{key_prefix}_ov_mode"
+            model_key = f"{key_prefix}_ov_model"
+            custom_provider_key = f"{key_prefix}_ov_custom_provider"
+
+            ov_enabled = st.checkbox(
+                "Use alternate backend for this expert panel",
+                value=bool(st.session_state.get(ov_key, False)),
+                key=ov_key,
+            )
+
+            if ov_enabled:
+                try:
+                    from protein_design_hub.core.config import LLM_PROVIDER_PRESETS
+
+                    provider_options = ["current", "ollama", "deepseek"] + [
+                        p for p in LLM_PROVIDER_PRESETS.keys()
+                        if p not in {"ollama", "deepseek"}
+                    ] + ["custom"]
+                    provider_default_model = {
+                        provider: preset[1] for provider, preset in LLM_PROVIDER_PRESETS.items()
+                    }
+                except Exception:
+                    provider_options = ["current", "ollama", "deepseek", "custom"]
+                    provider_default_model = {
+                        "ollama": "qwen2.5:14b",
+                        "deepseek": "deepseek-chat",
+                    }
+
+                current_mode = st.session_state.get(mode_key, "current")
+                if current_mode not in provider_options:
+                    current_mode = "current"
+
+                mode = st.selectbox(
+                    "Provider override",
+                    options=provider_options,
+                    index=provider_options.index(current_mode),
+                    format_func=lambda x: {
+                        "current": "Current configured provider",
+                        "ollama": "Ollama (recommended: qwen2.5:14b)",
+                        "deepseek": "DeepSeek",
+                        "custom": "Custom provider/model",
+                    }.get(x, x),
+                    key=mode_key,
+                )
+
+                if mode == "custom":
+                    custom_provider = st.text_input(
+                        "Custom provider ID",
+                        value=st.session_state.get(custom_provider_key, ""),
+                        key=custom_provider_key,
+                    ).strip()
+                    model = st.text_input(
+                        "Custom model ID (optional)",
+                        value=st.session_state.get(model_key, ""),
+                        key=model_key,
+                    ).strip()
+                    effective_provider = custom_provider
+                    effective_model = model
+                elif mode == "current":
+                    model = st.text_input(
+                        "Model override (optional)",
+                        value=st.session_state.get(model_key, ""),
+                        key=model_key,
+                        help="Leave empty to keep configured model.",
+                    ).strip()
+                    effective_provider = ""
+                    effective_model = model
+                elif mode == "ollama":
+                    model = st.text_input(
+                        "Ollama model (optional)",
+                        value=st.session_state.get(model_key, "qwen2.5:14b") or "qwen2.5:14b",
+                        key=model_key,
+                    ).strip()
+                    effective_provider = "ollama"
+                    effective_model = model or "qwen2.5:14b"
+                elif mode == "deepseek":
+                    model = st.text_input(
+                        "DeepSeek model (optional)",
+                        value=st.session_state.get(model_key, "deepseek-chat") or "deepseek-chat",
+                        key=model_key,
+                    ).strip()
+                    effective_provider = "deepseek"
+                    effective_model = model or "deepseek-chat"
+                else:
+                    suggested = provider_default_model.get(mode, "")
+                    model = st.text_input(
+                        "Model (optional)",
+                        value=st.session_state.get(model_key, suggested) or suggested,
+                        key=model_key,
+                    ).strip()
+                    effective_provider = mode
+                    effective_model = model
+            else:
+                effective_provider = ""
+                effective_model = ""
+
+        elif provider_override or model_override:
+            st.caption(
+                f"Backend override in effect: provider=`{provider_override or 'current'}`, "
+                f"model=`{model_override or 'configured default'}`"
+            )
+
         c1, c2 = st.columns([1, 1])
         with c1:
             run_btn = st.button("🧠 Run All-Expert Review", key=f"{key_prefix}_run", type="primary")
@@ -664,7 +775,7 @@ def render_all_experts_panel(
                 sd = Path("./outputs/meetings")
                 sn = f"{key_prefix}_{int(time.time())}"
                 with st.spinner("Running all-expert meeting... this may take a few minutes."):
-                    with _temporary_llm_override(provider_override, model_override):
+                    with _temporary_llm_override(effective_provider, effective_model):
                         summary = run_meeting(
                             meeting_type="team",
                             agenda=agenda,
