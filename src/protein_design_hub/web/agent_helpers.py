@@ -8,11 +8,12 @@ Provides lightweight wrappers so every page can offer:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import html as _html
 import json
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import streamlit as st
 from protein_design_hub.agents.ollama_gpu import ensure_ollama_gpu, ollama_extra_body
@@ -54,6 +55,99 @@ def _get_llm_cfg():
 def llm_available() -> bool:
     ok, _, _ = _cached_llm_status()
     return ok
+
+
+# ── Model listing and switching ──────────────────────────────────────
+
+@st.cache_data(ttl=30, show_spinner=False)
+def list_available_models() -> list[str]:
+    """Return model IDs from the active LLM backend.  Cached 30 s."""
+    cfg = _get_llm_cfg()
+    if cfg is None:
+        return []
+    try:
+        from openai import OpenAI
+        client = OpenAI(base_url=cfg.base_url, api_key=cfg.api_key, timeout=5.0)
+        models = client.models.list()
+        return sorted(m.id for m in models.data)
+    except Exception:
+        return []
+
+
+def switch_llm_model(model: str) -> None:
+    """Switch the active LLM model in-memory (applies to all subsequent calls)."""
+    try:
+        from protein_design_hub.core.config import get_settings
+        from protein_design_hub.agents.meeting import reset_llm_client
+        settings = get_settings()
+        settings.llm.model = model
+        reset_llm_client()
+        # Invalidate caches so the UI picks up the change
+        _cached_llm_status.clear()
+        list_available_models.clear()
+    except Exception:
+        pass
+
+
+def switch_llm_provider(provider: str, model: str = "") -> None:
+    """Switch LLM provider and optionally model.  Resets client caches."""
+    try:
+        from protein_design_hub.core.config import get_settings
+        from protein_design_hub.agents.meeting import reset_llm_client
+        settings = get_settings()
+        settings.llm.provider = provider
+        settings.llm.base_url = ""
+        settings.llm.api_key = ""
+        settings.llm.model = model
+        reset_llm_client()
+        _cached_llm_status.clear()
+        list_available_models.clear()
+    except Exception:
+        pass
+
+
+def render_model_switcher(key_prefix: str = "model_sw") -> None:
+    """Compact model switcher widget: provider selector + model dropdown."""
+    cfg = _get_llm_cfg()
+    if cfg is None:
+        st.warning("LLM not configured")
+        return
+
+    try:
+        from protein_design_hub.core.config import LLM_PROVIDER_PRESETS
+        prov_names = list(LLM_PROVIDER_PRESETS.keys())
+    except Exception:
+        prov_names = ["ollama"]
+
+    col_prov, col_model, col_apply = st.columns([1, 2, 1])
+
+    with col_prov:
+        ci = prov_names.index(cfg.provider) if cfg.provider in prov_names else 0
+        new_prov = st.selectbox(
+            "Provider", prov_names, index=ci, key=f"{key_prefix}_prov",
+        )
+
+    with col_model:
+        available = list_available_models()
+        # Ensure current model is in the list
+        if cfg.model and cfg.model not in available:
+            available = [cfg.model] + available
+        if not available:
+            available = [cfg.model or "unknown"]
+        mi = available.index(cfg.model) if cfg.model in available else 0
+        new_model = st.selectbox(
+            "Model", available, index=mi, key=f"{key_prefix}_model",
+        )
+
+    with col_apply:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        if st.button("Apply", key=f"{key_prefix}_apply", type="primary",
+                      use_container_width=True):
+            if new_prov != cfg.provider:
+                switch_llm_provider(new_prov, new_model)
+            elif new_model != cfg.model:
+                switch_llm_model(new_model)
+            st.rerun()
 
 
 # ── Single-turn quick advice ─────────────────────────────────────────
@@ -350,6 +444,53 @@ def render_contextual_insight(
             "as restraints); AMBER relaxation for quick stereochemical cleanup; "
             "MultiFOLD_refine for iterative AF2-recycling refinement."
         ),
+        "Evolution": (
+            "Assess the directed evolution results. Is the fitness improvement "
+            "statistically significant or likely noise/overfitting? Examine the "
+            "fitness trajectory: does it plateau (convergence) or still climb "
+            "(more generations needed)? For each mutation in the best variant, "
+            "assess whether it is likely causal (conserved site, known stabilizing "
+            "substitution) or incidental (neutral hitchhiker). Recommend validation "
+            "strategy: re-predict the evolved sequence with ESMFold/ColabFold, "
+            "check TM-score to parent, and validate with ModFOLD9 QA."
+        ),
+        "MSA": (
+            "Interpret the MSA conservation and coevolution signals. Which "
+            "positions are highly conserved (>0.8 conservation score) and should "
+            "NOT be mutated? Which variable positions are safe targets for "
+            "engineering? Cross-reference PSSM-derived mutation suggestions with "
+            "structural context: are suggested mutations at surface or core "
+            "positions? Use coevolution pairs to identify compensatory mutation "
+            "opportunities. Recommend a shortlist of safe, high-impact mutations "
+            "prioritized by conservation, PSSM improvement, and structural context."
+        ),
+        "Design": (
+            "Review the current protein design. Assess the sequence edits made "
+            "so far: do the mutations maintain fold stability (check hydrophobic "
+            "core packing, hydrogen bond networks, salt bridges)? Are any edits "
+            "at conserved positions that could disrupt function? Evaluate ligand "
+            "attachments for chemical compatibility with nearby residues. "
+            "Recommend next design actions: additional stabilizing mutations, "
+            "positions to avoid, and validation steps (re-predict structure, "
+            "check pLDDT, evaluate with ModFOLD9)."
+        ),
+        "Batch": (
+            "Analyze the batch processing results. Assess the success/failure "
+            "rate: is the failure pattern random (network/timeout issues) or "
+            "systematic (specific sequences failing, suggesting input problems)? "
+            "For completed jobs, identify outliers in quality metrics. Recommend "
+            "which sequences to prioritize for downstream analysis based on "
+            "prediction confidence, biophysical properties, and overall quality. "
+            "Flag any sequences that should be re-run with different settings."
+        ),
+        "Jobs": (
+            "Review this job's artifacts and output quality. Does the job have "
+            "all expected output files (structures, scores, summaries)? Are the "
+            "prediction confidence metrics sufficient for downstream use? "
+            "Recommend the best next workflow step: evaluate, refine, design, "
+            "or re-run with different parameters. Flag any missing artifacts "
+            "or quality concerns that should be addressed first."
+        ),
     }
     # Find best matching question
     auto_q = "Provide a scientific interpretation of these results and recommend next steps."
@@ -370,6 +511,7 @@ def render_contextual_insight(
         "MSA": "Computational Biologist",
         "Design": "Protein Engineer",
         "Batch": "Computational Biologist",
+        "Jobs": "Computational Biologist",
     }
     expert = "Structural Biologist"
     for key, exp in expert_map.items():
@@ -426,6 +568,54 @@ AGENT_ICONS: Dict[str, str] = {
 }
 
 
+@contextmanager
+def _temporary_llm_override(provider: str = "", model: str = ""):
+    """Temporarily override active LLM provider/model for a single operation."""
+    if not provider and not model:
+        yield
+        return
+
+    settings = None
+    previous = None
+    try:
+        from protein_design_hub.core.config import get_settings
+        from protein_design_hub.agents.meeting import reset_llm_client
+
+        settings = get_settings()
+        previous = (
+            settings.llm.provider,
+            settings.llm.base_url,
+            settings.llm.model,
+            settings.llm.api_key,
+        )
+
+        if provider and provider != settings.llm.provider:
+            settings.llm.provider = provider
+            settings.llm.base_url = ""
+            settings.llm.api_key = ""
+            settings.llm.model = ""
+        if model:
+            settings.llm.model = model
+
+        reset_llm_client()
+        _cached_llm_status.clear()
+        list_available_models.clear()
+        yield
+    finally:
+        if settings is not None and previous is not None:
+            from protein_design_hub.agents.meeting import reset_llm_client
+
+            (
+                settings.llm.provider,
+                settings.llm.base_url,
+                settings.llm.model,
+                settings.llm.api_key,
+            ) = previous
+            reset_llm_client()
+            _cached_llm_status.clear()
+            list_available_models.clear()
+
+
 def render_all_experts_panel(
     title: str,
     agenda: str,
@@ -433,6 +623,8 @@ def render_all_experts_panel(
     questions: tuple[str, ...] = (),
     key_prefix: str = "all_experts",
     expanded: bool = False,
+    provider_override: str = "",
+    model_override: str = "",
 ) -> None:
     """Run a team meeting with all experts and render summary + transcript."""
     if not llm_available():
@@ -472,18 +664,19 @@ def render_all_experts_panel(
                 sd = Path("./outputs/meetings")
                 sn = f"{key_prefix}_{int(time.time())}"
                 with st.spinner("Running all-expert meeting... this may take a few minutes."):
-                    summary = run_meeting(
-                        meeting_type="team",
-                        agenda=agenda,
-                        agenda_questions=questions,
-                        contexts=(context,) if context else (),
-                        save_dir=sd,
-                        save_name=sn,
-                        team_lead=PRINCIPAL_INVESTIGATOR,
-                        team_members=ALL_EXPERTS_TEAM_MEMBERS,
-                        num_rounds=settings.llm.num_rounds,
-                        return_summary=True,
-                    )
+                    with _temporary_llm_override(provider_override, model_override):
+                        summary = run_meeting(
+                            meeting_type="team",
+                            agenda=agenda,
+                            agenda_questions=questions,
+                            contexts=(context,) if context else (),
+                            save_dir=sd,
+                            save_name=sn,
+                            team_lead=PRINCIPAL_INVESTIGATOR,
+                            team_members=ALL_EXPERTS_TEAM_MEMBERS,
+                            num_rounds=settings.llm.num_rounds,
+                            return_summary=True,
+                        )
                 st.session_state[summary_key] = summary
                 tp = sd / f"{sn}.json"
                 if tp.exists():

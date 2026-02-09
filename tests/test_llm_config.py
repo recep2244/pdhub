@@ -5,8 +5,19 @@ def test_llm_config_resolve_ollama_defaults():
     cfg = LLMConfig(provider="ollama", base_url="", model="", api_key="")
     resolved = cfg.resolve()
     assert resolved.base_url == "http://localhost:11434/v1"
-    assert resolved.model == "llama3.2:latest"
+    assert resolved.model == "qwen2.5:14b"
     assert resolved.api_key == "ollama"
+
+
+def test_llm_config_migrates_legacy_ollama_model():
+    cfg = LLMConfig(
+        provider="ollama",
+        base_url="http://localhost:11434/v1",
+        model="llama3.2:latest",
+        api_key="ollama",
+    )
+    resolved = cfg.resolve()
+    assert resolved.model == "qwen2.5:14b"
 
 
 def test_llm_config_resolve_env_key(monkeypatch):

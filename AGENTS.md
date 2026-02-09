@@ -17,7 +17,7 @@ plan, review, and interpret every stage via structured meetings).
 curl -fsSL https://ollama.com/install.sh | sh
 
 # Pull a model
-ollama pull llama3.2
+ollama pull qwen2.5:14b
 
 # Verify it's running
 ollama list
@@ -335,7 +335,7 @@ The LLM backend is configured in `config/default.yaml` under the `llm` section.
 
 | Provider | Type | Default Model | Base URL | API Key Source |
 |----------|------|---------------|----------|---------------|
-| `ollama` | local | llama3.2:latest | localhost:11434 | none needed |
+| `ollama` | local | qwen2.5:14b | localhost:11434 | none needed |
 | `lmstudio` | local | default | localhost:1234 | none needed |
 | `vllm` | local | default | localhost:8000 | none needed |
 | `llamacpp` | local | default | localhost:8080 | none needed |

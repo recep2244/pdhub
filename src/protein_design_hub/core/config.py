@@ -253,15 +253,27 @@ class GPUConfig(BaseModel):
 
 
 # Provider presets: name → (base_url, default_model, default_api_key)
+#
+# Speed tiers for reference (approximate tok/s for generation):
+#   LOCAL:  ollama ~30-80 tok/s (GPU-dependent), vllm ~100-200 tok/s
+#   FAST:   groq ~300 tok/s, cerebras ~450 tok/s, sambanova ~200 tok/s
+#   CLOUD:  deepseek ~50 tok/s, openai ~80 tok/s, gemini ~100 tok/s
 LLM_PROVIDER_PRESETS: dict[str, tuple[str, str, str]] = {
-    "ollama":   ("http://localhost:11434/v1",  "llama3.2:latest",   "ollama"),
-    "lmstudio": ("http://localhost:1234/v1",   "default",           "lm-studio"),
-    "vllm":     ("http://localhost:8000/v1",   "default",           "vllm"),
-    "llamacpp": ("http://localhost:8080/v1",   "default",           "llamacpp"),
-    "deepseek": ("https://api.deepseek.com/v1","deepseek-chat",     ""),
-    "openai":   ("https://api.openai.com/v1",  "gpt-4o",           ""),
-    "gemini":   ("https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-2.5-flash", ""),
-    "kimi":     ("https://api.moonshot.cn/v1",  "kimi-k2",          ""),
+    # ── Local (no API key) ──────────────────────────────────────────
+    "ollama":    ("http://localhost:11434/v1",  "qwen2.5:14b",      "ollama"),
+    "lmstudio":  ("http://localhost:1234/v1",   "default",           "lm-studio"),
+    "vllm":      ("http://localhost:8000/v1",   "default",           "vllm"),
+    "llamacpp":  ("http://localhost:8080/v1",   "default",           "llamacpp"),
+    # ── Fast cloud (free tiers or very cheap) ───────────────────────
+    "groq":      ("https://api.groq.com/openai/v1",      "llama-3.3-70b-versatile", ""),
+    "cerebras":  ("https://api.cerebras.ai/v1",           "llama-3.3-70b",           ""),
+    "sambanova": ("https://api.sambanova.ai/v1",          "Meta-Llama-3.3-70B-Instruct", ""),
+    # ── Cloud (API key required) ────────────────────────────────────
+    "deepseek":  ("https://api.deepseek.com/v1",          "deepseek-chat",     ""),
+    "openai":    ("https://api.openai.com/v1",             "gpt-4o",           ""),
+    "gemini":    ("https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-2.5-flash", ""),
+    "kimi":      ("https://api.moonshot.cn/v1",            "kimi-k2",          ""),
+    "openrouter": ("https://openrouter.ai/api/v1",        "meta-llama/llama-3.3-70b-instruct", ""),
 }
 
 
@@ -272,16 +284,22 @@ class LLMConfig(BaseModel):
     providers (set ``provider`` and optionally ``model``):
 
     **Local (no API key needed):**
-      - ``ollama``     → http://localhost:11434/v1  (llama3.2, qwen2.5, deepseek-r1, …)
+      - ``ollama``     → http://localhost:11434/v1  (qwen2.5:14b default)
       - ``lmstudio``   → http://localhost:1234/v1
-      - ``vllm``       → http://localhost:8000/v1
+      - ``vllm``       → http://localhost:8000/v1   (fastest local)
       - ``llamacpp``   → http://localhost:8080/v1
 
+    **Fast cloud (free tiers available, ~300+ tok/s):**
+      - ``groq``       → llama-3.3-70b  (GROQ_API_KEY, free tier)
+      - ``cerebras``   → llama-3.3-70b  (CEREBRAS_API_KEY, free tier)
+      - ``sambanova``  → llama-3.3-70b  (SAMBANOVA_API_KEY, free tier)
+
     **Cloud (API key required):**
-      - ``deepseek``   → https://api.deepseek.com/v1        ($0.28/1M in)
-      - ``openai``     → https://api.openai.com/v1          (gpt-4o)
-      - ``gemini``     → https://generativelanguage.googleapis.com/v1beta/openai/  (free tier)
-      - ``kimi``       → https://api.moonshot.cn/v1          (kimi-k2)
+      - ``deepseek``   → deepseek-chat  ($0.28/1M in, DEEPSEEK_API_KEY)
+      - ``openai``     → gpt-4o         (OPENAI_API_KEY)
+      - ``gemini``     → gemini-2.5-flash (GEMINI_API_KEY, free tier)
+      - ``kimi``       → kimi-k2        (MOONSHOT_API_KEY)
+      - ``openrouter`` → many models    (OPENROUTER_API_KEY)
 
     Or use ``custom`` and set ``base_url`` manually.
     """
@@ -325,16 +343,24 @@ class LLMConfig(BaseModel):
         preset_url, preset_model, preset_key = preset
 
         base_url = self.base_url or preset_url or "http://localhost:11434/v1"
-        model = self.model or preset_model or "llama3.2:latest"
+        model = self.model or preset_model or "qwen2.5:14b"
+        # Auto-migrate legacy Ollama defaults to the current project default.
+        # This keeps older user configs from silently sticking to llama3.2.
+        if self.provider == "ollama" and model in {"llama3.2", "llama3.2:latest"}:
+            model = "qwen2.5:14b"
 
         # API key: explicit > env var > preset
         api_key = self.api_key
         if not api_key:
             env_map = {
-                "openai":   "OPENAI_API_KEY",
-                "deepseek": "DEEPSEEK_API_KEY",
-                "gemini":   "GEMINI_API_KEY",
-                "kimi":     "MOONSHOT_API_KEY",
+                "openai":     "OPENAI_API_KEY",
+                "deepseek":   "DEEPSEEK_API_KEY",
+                "gemini":     "GEMINI_API_KEY",
+                "kimi":       "MOONSHOT_API_KEY",
+                "groq":       "GROQ_API_KEY",
+                "cerebras":   "CEREBRAS_API_KEY",
+                "sambanova":  "SAMBANOVA_API_KEY",
+                "openrouter": "OPENROUTER_API_KEY",
             }
             env_var = env_map.get(self.provider, "")
             api_key = os.environ.get(env_var, "") if env_var else ""

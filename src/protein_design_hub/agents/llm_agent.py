@@ -23,7 +23,7 @@ def _default_model() -> str:
         from protein_design_hub.core.config import get_settings
         return get_settings().llm.resolve().model
     except Exception:
-        return "llama3.2:latest"
+        return "qwen2.5:14b"
 
 
 @dataclass(frozen=True, eq=True)
@@ -36,7 +36,7 @@ class LLMAgent:
         goal: What this agent aims to achieve.
         role: Operational role description.
         model: LLM model identifier.  Defaults to ``settings.llm.model``
-               (e.g. ``llama3.2`` for Ollama, ``gpt-4o`` for OpenAI).
+               (e.g. ``qwen2.5:14b`` for Ollama, ``gpt-4o`` for OpenAI).
     """
 
     title: str

@@ -234,6 +234,42 @@ def _format_top_variants(variants: List[MultiMutationVariant], is_immunebuilder:
     return "\n".join(rows)
 
 
+def _format_base_eval_summary(base_eval: Dict[str, Any]) -> str:
+    """Compact one-line summary of baseline structure evaluation."""
+    result = base_eval.get("result", {})
+    parts = []
+    for key, label, fmt in [
+        ("clash_score", "clash", "{:.1f}"),
+        ("sasa_total", "SASA", "{:.0f}"),
+        ("voromqa_score", "VoroMQA", "{:.3f}"),
+        ("cad_score", "CAD", "{:.3f}"),
+        ("openmm_potential_energy_kj_mol", "OpenMM", "{:.1f}"),
+        ("contact_energy", "contact_E", "{:.1f}"),
+        ("disorder_fraction", "disorder", "{:.2%}"),
+    ]:
+        val = result.get(key)
+        if isinstance(val, (int, float)):
+            parts.append(f"{label}={fmt.format(float(val))}")
+    return ", ".join(parts) if parts else "No baseline metrics available."
+
+
+def run_baseline_structure_evaluation(
+    structure_path: Path,
+    metrics: List[str],
+) -> Dict[str, Any]:
+    """Evaluate a baseline structure with selected no-reference metrics."""
+    from protein_design_hub.evaluation.composite import CompositeEvaluator
+
+    evaluator = CompositeEvaluator(metrics=metrics)
+    result = evaluator.evaluate(structure_path, reference_path=None)
+    return {
+        "structure_path": str(structure_path),
+        "selected_metrics": metrics,
+        "timestamp": datetime.now().isoformat(),
+        "result": result.to_dict(),
+    }
+
+
 # Amino acid data
 AMINO_ACIDS = {
     'A': {'name': 'Alanine', 'code': 'Ala'}, 'C': {'name': 'Cysteine', 'code': 'Cys'},
@@ -292,6 +328,7 @@ def init_session_state():
         'sequence': '', 'sequence_name': 'my_protein',
         'sequence_input_raw': '',
         'base_structure': None, 'base_plddt': None, 'base_plddt_per_residue': None,
+        'base_structure_path': None,
         'selected_position': None, 'scan_results': None,
         'selected_positions': set(), 'multi_scan_results': None,
         'comparison_mutation': None,
@@ -308,6 +345,10 @@ def init_session_state():
         'baseline_predictors': ['esmfold_api'],
         'baseline_results': None,
         'baseline_sequence': None,
+        'baseline_evaluation': None,
+        'baseline_evaluation_predictor': None,
+        'mut_review_provider': "current",
+        'mut_review_model': "",
         'scanner': MutationScanner(
             predictor='esmfold_api',
             evaluation_metrics=default_eval_metrics,
@@ -321,6 +362,15 @@ def init_session_state():
             st.session_state[key] = value
 
 init_session_state()
+
+
+def _expert_review_overrides() -> Tuple[str, str]:
+    """Return provider/model overrides for expert panels on this page."""
+    mode = st.session_state.get("mut_review_provider", "current")
+    model = (st.session_state.get("mut_review_model") or "").strip()
+    if mode == "deepseek":
+        return "deepseek", model or "deepseek-chat"
+    return "", model
 
 def current_eval_metrics() -> List[str]:
     if not st.session_state.get("mutation_eval_enabled"):
@@ -622,6 +672,29 @@ if st.button("🧪 Run Baseline Comparison", use_container_width=True, disabled=
             st.session_state.immune_active_chain,
         )
         st.session_state.baseline_sequence = st.session_state.sequence
+        st.session_state.baseline_evaluation = None
+        st.session_state.baseline_evaluation_predictor = None
+
+# Expert-review backend override for all mutagenesis meetings on this page
+with st.expander("🧠 Expert Review Backend (optional second opinion)", expanded=False):
+    st.session_state.mut_review_provider = st.selectbox(
+        "Expert panel provider",
+        options=["current", "deepseek"],
+        index=0 if st.session_state.get("mut_review_provider", "current") == "current" else 1,
+        format_func=lambda x: "Current configured provider" if x == "current" else "DeepSeek (secondary check)",
+        key="mut_review_provider_select",
+    )
+    if st.session_state.mut_review_provider == "deepseek":
+        st.session_state.mut_review_model = st.text_input(
+            "DeepSeek model (optional)",
+            value=st.session_state.get("mut_review_model", "deepseek-chat") or "deepseek-chat",
+            key="mut_review_model_input",
+            help="Leave as deepseek-chat unless you want another DeepSeek model ID.",
+        )
+        st.caption("Requires `DEEPSEEK_API_KEY` in the environment.")
+    else:
+        st.session_state.mut_review_model = ""
+        st.caption("Uses the provider/model configured on the Agents page.")
 
 if st.session_state.get("baseline_results"):
     if st.session_state.get("baseline_sequence") != st.session_state.sequence:
@@ -644,6 +717,143 @@ if st.session_state.get("baseline_results"):
         )
     st.dataframe(pd.DataFrame(baseline_rows), use_container_width=True)
 
+    successful_structures: Dict[str, Path] = {}
+    for pred_id, data in st.session_state.baseline_results.items():
+        sp = data.get("structure_path")
+        if data.get("success") and sp:
+            p = Path(sp)
+            if p.exists():
+                successful_structures[pred_id] = p
+
+    # Action: evaluate selected baseline structure with no-reference metrics.
+    if successful_structures:
+        st.markdown("#### Baseline Structure Evaluation")
+        st.caption("Evaluate a baseline structure before mutagenesis to guide residue selection.")
+
+        eval_col1, eval_col2 = st.columns([2, 3])
+        with eval_col1:
+            pred_options = list(successful_structures.keys())
+            default_pred = st.session_state.get("baseline_evaluation_predictor")
+            if default_pred not in pred_options:
+                default_pred = pred_options[0]
+            eval_pred = st.selectbox(
+                "Baseline structure to evaluate",
+                options=pred_options,
+                index=pred_options.index(default_pred),
+                format_func=lambda p: label_by_value.get(p, p),
+                key="baseline_eval_predictor",
+            )
+        with eval_col2:
+            try:
+                from protein_design_hub.evaluation.composite import CompositeEvaluator
+
+                metric_info = CompositeEvaluator.list_all_metrics()
+                available_no_ref = [
+                    m["name"] for m in metric_info
+                    if m.get("available") and not m.get("requires_reference")
+                ]
+            except Exception:
+                available_no_ref = []
+
+            default_eval_metrics = [
+                m for m in ["clash_score", "sasa", "voromqa", "cad_score", "openmm_gbsa", "contact_energy", "disorder"]
+                if m in available_no_ref
+            ]
+            selected_baseline_metrics = st.multiselect(
+                "Metrics",
+                options=available_no_ref,
+                default=default_eval_metrics,
+                key="baseline_eval_metrics",
+                help="Reference-free metrics only. Use this to triage structural quality before mutagenesis.",
+            )
+
+        run_eval_btn = st.button(
+            "📊 Evaluate Baseline Structure",
+            use_container_width=True,
+            type="primary",
+            disabled=not successful_structures or not selected_baseline_metrics,
+        )
+        if run_eval_btn:
+            try:
+                with st.spinner("Evaluating baseline structure..."):
+                    payload = run_baseline_structure_evaluation(
+                        successful_structures[eval_pred],
+                        selected_baseline_metrics,
+                    )
+                st.session_state.baseline_evaluation = payload
+                st.session_state.baseline_evaluation_predictor = eval_pred
+                st.success("Baseline evaluation completed.")
+            except Exception as exc:
+                st.error(f"Baseline evaluation failed: {exc}")
+
+    base_eval = st.session_state.get("baseline_evaluation")
+    if base_eval:
+        eval_pred = st.session_state.get("baseline_evaluation_predictor")
+        eval_pred_label = label_by_value.get(eval_pred, eval_pred) if eval_pred else "baseline"
+        st.markdown(f"#### Baseline Evaluation Results ({eval_pred_label})")
+        eval_result = base_eval.get("result", {})
+
+        met1, met2, met3, met4 = st.columns(4)
+        with met1:
+            if eval_result.get("clash_score") is not None:
+                metric_card_with_context(
+                    f"{float(eval_result['clash_score']):.1f}",
+                    "Clash Score",
+                    "Lower is better (<10 ideal)",
+                    status="success" if float(eval_result["clash_score"]) < 10 else "warning",
+                    icon="💥",
+                )
+        with met2:
+            if eval_result.get("voromqa_score") is not None:
+                metric_card_with_context(
+                    f"{float(eval_result['voromqa_score']):.3f}",
+                    "VoroMQA",
+                    "Higher is better (>0.40 good)",
+                    status="success" if float(eval_result["voromqa_score"]) > 0.40 else "warning",
+                    icon="📏",
+                )
+        with met3:
+            if eval_result.get("cad_score") is not None:
+                metric_card_with_context(
+                    f"{float(eval_result['cad_score']):.3f}",
+                    "CAD-score",
+                    "Higher indicates better local agreement",
+                    status="info",
+                    icon="🧩",
+                )
+        with met4:
+            if eval_result.get("sasa_total") is not None:
+                metric_card_with_context(
+                    f"{float(eval_result['sasa_total']):.0f}",
+                    "SASA (A^2)",
+                    "Surface exposure",
+                    status="default",
+                    icon="🌊",
+                )
+
+        rows = []
+        for field, label in [
+            ("clash_score", "Clash score"),
+            ("clash_count", "Clash count"),
+            ("sasa_total", "SASA (A^2)"),
+            ("voromqa_score", "VoroMQA"),
+            ("cad_score", "CAD-score"),
+            ("contact_energy", "Contact energy"),
+            ("openmm_potential_energy_kj_mol", "OpenMM potential (kJ/mol)"),
+            ("openmm_gbsa_energy_kj_mol", "OpenMM GBSA (kJ/mol)"),
+            ("disorder_fraction", "Disorder fraction"),
+        ]:
+            val = eval_result.get(field)
+            if val is not None:
+                rows.append({"Metric": label, "Value": val})
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        errors = (eval_result.get("metadata") or {}).get("errors", [])
+        if errors:
+            with st.expander("Metric warnings/errors"):
+                for e in errors:
+                    st.markdown(f"- {e}")
+
     # All-expert residue targeting suggestions
     base_seq = st.session_state.get("sequence", "")
     base_plddt = st.session_state.get("base_plddt_per_residue") or []
@@ -659,25 +869,29 @@ if st.session_state.get("baseline_results"):
     ) if selected_positions_sorted and base_seq else "None"
 
     baseline_summary = _format_baseline_summary(st.session_state.baseline_results, label_by_value)
+    base_eval_summary = _format_base_eval_summary(base_eval) if base_eval else ""
     context_lines = [
         f"Sequence length: {len(base_seq)}" if base_seq else "",
         f"Selected positions: {selected_str}",
         conf_summary,
         "Baseline predictors:\n" + baseline_summary if baseline_summary else "",
+        "Baseline evaluation:\n" + base_eval_summary if base_eval_summary else "",
     ]
     context = "\n".join([line for line in context_lines if line])
+    review_provider, review_model = _expert_review_overrides()
 
     agenda = (
         "Review the baseline structure predictions and per-residue confidence. "
-        "Suggest which residues should be targeted for mutagenesis (stability, "
-        "function, or binding improvements). Prioritize a short list of positions."
+        "Use confidence, baseline quality metrics, and structural context to suggest "
+        "which residues should be targeted for mutagenesis (stability, function, or "
+        "binding improvements). Prioritize a short list of positions."
     )
     questions = (
         "Which residues are the best candidates to mutate based on confidence, "
         "structural context (surface vs core), and predicted stability?",
         "Which residues should be avoided due to functional importance or "
         "structural risk?",
-        "Provide 5-10 residue positions to target, with short rationale for each.",
+        "Provide 5-10 residue positions to target, ranked high to low, with short rationale for each.",
     )
     render_all_experts_panel(
         "🧠 All-Expert Residue Targeting (after baseline)",
@@ -685,7 +899,29 @@ if st.session_state.get("baseline_results"):
         context=context,
         questions=questions,
         key_prefix="mut_baseline",
+        provider_override=review_provider,
+        model_override=review_model,
     )
+
+    if base_eval:
+        eval_agenda = (
+            "Interpret the baseline structure evaluation and decide if the wild-type "
+            "structure quality is sufficient for mutagenesis-driven decisions."
+        )
+        eval_questions = (
+            "Are baseline quality metrics acceptable for mutation planning?",
+            "Which structural regions look fragile and should be treated cautiously?",
+            "Should we run additional validation before launching large mutagenesis scans?",
+        )
+        render_all_experts_panel(
+            "🧠 All-Expert Baseline Evaluation Review",
+            agenda=eval_agenda,
+            context="Baseline evaluation summary:\n" + base_eval_summary,
+            questions=eval_questions,
+            key_prefix="mut_baseline_eval",
+            provider_override=review_provider,
+            model_override=review_model,
+        )
 
 # Predictor for mutation scans
 mutation_option_labels = ["ESMFold API (ESM-2, <=400 aa)"]
@@ -711,6 +947,8 @@ selected_predictor = predictor_options[selected_label]
 if st.session_state.get("mutation_predictor") != selected_predictor:
     st.session_state.mutation_predictor = selected_predictor
     st.session_state.scanner = build_scanner(selected_predictor)
+    st.session_state.baseline_evaluation = None
+    st.session_state.baseline_evaluation_predictor = None
 
 # Mutagenesis evaluation settings
 st.markdown("#### Mutagenesis Evaluation")
@@ -749,6 +987,8 @@ with st.expander("🔬 Advanced Evaluation Metrics", expanded=False):
         st.session_state.scanner = build_scanner(st.session_state.mutation_predictor)
         st.session_state.scan_results = None
         st.session_state.multi_scan_results = None
+        st.session_state.baseline_evaluation = None
+        st.session_state.baseline_evaluation_predictor = None
 
 if "esm3" in baseline_predictors or selected_predictor == "esm3":
     st.info("ESM3 uses the EvolutionaryScale `esm` package; ESMFold uses `fair-esm`. Use separate environments if needed.")
@@ -790,8 +1030,11 @@ if "immunebuilder" in baseline_predictors or selected_predictor == "immunebuilde
         else:
             st.session_state.sequence = ""
         st.session_state.base_structure = None
+        st.session_state.base_structure_path = None
         st.session_state.scan_results = None
         st.session_state.multi_scan_results = None
+        st.session_state.baseline_evaluation = None
+        st.session_state.baseline_evaluation_predictor = None
 
     if selected_predictor == "immunebuilder":
         st.session_state.scanner = build_scanner("immunebuilder")
@@ -849,9 +1092,12 @@ with seq_col:
             st.session_state.sequence = cleaned
 
         st.session_state.base_structure = None
+        st.session_state.base_structure_path = None
         st.session_state.scan_results = None
         st.session_state.baseline_results = None
         st.session_state.baseline_sequence = None
+        st.session_state.baseline_evaluation = None
+        st.session_state.baseline_evaluation_predictor = None
         st.rerun()
 
     if st.session_state.immune_parse_error:
@@ -868,9 +1114,12 @@ with info_col:
             st.session_state.sequence_input_raw = ubi
         st.session_state.sequence_name = "Ubiquitin"
         st.session_state.base_structure = None
+        st.session_state.base_structure_path = None
         st.session_state.scan_results = None
         st.session_state.baseline_results = None
         st.session_state.baseline_sequence = None
+        st.session_state.baseline_evaluation = None
+        st.session_state.baseline_evaluation_predictor = None
         st.rerun()
 
     if st.button("📋 T1024 (52 aa)", use_container_width=True, type="secondary"):
@@ -882,9 +1131,12 @@ with info_col:
             st.session_state.sequence_input_raw = t1024
         st.session_state.sequence_name = "T1024"
         st.session_state.base_structure = None
+        st.session_state.base_structure_path = None
         st.session_state.scan_results = None
         st.session_state.baseline_results = None
         st.session_state.baseline_sequence = None
+        st.session_state.baseline_evaluation = None
+        st.session_state.baseline_evaluation_predictor = None
         st.rerun()
 
 # 2. Base Prediction
@@ -897,8 +1149,11 @@ if st.session_state.sequence:
             with st.spinner("Predicting..."):
                 pdb, plddt, path = st.session_state.scanner.predict_single(st.session_state.sequence, "base")
                 st.session_state.base_structure = pdb
+                st.session_state.base_structure_path = str(path) if path else None
                 st.session_state.base_plddt = sum(plddt)/len(plddt)
                 st.session_state.base_plddt_per_residue = plddt
+                st.session_state.baseline_evaluation = None
+                st.session_state.baseline_evaluation_predictor = None
                 st.rerun()
     else:
         pred_label = label_by_value.get(st.session_state.mutation_predictor, st.session_state.mutation_predictor)
@@ -1297,12 +1552,15 @@ if st.session_state.multi_scan_results:
             "Are there red flags (high RMSD, interface disruption, packing issues)?",
             "What next validation steps would you recommend before experiments?",
         )
+        review_provider, review_model = _expert_review_overrides()
         render_all_experts_panel(
             "🧠 All-Expert Investigation (multi-mutation results)",
             agenda=agenda,
             context=context,
             questions=questions,
             key_prefix="mut_multi",
+            provider_override=review_provider,
+            model_override=review_model,
         )
 
 # 5. Single-Position Results
@@ -1486,10 +1744,13 @@ if st.session_state.scan_results:
             "Are there any substitutions that should be avoided and why?",
             "Recommend the next 3-5 mutants to validate with high-accuracy predictors.",
         )
+        review_provider, review_model = _expert_review_overrides()
         render_all_experts_panel(
             "🧠 All-Expert Investigation (single-position results)",
             agenda=agenda,
             context=context,
             questions=questions,
             key_prefix="mut_single",
+            provider_override=review_provider,
+            model_override=review_model,
         )
