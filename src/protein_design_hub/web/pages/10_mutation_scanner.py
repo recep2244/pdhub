@@ -1822,6 +1822,22 @@ def _render_approval_step(ctx):
     except Exception:
         pass  # Caption is informational; never block the UI
 
+    # Position count and OST override
+    _n_selected = int(edited_df["Include"].sum()) if "Include" in edited_df.columns else len(edited_df)
+    _distinct_positions = _n_selected  # each row = one position
+    st.caption(f"{_distinct_positions} position(s) selected.")
+    if _distinct_positions > 3:
+        _force_ost = st.checkbox(
+            "Force OST scoring even with >3 positions (slow — may take hours)",
+            value=False,
+            key="force_ost_override",
+            help="OST comprehensive scoring is auto-disabled when >3 positions to prevent multi-hour runs. "
+                 "Enable this to override.",
+        )
+        ctx.extra["ost_force_override"] = _force_ost
+    else:
+        ctx.extra["ost_force_override"] = False
+
     col1, col2 = st.columns(2)
     with col1:
         approve_disabled = len(included) == 0
@@ -1879,6 +1895,15 @@ def _run_phase2(ctx):
             "to review and approve mutations before running Phase 2."
         )
         return
+
+    # PERF-02: Surface LLM saturation fallback warning before mutations execute
+    _fallback_warn = ctx.extra.get("mutation_suggestion_warning")
+    if _fallback_warn:
+        st.warning(_fallback_warn)
+
+    # PERF-01: Surface OST auto-disable warning before mutations execute
+    if ctx.extra.get("ost_auto_disabled"):
+        st.warning(ctx.extra.get("ost_auto_disabled_reason", "OST scoring was automatically disabled."))
 
     from protein_design_hub.agents.orchestrator import AgentOrchestrator
     from protein_design_hub.web.agent_helpers import _temporary_llm_override
