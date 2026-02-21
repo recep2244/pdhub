@@ -384,7 +384,7 @@ class MutationComparisonAgent(BaseAgent):
             return AgentResult.fail(f"Mutation comparison failed: {e}", error=e)
 
 
-class MutagenesiReportAgent(BaseAgent):
+class MutagenesisPipelineReportAgent(BaseAgent):
     """Generate comprehensive mutagenesis report.
 
     Writes JSON and Markdown reports to ``{job_dir}/mutagenesis/``.
@@ -557,3 +557,7 @@ class MutagenesiReportAgent(BaseAgent):
             lines.append(baseline_review[:1500])
 
         return "\n".join(lines)
+
+
+# Backward-compatible alias — MutagenesiReportAgent was a typo (missing 's')
+MutagenesiReportAgent = MutagenesisPipelineReportAgent
