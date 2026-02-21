@@ -7,8 +7,8 @@
 
 ### Git & Code Health
 
-- [ ] **GIT-01**: `mutagenesis_agents.py` committed to git with orchestrator/registry imports verified
-- [ ] **GIT-02**: `10_mutation_scanner.py.bak` deleted and confirmed safe to remove
+- [x] **GIT-01**: `mutagenesis_agents.py` committed to git with orchestrator/registry imports verified
+- [x] **GIT-02**: `10_mutation_scanner.py.bak` deleted and confirmed safe to remove
 - [ ] **GIT-03**: `MutagenesiReportAgent` class renamed to `MutagenesisPipelineReportAgent` with backward-compatible import alias
 
 ### Mutagenesis Workflow
@@ -89,8 +89,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| GIT-01 | Phase 1 | Pending |
-| GIT-02 | Phase 1 | Pending |
+| GIT-01 | Phase 1 | Complete |
+| GIT-02 | Phase 1 | Complete |
 | GIT-03 | Phase 1 | Pending |
 | MUT-01 | Phase 2 | Pending |
 | MUT-02 | Phase 2 | Pending |
