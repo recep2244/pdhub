@@ -5,21 +5,21 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** A reliable, end-to-end protein design workflow where a researcher goes from sequence to structure to expert analysis to mutagenesis to report without data loss, silent failures, or manual workarounds.
-**Current focus:** Phase 3 - Performance & Reliability
+**Current focus:** Phase 3 - Performance & Reliability (complete)
 
 ## Current Position
 
 Phase: 3 of 8 (Performance & Reliability)
-Plan: 1 of TBD in current phase
-Status: In progress
-Last activity: 2026-02-21 — 03-01 complete: import-time MutationScanner API gate + OST position cap guard (PERF-01, PERF-03)
+Plan: 2 of 2 in current phase (phase complete)
+Status: Phase 3 complete — ready for Phase 4
+Last activity: 2026-02-21 — 03-02 complete: LLM fallback warning to context.extra + Force OST checkbox + st.warning surfaces (PERF-01, PERF-02)
 
-Progress: [#####░░░░░] 30%
+Progress: [######░░░░] 35%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
+- Total plans completed: 9
 - Average duration: 5 min
 - Total execution time: 0.5 hours
 
@@ -29,10 +29,10 @@ Progress: [#####░░░░░] 30%
 |-------|-------|-------|----------|
 | 01-git-and-code-health | 2 | 6 min | 3 min |
 | 02-mutagenesis-workflow-integrity | 3 | 20 min | 7 min |
-| 03-performance-and-reliability | 1 | 2 min | 2 min |
+| 03-performance-and-reliability | 2 | 4 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-02 (4 min), 02-01 (12 min), 02-02 (4 min), 02-03 (4 min), 03-01 (2 min)
+- Last 5 plans: 02-01 (12 min), 02-02 (4 min), 02-03 (4 min), 03-01 (2 min), 03-02 (2 min)
 - Trend: fast (simple surgical edits)
 
 *Updated after each plan completion*
@@ -64,6 +64,10 @@ Recent decisions affecting current work:
 - [03-01] _check_scanner_api() defined as function (not bare module code) to avoid circular import issues at import time
 - [03-01] OST cap threshold is 3 distinct positions; >3 auto-disables OST, ost_force_override bypasses cap
 - [03-01] ost_auto_disabled_reason stored in context.extra as human-readable string for downstream UI display
+- [03-02] Warnings appear at TOP of _run_phase2() before st.status spinner so user sees them before long execution begins
+- [03-02] Force OST checkbox only shown when >3 positions selected (matches OST cap threshold from 03-01)
+- [03-02] Module-level logger added to llm_guided.py; both inline import logging occurrences replaced with logger.warning()
+- [03-02] context.extra as UI signal bus: agent writes warning string, UI reads and renders st.warning before expensive execution
 
 ### Pending Todos
 
@@ -76,10 +80,12 @@ None yet.
 - ~~Missing approval gate between mutagenesis Phase 1 and Phase 2 is a live correctness bug~~ — RESOLVED by 02-01
 - ~~No Phase 1 state persistence (data loss on browser close)~~ — RESOLVED by 02-02
 - ~~Expert backend overrides silently ignored during pipeline execution~~ — RESOLVED by 02-03
+- ~~OST runs on too many positions causing multi-hour runtimes~~ — RESOLVED by 03-01 (cap) + 03-02 (Force OST override UI)
+- ~~LLM fallback decision invisible to user~~ — RESOLVED by 03-02 (context.extra warning + st.warning)
 - No Phase 1 to Phase 2 integration test — Phase 4 adds it; Phases 2-3 must complete first so there is correct behavior to test
 
 ## Session Continuity
 
 Last session: 2026-02-21
-Stopped at: Completed 03-01-PLAN.md (import-time MutationScanner API gate + OST position cap; 2/2 tasks; 18 tests pass)
+Stopped at: Completed 03-02-PLAN.md (LLM fallback warning to context.extra + Force OST checkbox + st.warning surfaces; 2/2 tasks; 46 tests pass)
 Resume file: None
