@@ -47,7 +47,12 @@ Plans:
   3. When Phase 1 completes, approved mutations, suggestions, and low-confidence positions are written to the job directory on disk
   4. Returning to a completed Phase 1 job (after closing the browser) loads previous results from disk without re-running Phase 1
   5. Selecting a different LLM backend in the expert panel UI causes that agent to use that backend; the change is observable in per-call timing logs
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Enforce Phase 1→2 approval gate: button rename, @st.dialog confirmation, _run_phase2() guard (MUT-01, MUT-02)
+- [ ] 02-02-PLAN.md — Persist Phase 1 results to disk and auto-load on page return (MUT-03, MUT-04)
+- [ ] 02-03-PLAN.md — Thread expert backend overrides into Phase 1 and Phase 2 orchestrator calls; add model name to timing log (MUT-05)
 
 ### Phase 3: Performance & Reliability
 **Goal**: OST scoring does not silently run for hours, fallback paths announce themselves before executing, and version mismatches produce helpful errors
@@ -119,7 +124,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Git & Code Health | 2/2 | Complete   | 2026-02-21 |
-| 2. Mutagenesis Workflow Integrity | 0/TBD | Not started | - |
+| 2. Mutagenesis Workflow Integrity | 0/3 | Not started | - |
 | 3. Performance & Reliability | 0/TBD | Not started | - |
 | 4. Test Coverage | 0/TBD | Not started | - |
 | 5. Reporting | 0/TBD | Not started | - |
