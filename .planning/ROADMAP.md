@@ -12,7 +12,7 @@ Starting from a working multi-predictor pipeline with a recently added mutagenes
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Git & Code Health** - Commit untracked code, delete backup artifact, fix class name typo
+- [x] **Phase 1: Git & Code Health** - Commit untracked code, delete backup artifact, fix class name typo (completed 2026-02-21)
 - [ ] **Phase 2: Mutagenesis Workflow Integrity** - Enforce approval gate, persist state to disk, verify backend overrides
 - [ ] **Phase 3: Performance & Reliability** - Cap OST scoring, surface silent fallbacks, fix fragile scanner init
 - [ ] **Phase 4: Test Coverage** - Integration test Phase 1-2 flow, unit tests for parsing and failure modes
@@ -118,7 +118,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Git & Code Health | 1/2 | In Progress|  |
+| 1. Git & Code Health | 2/2 | Complete   | 2026-02-21 |
 | 2. Mutagenesis Workflow Integrity | 0/TBD | Not started | - |
 | 3. Performance & Reliability | 0/TBD | Not started | - |
 | 4. Test Coverage | 0/TBD | Not started | - |
