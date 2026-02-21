@@ -13,8 +13,8 @@
 
 ### Mutagenesis Workflow
 
-- [ ] **MUT-01**: Phase 2 is blocked if no explicit user approval from Phase 1 (`approved_mutations` empty = no execution)
-- [ ] **MUT-02**: "Approve & Continue" button in UI enforces approval before Phase 2 runs
+- [x] **MUT-01**: Phase 2 is blocked if no explicit user approval from Phase 1 (`approved_mutations` empty = no execution)
+- [x] **MUT-02**: "Approve & Continue" button in UI enforces approval before Phase 2 runs
 - [ ] **MUT-03**: Phase 1 results (approved mutations, suggestions, low-confidence positions) persisted to job directory on disk when Phase 1 completes
 - [ ] **MUT-04**: UI can load previous Phase 1 results when returning to a job (survives browser close)
 - [ ] **MUT-05**: Per-expert backend overrides flow verified end-to-end (session state → orchestrator kwargs → agent constructor)
@@ -92,8 +92,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GIT-01 | Phase 1 | Complete |
 | GIT-02 | Phase 1 | Complete |
 | GIT-03 | Phase 1 | Complete |
-| MUT-01 | Phase 2 | Pending |
-| MUT-02 | Phase 2 | Pending |
+| MUT-01 | Phase 2 | Complete |
+| MUT-02 | Phase 2 | Complete |
 | MUT-03 | Phase 2 | Pending |
 | MUT-04 | Phase 2 | Pending |
 | MUT-05 | Phase 2 | Pending |
