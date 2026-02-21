@@ -31,7 +31,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. `git status` shows `mutagenesis_agents.py` as tracked; orchestrator and registry imports resolve without error after a fresh clone
   2. `10_mutation_scanner.py.bak` no longer exists in the repository and is not restorable from git history
   3. `MutagenesisPipelineReportAgent` is the canonical class name; old name `MutagenesiReportAgent` resolves via an import alias without breaking existing code
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Commit mutagenesis_agents.py to git and delete orphaned .bak backup (GIT-01, GIT-02)
+- [ ] 01-02-PLAN.md — Rename MutagenesiReportAgent to MutagenesisPipelineReportAgent with backward-compatible alias (GIT-03)
 
 ### Phase 2: Mutagenesis Workflow Integrity
 **Goal**: The Phase 1 to Phase 2 mutagenesis transition is correct — approval is enforced, state survives browser close, and backend overrides reach the agents they are intended for
@@ -114,7 +118,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Git & Code Health | 0/TBD | Not started | - |
+| 1. Git & Code Health | 0/2 | Not started | - |
 | 2. Mutagenesis Workflow Integrity | 0/TBD | Not started | - |
 | 3. Performance & Reliability | 0/TBD | Not started | - |
 | 4. Test Coverage | 0/TBD | Not started | - |
