@@ -10,16 +10,16 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 3 of 8 (Performance & Reliability)
-Plan: 0 of TBD in current phase
-Status: Not started
-Last activity: 2026-02-21 — Phase 2 complete: all 5 MUT requirements verified (approval gate, state persistence, backend overrides)
+Plan: 1 of TBD in current phase
+Status: In progress
+Last activity: 2026-02-21 — 03-01 complete: import-time MutationScanner API gate + OST position cap guard (PERF-01, PERF-03)
 
-Progress: [####░░░░░░] 25%
+Progress: [#####░░░░░] 30%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
+- Total plans completed: 8
 - Average duration: 5 min
 - Total execution time: 0.5 hours
 
@@ -29,10 +29,11 @@ Progress: [####░░░░░░] 25%
 |-------|-------|-------|----------|
 | 01-git-and-code-health | 2 | 6 min | 3 min |
 | 02-mutagenesis-workflow-integrity | 3 | 20 min | 7 min |
+| 03-performance-and-reliability | 1 | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (2 min), 01-02 (4 min), 02-01 (12 min), 02-02 (4 min), 02-03 (4 min)
-- Trend: -
+- Last 5 plans: 01-02 (4 min), 02-01 (12 min), 02-02 (4 min), 02-03 (4 min), 03-01 (2 min)
+- Trend: fast (simple surgical edits)
 
 *Updated after each plan completion*
 
@@ -60,6 +61,9 @@ Recent decisions affecting current work:
 - [02-03] _temporary_llm_override wraps orchestrator.run() in both _run_phase1() and _run_phase2() — NOT the AgentOrchestrator constructor
 - [02-03] Model name appended in parentheses to tok_info: tok/s ({model}) — uses agent.resolved_model already computed at line 90 of meeting.py
 - [02-03] UI caption uses try/except to never block UI; falls back to get_settings().llm.{provider,model} when no override selected
+- [03-01] _check_scanner_api() defined as function (not bare module code) to avoid circular import issues at import time
+- [03-01] OST cap threshold is 3 distinct positions; >3 auto-disables OST, ost_force_override bypasses cap
+- [03-01] ost_auto_disabled_reason stored in context.extra as human-readable string for downstream UI display
 
 ### Pending Todos
 
@@ -77,5 +81,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-21
-Stopped at: Completed Phase 2 (02-03: backend overrides wired, model in timing log, UI caption; 5/5 success criteria verified; 46 tests pass)
+Stopped at: Completed 03-01-PLAN.md (import-time MutationScanner API gate + OST position cap; 2/2 tasks; 18 tests pass)
 Resume file: None

@@ -21,9 +21,9 @@
 
 ### Performance
 
-- [ ] **PERF-01**: OST comprehensive scoring made optional with a flag; disabled by default when >3 mutation positions
+- [x] **PERF-01**: OST comprehensive scoring made optional with a flag; disabled by default when >3 mutation positions
 - [ ] **PERF-02**: Silent saturation fallback (LLM plan parsing failure) surfaces a clear warning to user before executing
-- [ ] **PERF-03**: `_build_scanner()` TypeError fallback replaced with explicit version check and helpful ImportError message
+- [x] **PERF-03**: `_build_scanner()` TypeError fallback replaced with explicit version check and helpful ImportError message
 
 ### Testing
 
@@ -97,9 +97,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MUT-03 | Phase 2 | Complete |
 | MUT-04 | Phase 2 | Complete |
 | MUT-05 | Phase 2 | Complete |
-| PERF-01 | Phase 3 | Pending |
+| PERF-01 | Phase 3 | Complete |
 | PERF-02 | Phase 3 | Pending |
-| PERF-03 | Phase 3 | Pending |
+| PERF-03 | Phase 3 | Complete |
 | TEST-01 | Phase 4 | Pending |
 | TEST-02 | Phase 4 | Pending |
 | TEST-03 | Phase 4 | Pending |
