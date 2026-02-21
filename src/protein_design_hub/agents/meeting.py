@@ -11,15 +11,23 @@ as JSON and Markdown.
 The LLM backend is read from ``Settings.llm`` so it works out of the
 box with **Ollama** on localhost (no API key needed).
 
+Performance notes
+-----------------
+* The OpenAI client is cached as a module-level singleton so TCP
+  connections are reused across the ~70 LLM calls in a full pipeline.
+* Ollama GPU checks use a 60 s TTL cache (see ``ollama_gpu.py``).
+* Per-agent call timing is printed so bottlenecks are visible.
+
 Reference: https://github.com/zou-group/virtual-lab
 """
 
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Sequence
+from typing import Dict, List, Literal, Optional, Sequence, Tuple
 
 from protein_design_hub.agents.llm_agent import LLMAgent
 from protein_design_hub.agents import prompts as P
@@ -29,15 +37,43 @@ from protein_design_hub.agents.ollama_gpu import ensure_ollama_gpu, ollama_extra
 Discussion = List[Dict[str, str]]
 
 
-# ── LLM client helper ───────────────────────────────────────────────
+# ── Cached LLM client ─────────────────────────────────────────────
+# Avoids creating a new OpenAI client (TCP connection, TLS handshake)
+# on every single LLM call.  A full pipeline makes ~70 calls.
 
-def _get_llm_client():
-    """Build an OpenAI client using Settings.llm (works with Ollama too)."""
+_cached_client: Optional[object] = None
+_cached_cfg_key: str = ""
+
+
+def _get_llm_client() -> Tuple:
+    """Return a (client, cfg) tuple, reusing the client when config hasn't changed."""
+    global _cached_client, _cached_cfg_key
+
     from openai import OpenAI
     from protein_design_hub.core.config import get_settings
 
     cfg = get_settings().llm.resolve()
-    return OpenAI(base_url=cfg.base_url, api_key=cfg.api_key), cfg
+    cache_key = f"{cfg.base_url}|{cfg.api_key}|{cfg.provider}"
+
+    if _cached_client is not None and cache_key == _cached_cfg_key:
+        return _cached_client, cfg
+
+    client = OpenAI(
+        base_url=cfg.base_url,
+        api_key=cfg.api_key,
+        timeout=120.0,
+        max_retries=2,
+    )
+    _cached_client = client
+    _cached_cfg_key = cache_key
+    return client, cfg
+
+
+def reset_llm_client() -> None:
+    """Force the next call to create a fresh client (e.g. after config change)."""
+    global _cached_client, _cached_cfg_key
+    _cached_client = None
+    _cached_cfg_key = ""
 
 
 def _call_llm(
@@ -48,12 +84,14 @@ def _call_llm(
     """Call the LLM for *agent* using the configured backend.
 
     Works with Ollama, OpenAI, vLLM, LM Studio, or any OpenAI-compatible
-    server.
+    server.  The client is cached for connection reuse.
     """
     client, cfg = _get_llm_client()
     model = agent.resolved_model
     temp = temperature if temperature is not None else cfg.temperature
     agent_messages = [agent.system_message] + messages
+
+    # GPU check (cached with 60 s TTL — NOT every call)
     ensure_ollama_gpu(cfg.provider, model)
 
     kwargs: dict = dict(
@@ -65,9 +103,41 @@ def _call_llm(
         kwargs["max_tokens"] = cfg.max_tokens
     kwargs.update(ollama_extra_body(cfg.provider))
 
+    t0 = time.monotonic()
     response = client.chat.completions.create(**kwargs)
-    ensure_ollama_gpu(cfg.provider, model)
-    return response.choices[0].message.content or ""
+    elapsed = time.monotonic() - t0
+
+    text = response.choices[0].message.content or ""
+
+    # Strip <think>…</think> reasoning blocks from deepseek-r1 and similar
+    # models.  Keep only the final answer for clean meeting transcripts.
+    text = _strip_think_blocks(text)
+
+    tok = getattr(response, "usage", None)
+    tok_info = ""
+    if tok:
+        out_tok = getattr(tok, "completion_tokens", 0) or 0
+        if out_tok and elapsed > 0:
+            tok_info = f", {out_tok} tok, {out_tok / elapsed:.0f} tok/s ({model})"
+    print(f"  [{agent.title}] {elapsed:.1f}s{tok_info}")
+    return text
+
+
+# ── reasoning-block stripper ───────────────────────────────────────
+
+_THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
+
+def _strip_think_blocks(text: str) -> str:
+    """Remove ``<think>…</think>`` blocks produced by reasoning models.
+
+    DeepSeek-R1 (and similar chain-of-thought models) wrap their internal
+    reasoning in ``<think>`` tags.  We strip these so meeting transcripts
+    contain only the final, polished answer.  If stripping would produce
+    an empty string, the original text is returned.
+    """
+    cleaned = _THINK_RE.sub("", text).strip()
+    return cleaned if cleaned else text.strip()
 
 
 # ── saving helpers ──────────────────────────────────────────────────
@@ -155,6 +225,7 @@ def run_meeting(
         raise ValueError(f"Invalid meeting type: {meeting_type}")
 
     start_time = time.time()
+    n_calls = 0
 
     discussion: Discussion = []
     messages: List[Dict[str, str]] = []
@@ -199,6 +270,7 @@ def run_meeting(
                 discussion.append({"agent": "User", "message": prompt})
 
                 reply = _call_llm(agent, messages, temperature)
+                n_calls += 1
                 messages.append({"role": "assistant", "content": reply})
                 discussion.append({"agent": agent.title, "message": reply})
 
@@ -228,6 +300,7 @@ def run_meeting(
                 discussion.append({"agent": "User", "message": prompt})
 
                 reply = _call_llm(agent, messages, temperature)
+                n_calls += 1
                 messages.append({"role": "assistant", "content": reply})
                 discussion.append({"agent": agent.title, "message": reply})
 
@@ -235,7 +308,12 @@ def run_meeting(
                     break
 
     elapsed = time.time() - start_time
-    print(f"Meeting completed in {int(elapsed // 60)}m {int(elapsed % 60):02d}s")
+    avg = elapsed / max(n_calls, 1)
+    print(
+        f"Meeting '{save_name}' completed: {n_calls} calls in "
+        f"{int(elapsed // 60)}m {int(elapsed % 60):02d}s "
+        f"(avg {avg:.1f}s/call)"
+    )
 
     _save_discussion(save_dir, save_name, discussion)
 

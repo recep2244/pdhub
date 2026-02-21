@@ -1639,6 +1639,9 @@ def _run_phase1(sequence: str):
     import tempfile
 
     from protein_design_hub.agents.orchestrator import AgentOrchestrator
+    from protein_design_hub.web.agent_helpers import _temporary_llm_override
+
+    provider, model = _expert_review_overrides()
 
     # Write sequence to temp FASTA
     with tempfile.NamedTemporaryFile(
@@ -1666,10 +1669,11 @@ def _run_phase1(sequence: str):
             allow_failed_llm_steps=True,
         )
 
-        result = orchestrator.run(
-            input_path=fasta_path,
-            predictors=["esmfold_api"],
-        )
+        with _temporary_llm_override(provider, model):
+            result = orchestrator.run(
+                input_path=fasta_path,
+                predictors=["esmfold_api"],
+            )
 
         if result.success and result.context:
             st.session_state.mutagenesis_context = result.context
@@ -1808,6 +1812,16 @@ def _render_approval_step(ctx):
 
     st.caption(f"**{len(included)} positions selected, ~{total_variants} variants to test**")
 
+    try:
+        from protein_design_hub.core.config import get_settings
+        cfg = get_settings().llm
+        _ov_provider, _ov_model = _expert_review_overrides()
+        effective_provider = _ov_provider if _ov_provider and _ov_provider != "current" else cfg.provider
+        effective_model = _ov_model if _ov_model else cfg.model
+        st.caption(f"Using: `{effective_model}` @ `{effective_provider}`")
+    except Exception:
+        pass  # Caption is informational; never block the UI
+
     col1, col2 = st.columns(2)
     with col1:
         approve_disabled = len(included) == 0
@@ -1867,6 +1881,9 @@ def _run_phase2(ctx):
         return
 
     from protein_design_hub.agents.orchestrator import AgentOrchestrator
+    from protein_design_hub.web.agent_helpers import _temporary_llm_override
+
+    provider, model = _expert_review_overrides()
 
     with st.status("Running Phase 2 — Executing Mutations...", expanded=True) as status:
         step_container = st.empty()
@@ -1882,7 +1899,8 @@ def _run_phase2(ctx):
             allow_failed_llm_steps=True,
         )
 
-        result = orchestrator.run_with_context(ctx)
+        with _temporary_llm_override(provider, model):
+            result = orchestrator.run_with_context(ctx)
 
         if result.success and result.context:
             st.session_state.mutagenesis_phase2_context = result.context
