@@ -10,6 +10,7 @@ Supports three modes:
 """
 
 from pathlib import Path
+from datetime import datetime
 from typing import Callable, List, Optional
 
 from protein_design_hub.agents.base import AgentResult, BaseAgent
@@ -20,6 +21,7 @@ from protein_design_hub.agents.registry import AgentRegistry
 # Agent display names for progress
 _AGENT_LABELS = {
     "input": "Parsing input sequences",
+    "llm_input_review": "Input review (LLM team: sequence validation)",
     "llm_planning": "Planning meeting (LLM team discussion)",
     "prediction": "Running structure predictors",
     "llm_prediction_review": "Prediction review (LLM team: Structural Biologist + Liam)",
@@ -28,7 +30,29 @@ _AGENT_LABELS = {
     "llm_evaluation_review": "Evaluation review (LLM team: Biophysicist + Liam)",
     "llm_refinement_review": "Refinement strategy (LLM team: Digital Recep + Liam)",
     "llm_mutagenesis_planning": "Mutagenesis planning (LLM team: Protein Engineer + ML Specialist)",
+    "llm_report_narrative": "Executive summary (LLM team: synthesising all results)",
     "report": "Generating reports",
+    # Mutagenesis pipeline agents
+    "llm_baseline_review": "Baseline review (LLM team)",
+    "llm_mutation_suggestion": "Mutation suggestion (LLM team)",
+    "mutation_execution": "Executing mutations",
+    "mutation_comparison": "Comparing mutants vs WT",
+    "llm_mutation_results": "Results interpretation (LLM team)",
+    "mutagenesis_report": "Generating mutagenesis report",
+}
+
+_LLM_VERDICT_KEYS = {
+    "llm_input_review": "input_review",
+    "llm_planning": "planning",
+    "llm_prediction_review": "prediction_review",
+    "llm_evaluation_review": "evaluation_review",
+    "llm_refinement_review": "refinement_review",
+    "llm_mutagenesis_planning": "mutagenesis_planning",
+    "llm_report_narrative": "executive_summary",
+    # Mutagenesis pipeline verdict keys
+    "llm_baseline_review": "baseline_review",
+    "llm_mutation_suggestion": "mutation_suggestion",
+    "llm_mutation_results": "mutation_results_review",
 }
 
 
@@ -43,34 +67,97 @@ def _build_llm_guided_pipeline(
     from protein_design_hub.agents.comparison_agent import ComparisonAgent
     from protein_design_hub.agents.report_agent import ReportAgent
     from protein_design_hub.agents.llm_guided import (
+        LLMInputReviewAgent,
         LLMPlanningAgent,
         LLMPredictionReviewAgent,
         LLMEvaluationReviewAgent,
         LLMRefinementReviewAgent,
         LLMMutagenesisPlanningAgent,
+        LLMReportNarrativeAgent,
     )
 
     return [
         # 1. Parse input
         InputAgent(progress_callback=progress_callback),
-        # 2. Team meeting: plan predictors, metrics, params
+        # 2. Team meeting: validate input sequences & identify characteristics
+        LLMInputReviewAgent(progress_callback=progress_callback, **kwargs),
+        # 3. Team meeting: plan predictors, metrics, params
         LLMPlanningAgent(progress_callback=progress_callback, **kwargs),
-        # 3. Run predictions
+        # 4. Run predictions
         PredictionAgent(progress_callback=progress_callback),
-        # 4. Team meeting: review prediction quality (Structural Bio + Liam + Critic)
+        # 5. Team meeting: review prediction quality (Structural Bio + Liam + Critic)
         LLMPredictionReviewAgent(progress_callback=progress_callback, **kwargs),
-        # 5. Evaluate structures
+        # 6. Evaluate structures
         EvaluationAgent(progress_callback=progress_callback),
-        # 6. Compare and rank
+        # 7. Compare and rank
         ComparisonAgent(progress_callback=progress_callback),
-        # 7. Team meeting: interpret evaluation (Biophysicist + Liam + Critic)
+        # 8. Team meeting: interpret evaluation (Biophysicist + Liam + Critic)
         LLMEvaluationReviewAgent(progress_callback=progress_callback, **kwargs),
-        # 8. Team meeting: refinement strategy (Digital Recep + Liam + Critic)
+        # 9. Team meeting: refinement strategy (Digital Recep + Liam + Critic)
         LLMRefinementReviewAgent(progress_callback=progress_callback, **kwargs),
-        # 9. Team meeting: mutagenesis & design planning (Protein Engineer + ML + Biophysicist)
+        # 10. Team meeting: mutagenesis & design planning (Protein Engineer + ML + Biophysicist)
         LLMMutagenesisPlanningAgent(progress_callback=progress_callback, **kwargs),
-        # 10. Write reports
+        # 11. Team meeting: synthesise all results into executive summary
+        LLMReportNarrativeAgent(progress_callback=progress_callback, **kwargs),
+        # 12. Write reports
         ReportAgent(progress_callback=progress_callback),
+    ]
+
+
+def _build_mutagenesis_pre_approval_pipeline(
+    progress_callback: Optional[Callable] = None,
+    **kwargs,
+) -> List[BaseAgent]:
+    """Build Phase 1: understanding + baseline + suggestion (7 agents)."""
+    from protein_design_hub.agents.input_agent import InputAgent
+    from protein_design_hub.agents.prediction_agent import PredictionAgent
+    from protein_design_hub.agents.evaluation_agent import EvaluationAgent
+    from protein_design_hub.agents.comparison_agent import ComparisonAgent
+    from protein_design_hub.agents.llm_guided import (
+        LLMInputReviewAgent,
+        LLMBaselineReviewAgent,
+        LLMMutationSuggestionAgent,
+    )
+
+    return [
+        # 1. Parse input
+        InputAgent(progress_callback=progress_callback),
+        # 2. LLM review input sequences
+        LLMInputReviewAgent(progress_callback=progress_callback, **kwargs),
+        # 3. Run structure predictions (WT baseline)
+        PredictionAgent(progress_callback=progress_callback),
+        # 4. Evaluate WT structures
+        EvaluationAgent(progress_callback=progress_callback),
+        # 5. Compare and rank predictors
+        ComparisonAgent(progress_callback=progress_callback),
+        # 6. LLM team reviews WT baseline in detail
+        LLMBaselineReviewAgent(progress_callback=progress_callback, **kwargs),
+        # 7. LLM team suggests specific mutations
+        LLMMutationSuggestionAgent(progress_callback=progress_callback, **kwargs),
+    ]
+
+
+def _build_mutagenesis_post_approval_pipeline(
+    progress_callback: Optional[Callable] = None,
+    **kwargs,
+) -> List[BaseAgent]:
+    """Build Phase 2: execution + analysis + interpretation (4 agents)."""
+    from protein_design_hub.agents.mutagenesis_agents import (
+        MutationExecutionAgent,
+        MutationComparisonAgent,
+        MutagenesisPipelineReportAgent,
+    )
+    from protein_design_hub.agents.llm_guided import LLMMutationResultsAgent
+
+    return [
+        # 8. Execute approved mutations
+        MutationExecutionAgent(progress_callback=progress_callback),
+        # 9. Compare mutants vs WT
+        MutationComparisonAgent(progress_callback=progress_callback),
+        # 10. LLM team interprets results
+        LLMMutationResultsAgent(progress_callback=progress_callback, **kwargs),
+        # 11. Generate mutagenesis report
+        MutagenesisPipelineReportAgent(progress_callback=progress_callback),
     ]
 
 
@@ -85,6 +172,7 @@ class AgentOrchestrator:
         agents: Optional[List[BaseAgent]] = None,
         mode: str = "step",
         stop_on_failure: bool = True,
+        allow_failed_llm_steps: bool = False,
         progress_callback: Optional[Callable[[str, str, int, int], None]] = None,
         **kwargs,
     ):
@@ -92,8 +180,12 @@ class AgentOrchestrator:
         Args:
             agents: Explicit list of agents (overrides *mode*).
             mode: ``"step"`` for computational-only pipeline,
-                  ``"llm"`` for LLM-guided pipeline with meetings.
+                  ``"llm"`` for LLM-guided pipeline with meetings,
+                  ``"mutagenesis_pre"`` for Phase 1 mutagenesis (7 agents),
+                  ``"mutagenesis_post"`` for Phase 2 mutagenesis (4 agents).
             stop_on_failure: If True, stop as soon as an agent fails.
+            allow_failed_llm_steps: If True, continue even when an LLM step
+                returns a FAIL verdict (this is logged in context.extra["policy_log"]).
             progress_callback: Optional callback(stage, item, current, total).
             **kwargs: Forwarded to LLM meeting agents (e.g. num_rounds).
         """
@@ -103,6 +195,14 @@ class AgentOrchestrator:
             self.agents = _build_llm_guided_pipeline(
                 progress_callback=progress_callback, **kwargs,
             )
+        elif mode == "mutagenesis_pre":
+            self.agents = _build_mutagenesis_pre_approval_pipeline(
+                progress_callback=progress_callback, **kwargs,
+            )
+        elif mode == "mutagenesis_post":
+            self.agents = _build_mutagenesis_post_approval_pipeline(
+                progress_callback=progress_callback, **kwargs,
+            )
         else:
             self.agents = AgentRegistry.get_default_pipeline(
                 progress_callback=progress_callback,
@@ -110,6 +210,7 @@ class AgentOrchestrator:
 
         self.mode = mode
         self.stop_on_failure = stop_on_failure
+        self.allow_failed_llm_steps = allow_failed_llm_steps
         self.progress_callback = progress_callback
 
     def describe_pipeline(self) -> List[dict]:
@@ -174,5 +275,32 @@ class AgentOrchestrator:
                 return result
             if result.context is not None:
                 context = result.context
+
+            verdict_key = _LLM_VERDICT_KEYS.get(agent_name)
+            if verdict_key:
+                verdict = context.step_verdicts.get(verdict_key, {})
+                status = str(verdict.get("status", "")).upper()
+                if status == "FAIL":
+                    policy_log = context.extra.setdefault("policy_log", [])
+                    event = {
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "step": agent_name,
+                        "verdict_key": verdict_key,
+                        "status": "FAIL",
+                        "message": (
+                            f"LLM verdict for '{verdict_key}' is FAIL; "
+                            + ("continuing due to explicit override." if self.allow_failed_llm_steps else "halting pipeline.")
+                        ),
+                    }
+                    policy_log.append(event)
+                    if not self.allow_failed_llm_steps:
+                        return AgentResult(
+                            success=False,
+                            message=(
+                                f"Pipeline halted by policy: step '{verdict_key}' returned FAIL. "
+                                "Use explicit override to continue."
+                            ),
+                            context=context,
+                        )
 
         return AgentResult.ok(context, "Pipeline completed")

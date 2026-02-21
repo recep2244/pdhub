@@ -61,15 +61,39 @@ class AgentRegistry:
 def _register_llm_agents() -> None:
     """Register LLM-guided agents into the global registry."""
     from protein_design_hub.agents.llm_guided import (
+        LLMInputReviewAgent,
         LLMPlanningAgent,
         LLMPredictionReviewAgent,
         LLMEvaluationReviewAgent,
         LLMRefinementReviewAgent,
+        LLMMutagenesisPlanningAgent,
+        LLMReportNarrativeAgent,
+        LLMBaselineReviewAgent,
+        LLMMutationSuggestionAgent,
+        LLMMutationResultsAgent,
     )
+    AgentRegistry.register("llm_input_review", LLMInputReviewAgent)
     AgentRegistry.register("llm_planning", LLMPlanningAgent)
     AgentRegistry.register("llm_prediction_review", LLMPredictionReviewAgent)
     AgentRegistry.register("llm_evaluation_review", LLMEvaluationReviewAgent)
     AgentRegistry.register("llm_refinement_review", LLMRefinementReviewAgent)
+    AgentRegistry.register("llm_mutagenesis_planning", LLMMutagenesisPlanningAgent)
+    AgentRegistry.register("llm_report_narrative", LLMReportNarrativeAgent)
+    AgentRegistry.register("llm_baseline_review", LLMBaselineReviewAgent)
+    AgentRegistry.register("llm_mutation_suggestion", LLMMutationSuggestionAgent)
+    AgentRegistry.register("llm_mutation_results", LLMMutationResultsAgent)
+
+
+def _register_mutagenesis_agents() -> None:
+    """Register computational mutagenesis agents into the global registry."""
+    from protein_design_hub.agents.mutagenesis_agents import (
+        MutationExecutionAgent,
+        MutationComparisonAgent,
+        MutagenesisPipelineReportAgent,
+    )
+    AgentRegistry.register("mutation_execution", MutationExecutionAgent)
+    AgentRegistry.register("mutation_comparison", MutationComparisonAgent)
+    AgentRegistry.register("mutagenesis_report", MutagenesisPipelineReportAgent)
 
 
 # Auto-register LLM agents on import
@@ -77,3 +101,9 @@ try:
     _register_llm_agents()
 except Exception:
     pass  # LLM deps may not be installed
+
+# Auto-register mutagenesis agents on import
+try:
+    _register_mutagenesis_agents()
+except Exception:
+    pass
