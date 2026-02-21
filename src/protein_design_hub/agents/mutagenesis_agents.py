@@ -7,6 +7,7 @@ runs after the user has approved the mutation suggestions from Phase 1.
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from datetime import datetime
@@ -22,26 +23,40 @@ logger = logging.getLogger(__name__)
 _VALID_AAS = set("ACDEFGHIKLMNPQRSTVWY")
 
 
-def _build_scanner(output_dir: Optional[Path] = None):
-    """Create a MutationScanner with OpenStructure and evaluation metrics enabled."""
+def _check_scanner_api() -> None:
+    """Raise ImportError if MutationScanner is missing required constructor parameters."""
+    from protein_design_hub.analysis.mutation_scanner import MutationScanner
+    sig = inspect.signature(MutationScanner.__init__)
+    if "run_openstructure_comprehensive" not in sig.parameters:
+        raise ImportError(
+            "mutagenesis_agents requires MutationScanner with "
+            "'run_openstructure_comprehensive' parameter (added 2025-Q4). "
+            "Upgrade protein_design_hub or reinstall from source: "
+            "'pip install -e .' from the project root."
+        )
+
+
+_check_scanner_api()
+
+
+def _build_scanner(output_dir: Optional[Path] = None, run_ost: bool = True):
+    """Create a MutationScanner with evaluation metrics enabled.
+
+    Args:
+        output_dir: Directory to write per-mutant structure files.
+        run_ost: If True, run OpenStructure comprehensive scoring per mutant.
+                 Auto-disabled by MutationExecutionAgent.run() when >3 positions.
+    """
     from protein_design_hub.analysis.mutation_scanner import MutationScanner
 
     kwargs: dict[str, Any] = {
         "predictor": "esmfold_api",
         "evaluation_metrics": ["openmm_gbsa", "cad_score", "voromqa"],
-        "run_openstructure_comprehensive": True,
+        "run_openstructure_comprehensive": run_ost,
     }
     if output_dir:
         kwargs["output_dir"] = output_dir
-
-    try:
-        return MutationScanner(**kwargs)
-    except TypeError:
-        # Older version without run_openstructure_comprehensive
-        kwargs.pop("run_openstructure_comprehensive", None)
-        scanner = MutationScanner(**kwargs)
-        setattr(scanner, "run_openstructure_comprehensive", True)
-        return scanner
+    return MutationScanner(**kwargs)
 
 
 def _extract_ost_metrics(extra_metrics: dict) -> dict:
@@ -112,7 +127,21 @@ class MutationExecutionAgent(BaseAgent):
             mut_dir = job_dir / "mutagenesis" / "structures"
             mut_dir.mkdir(parents=True, exist_ok=True)
 
-            scanner = _build_scanner(output_dir=mut_dir)
+            # PERF-01: OST position cap — auto-disable when >3 distinct positions
+            n_positions = len({entry["residue"] for entry in approved})
+            force_ost = context.extra.get("ost_force_override", False)
+            if n_positions > 3 and not force_ost:
+                _reason = (
+                    f"OST comprehensive scoring auto-disabled: {n_positions} positions > 3 position limit. "
+                    f"Set context.extra['ost_force_override'] = True or enable the Force OST checkbox to override."
+                )
+                logger.warning(_reason)
+                context.extra["ost_auto_disabled"] = True
+                context.extra["ost_auto_disabled_reason"] = _reason
+                scanner = _build_scanner(output_dir=mut_dir, run_ost=False)
+            else:
+                context.extra["ost_auto_disabled"] = False
+                scanner = _build_scanner(output_dir=mut_dir, run_ost=True)
 
             all_results: List[Dict[str, Any]] = []
             wt_plddt: Optional[float] = None
