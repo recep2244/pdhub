@@ -17,7 +17,7 @@
 - [x] **MUT-02**: "Approve & Continue" button in UI enforces approval before Phase 2 runs
 - [x] **MUT-03**: Phase 1 results (approved mutations, suggestions, low-confidence positions) persisted to job directory on disk when Phase 1 completes
 - [x] **MUT-04**: UI can load previous Phase 1 results when returning to a job (survives browser close)
-- [ ] **MUT-05**: Per-expert backend overrides flow verified end-to-end (session state → orchestrator kwargs → agent constructor)
+- [x] **MUT-05**: Per-expert backend overrides flow verified end-to-end (session state → orchestrator kwargs → agent constructor)
 
 ### Performance
 
@@ -96,7 +96,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MUT-02 | Phase 2 | Complete |
 | MUT-03 | Phase 2 | Complete |
 | MUT-04 | Phase 2 | Complete |
-| MUT-05 | Phase 2 | Pending |
+| MUT-05 | Phase 2 | Complete |
 | PERF-01 | Phase 3 | Pending |
 | PERF-02 | Phase 3 | Pending |
 | PERF-03 | Phase 3 | Pending |

@@ -5,33 +5,33 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** A reliable, end-to-end protein design workflow where a researcher goes from sequence to structure to expert analysis to mutagenesis to report without data loss, silent failures, or manual workarounds.
-**Current focus:** Phase 2 - Mutagenesis Workflow Integrity
+**Current focus:** Phase 3 - Performance & Reliability
 
 ## Current Position
 
-Phase: 2 of 8 (Mutagenesis Workflow Integrity)
-Plan: 2 of TBD in current phase
-Status: In progress
-Last activity: 2026-02-21 — Plan 02-02 complete: Phase 1 state persistence (save + auto-load) in mutation scanner
+Phase: 3 of 8 (Performance & Reliability)
+Plan: 0 of TBD in current phase
+Status: Not started
+Last activity: 2026-02-21 — Phase 2 complete: all 5 MUT requirements verified (approval gate, state persistence, backend overrides)
 
-Progress: [###░░░░░░░] 20%
+Progress: [####░░░░░░] 25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
+- Total plans completed: 7
 - Average duration: 5 min
-- Total execution time: 0.3 hours
+- Total execution time: 0.5 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-git-and-code-health | 2 | 6 min | 3 min |
-| 02-mutagenesis-workflow-integrity | 2 | 16 min | 8 min |
+| 02-mutagenesis-workflow-integrity | 3 | 20 min | 7 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (2 min), 01-02 (4 min), 02-01 (12 min), 02-02 (4 min)
+- Last 5 plans: 01-01 (2 min), 01-02 (4 min), 02-01 (12 min), 02-02 (4 min), 02-03 (4 min)
 - Trend: -
 
 *Updated after each plan completion*
@@ -44,7 +44,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
 - qwen2.5:14b as default LLM (best quality/fit for 12 GB VRAM)
-- Phase 1/Phase 2 mutagenesis split (allows user review before expensive execution) — approval gate not yet enforced, Phase 2 fixes this
+- Phase 1/Phase 2 mutagenesis split (allows user review before expensive execution) — approval gate enforced by 02-01
 - OST comprehensive scoring per mutant flagged for revisit — Phase 3 addresses cap/optional flag
 - [01-01] *.bak confirmed safe to delete: current 10_mutation_scanner.py is superset of .bak (contains _render_manual_tab_settings() refactor)
 - [01-01] *.bak added to Temporary files section of .gitignore alongside *.tmp
@@ -57,6 +57,9 @@ Recent decisions affecting current work:
 - [02-02] Save to _ensure_mutagenesis_job_dir() path (mutagenesis session dir), NOT context.with_job_dir() (temp FASTA job dir — different directory)
 - [02-02] No st.rerun() after auto-load — Streamlit reads newly-set session state in same script execution cycle
 - [02-02] ctx.job_dir set explicitly after WorkflowContext construction to avoid mis-derived path from with_job_dir()
+- [02-03] _temporary_llm_override wraps orchestrator.run() in both _run_phase1() and _run_phase2() — NOT the AgentOrchestrator constructor
+- [02-03] Model name appended in parentheses to tok_info: tok/s ({model}) — uses agent.resolved_model already computed at line 90 of meeting.py
+- [02-03] UI caption uses try/except to never block UI; falls back to get_settings().llm.{provider,model} when no override selected
 
 ### Pending Todos
 
@@ -68,10 +71,11 @@ None yet.
 - ~~Class name typo MutagenesiReportAgent (missing 's')~~ — RESOLVED by 01-02
 - ~~Missing approval gate between mutagenesis Phase 1 and Phase 2 is a live correctness bug~~ — RESOLVED by 02-01
 - ~~No Phase 1 state persistence (data loss on browser close)~~ — RESOLVED by 02-02
+- ~~Expert backend overrides silently ignored during pipeline execution~~ — RESOLVED by 02-03
 - No Phase 1 to Phase 2 integration test — Phase 4 adds it; Phases 2-3 must complete first so there is correct behavior to test
 
 ## Session Continuity
 
 Last session: 2026-02-21
-Stopped at: Completed 02-02-PLAN.md (phase1 persistence: _save_phase1_state, _load_phase1_state, _find_latest_phase1_state, auto-save wiring in _run_phase1, auto-load before phase1_done, 46 tests pass)
+Stopped at: Completed Phase 2 (02-03: backend overrides wired, model in timing log, UI caption; 5/5 success criteria verified; 46 tests pass)
 Resume file: None

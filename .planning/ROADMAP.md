@@ -13,7 +13,7 @@ Starting from a working multi-predictor pipeline with a recently added mutagenes
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Git & Code Health** - Commit untracked code, delete backup artifact, fix class name typo (completed 2026-02-21)
-- [ ] **Phase 2: Mutagenesis Workflow Integrity** - Enforce approval gate, persist state to disk, verify backend overrides
+- [x] **Phase 2: Mutagenesis Workflow Integrity** - Enforce approval gate, persist state to disk, verify backend overrides (completed 2026-02-21)
 - [ ] **Phase 3: Performance & Reliability** - Cap OST scoring, surface silent fallbacks, fix fragile scanner init
 - [ ] **Phase 4: Test Coverage** - Integration test Phase 1-2 flow, unit tests for parsing and failure modes
 - [ ] **Phase 5: Reporting** - Mutation ranking charts, per-residue pLDDT visualization, OST metric table, PDF/HTML export
@@ -50,9 +50,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Enforce Phase 1→2 approval gate: button rename, @st.dialog confirmation, _run_phase2() guard (MUT-01, MUT-02)
-- [ ] 02-02-PLAN.md — Persist Phase 1 results to disk and auto-load on page return (MUT-03, MUT-04)
-- [ ] 02-03-PLAN.md — Thread expert backend overrides into Phase 1 and Phase 2 orchestrator calls; add model name to timing log (MUT-05)
+- [x] 02-01-PLAN.md — Enforce Phase 1→2 approval gate: button rename, @st.dialog confirmation, _run_phase2() guard (MUT-01, MUT-02)
+- [x] 02-02-PLAN.md — Persist Phase 1 results to disk and auto-load on page return (MUT-03, MUT-04)
+- [x] 02-03-PLAN.md — Thread expert backend overrides into Phase 1 and Phase 2 orchestrator calls; add model name to timing log (MUT-05)
 
 ### Phase 3: Performance & Reliability
 **Goal**: OST scoring does not silently run for hours, fallback paths announce themselves before executing, and version mismatches produce helpful errors
@@ -124,7 +124,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Git & Code Health | 2/2 | Complete   | 2026-02-21 |
-| 2. Mutagenesis Workflow Integrity | 2/3 | In Progress|  |
+| 2. Mutagenesis Workflow Integrity | 3/3 | Complete   | 2026-02-21 |
 | 3. Performance & Reliability | 0/TBD | Not started | - |
 | 4. Test Coverage | 0/TBD | Not started | - |
 | 5. Reporting | 0/TBD | Not started | - |
