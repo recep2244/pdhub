@@ -1575,7 +1575,22 @@ def _render_agent_pipeline_tab():
             "Configure one in the Settings page or use the **Advanced / Manual** tab."
         )
 
+    # MUT-04: auto-load Phase 1 results from disk if not already in session state
     phase1_ctx = st.session_state.get("mutagenesis_context")
+    if phase1_ctx is None:
+        # Try known job dir first (same session, page refresh)
+        _stored_job_dir = st.session_state.get("mutagenesis_job_dir", "")
+        _loaded_ctx = None
+        if _stored_job_dir:
+            _loaded_ctx = _load_phase1_state(Path(_stored_job_dir))
+        # Fall back to searching all session dirs (browser close + reload)
+        if _loaded_ctx is None:
+            _loaded_ctx = _find_latest_phase1_state()
+        if _loaded_ctx is not None:
+            st.session_state.mutagenesis_context = _loaded_ctx
+            phase1_ctx = _loaded_ctx
+            st.caption("Loaded from previous session")
+
     phase1_done = phase1_ctx is not None and phase1_ctx.extra.get("mutation_suggestions") is not None
 
     if not phase1_done:
@@ -1658,6 +1673,12 @@ def _run_phase1(sequence: str):
 
         if result.success and result.context:
             st.session_state.mutagenesis_context = result.context
+            # MUT-03: persist Phase 1 results to disk for session resume
+            try:
+                job_dir = _ensure_mutagenesis_job_dir()
+                _save_phase1_state(result.context, job_dir)
+            except Exception as _save_err:
+                logger.warning("Phase 1 state save failed: %s", _save_err)
             status.update(label="Phase 1 complete!", state="complete")
         else:
             status.update(label="Phase 1 failed", state="error")
