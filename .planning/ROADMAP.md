@@ -62,7 +62,11 @@ Plans:
   1. Running mutagenesis with more than 3 mutation positions and OST enabled shows a warning and automatically disables OST comprehensive scoring; user can override with an explicit flag
   2. When LLM mutation plan parsing fails, the UI displays a clear warning ("LLM plan unparseable — falling back to saturation at N positions") before any mutations are executed
   3. Importing `mutagenesis_agents` against an incompatible MutationScanner version raises an `ImportError` with a message stating the minimum required version, not a silent `TypeError` at runtime
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Import-time version gate (_check_scanner_api) and OST position-count cap in MutationExecutionAgent (PERF-03, PERF-01)
+- [ ] 03-02-PLAN.md — Surface saturation fallback warning via context.extra and add Force OST checkbox to UI (PERF-02, PERF-01)
 
 ### Phase 4: Test Coverage
 **Goal**: The mutagenesis workflow has automated tests covering the critical Phase 1 to Phase 2 transition, parsing edge cases, and agent failure modes so that refactoring cannot break the workflow silently
@@ -125,7 +129,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 |-------|----------------|--------|-----------|
 | 1. Git & Code Health | 2/2 | Complete   | 2026-02-21 |
 | 2. Mutagenesis Workflow Integrity | 3/3 | Complete   | 2026-02-21 |
-| 3. Performance & Reliability | 0/TBD | Not started | - |
+| 3. Performance & Reliability | 0/2 | Not started | - |
 | 4. Test Coverage | 0/TBD | Not started | - |
 | 5. Reporting | 0/TBD | Not started | - |
 | 6. New Agent Workflows | 0/TBD | Not started | - |
