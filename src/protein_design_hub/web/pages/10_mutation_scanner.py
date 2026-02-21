@@ -9,6 +9,7 @@ This page provides:
 6. Side-by-side structure comparison
 """
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -50,8 +51,10 @@ from protein_design_hub.web.agent_helpers import (
     agent_sidebar_status,
     render_all_experts_panel,
 )
-from datetime import datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
+
+logger = logging.getLogger(__name__)
 
 st.set_page_config(
     page_title="Mutation Scanner - Protein Design Hub",
@@ -630,6 +633,88 @@ def _ensure_mutagenesis_job_dir() -> Path:
     st.session_state.mutagenesis_job_dir = str(job_dir)
     st.session_state.active_job_dir = str(job_dir)
     return job_dir
+
+
+def _save_phase1_state(ctx: "WorkflowContext", job_dir: Path) -> None:
+    """Persist Phase 1 results to disk for session resume (MUT-03).
+
+    Serializes only the context.extra fields needed for Phase 2 — not the full
+    WorkflowContext which contains non-JSON-serializable objects.
+    """
+    state = {
+        "schema_version": 1,
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+        "job_id": ctx.job_id,
+        "output_dir": str(ctx.output_dir),
+        "sequence_id": ctx.sequences[0].id if ctx.sequences else "",
+        "sequence": ctx.sequences[0].sequence if ctx.sequences else "",
+        "mutation_suggestions": ctx.extra.get("mutation_suggestions"),
+        "baseline_low_confidence_positions": ctx.extra.get("baseline_low_confidence_positions", []),
+        "baseline_review": ctx.extra.get("baseline_review", ""),
+        "mutation_suggestion_raw": ctx.extra.get("mutation_suggestion_raw", ""),
+        "mutation_suggestion_source": ctx.extra.get("mutation_suggestion_source", "unknown"),
+    }
+    path = job_dir / "phase1_state.json"
+    path.write_text(json.dumps(state, indent=2, default=str))
+
+
+def _load_phase1_state(job_dir: Path) -> Optional["WorkflowContext"]:
+    """Load Phase 1 results from a known job directory (MUT-04).
+
+    Returns None if phase1_state.json does not exist or cannot be parsed.
+    """
+    path = job_dir / "phase1_state.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        if data.get("schema_version") != 1:
+            return None
+        from protein_design_hub.agents.context import WorkflowContext
+        from protein_design_hub.core.types import Sequence as ProteinSequence
+        ctx = WorkflowContext(
+            job_id=data["job_id"],
+            output_dir=Path(data["output_dir"]),
+        )
+        ctx.job_dir = job_dir  # Critical: set explicitly to avoid mis-derived path
+        if data.get("sequence"):
+            ctx.sequences = [
+                ProteinSequence(id=data.get("sequence_id", ""), sequence=data["sequence"])
+            ]
+        ctx.extra["mutation_suggestions"] = data.get("mutation_suggestions")
+        ctx.extra["baseline_low_confidence_positions"] = data.get(
+            "baseline_low_confidence_positions", []
+        )
+        ctx.extra["baseline_review"] = data.get("baseline_review", "")
+        ctx.extra["mutation_suggestion_raw"] = data.get("mutation_suggestion_raw", "")
+        ctx.extra["mutation_suggestion_source"] = data.get("mutation_suggestion_source", "unknown")
+        return ctx
+    except Exception:
+        return None
+
+
+def _find_latest_phase1_state() -> Optional["WorkflowContext"]:
+    """Search output directory for the most recent phase1_state.json (MUT-04).
+
+    Used when st.session_state.mutagenesis_job_dir is empty (browser close + reload).
+    Looks in settings.output.base_dir for mutagenesis_session_* directories sorted by mtime.
+    Returns reconstructed WorkflowContext or None if no valid state found.
+    """
+    try:
+        from protein_design_hub.core.config import get_settings
+        base_dir = Path(get_settings().output.base_dir)
+        session_dirs = sorted(
+            base_dir.glob("mutagenesis_session_*"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for session_dir in session_dirs:
+            ctx = _load_phase1_state(session_dir)
+            if ctx is not None:
+                return ctx
+        return None
+    except Exception:
+        return None
 
 
 def _meeting_save_dir() -> Path:
