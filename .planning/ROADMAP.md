@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Git & Code Health** - Commit untracked code, delete backup artifact, fix class name typo (completed 2026-02-21)
 - [x] **Phase 2: Mutagenesis Workflow Integrity** - Enforce approval gate, persist state to disk, verify backend overrides (completed 2026-02-21)
 - [x] **Phase 3: Performance & Reliability** - Cap OST scoring, surface silent fallbacks, fix fragile scanner init (completed 2026-02-21)
-- [ ] **Phase 4: Test Coverage** - Integration test Phase 1-2 flow, unit tests for parsing and failure modes
+- [x] **Phase 4: Test Coverage** - Integration test Phase 1-2 flow, unit tests for parsing and failure modes (completed 2026-02-22)
 - [ ] **Phase 5: Reporting** - Mutation ranking charts, per-residue pLDDT visualization, OST metric table, PDF/HTML export
 - [ ] **Phase 6: New Agent Workflows** - Antibody design pipeline, binding affinity analysis workflow
 - [ ] **Phase 7: Async Job Queue** - Background job submission, sequential multi-protein execution, live status in UI
@@ -134,7 +134,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 1. Git & Code Health | 2/2 | Complete   | 2026-02-21 |
 | 2. Mutagenesis Workflow Integrity | 3/3 | Complete   | 2026-02-21 |
 | 3. Performance & Reliability | 2/2 | Complete    | 2026-02-21 |
-| 4. Test Coverage | 1/2 | In Progress|  |
+| 4. Test Coverage | 2/2 | Complete   | 2026-02-22 |
 | 5. Reporting | 0/TBD | Not started | - |
 | 6. New Agent Workflows | 0/TBD | Not started | - |
 | 7. Async Job Queue | 0/TBD | Not started | - |

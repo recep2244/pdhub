@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 4 of 8 (Test Coverage)
-Plan: 1 of 2 in current phase
-Status: Phase 4 in progress — 04-01 complete, 04-02 pending
-Last activity: 2026-02-22 — 04-01 complete: mutagenesis workflow unit tests (TEST-02, TEST-04, TEST-05); 52 tests pass
+Plan: 2 of 2 in current phase
+Status: Phase 4 complete — 04-01 complete, 04-02 complete
+Last activity: 2026-02-22 — 04-02 complete: TEST-03 failure modes + TEST-01 Phase 1/Phase 2 integration; 56 tests pass
 
-Progress: [#######░░░] 40%
+Progress: [########░░] 50%
 
 ## Performance Metrics
 
@@ -37,6 +37,7 @@ Progress: [#######░░░] 40%
 
 *Updated after each plan completion*
 | Phase 04-test-coverage P01 | 5 | 2 tasks | 1 files |
+| Phase 04-test-coverage P02 | 12 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,9 @@ Recent decisions affecting current work:
 - [03-02] context.extra as UI signal bus: agent writes warning string, UI reads and renders st.warning before expensive execution
 - [Phase 04-test-coverage]: [04-01] _load_scanner_page uses patch() for UI helpers + real streamlit with AttrDict session_state; plan's pure MagicMock failed because ui.py holds real st refs at import time
 - [Phase 04-test-coverage]: [04-01] AttrDict(dict) subclass supports both session_state['key'] and session_state.key attribute-style access used by 10_mutation_scanner.py at module level
+- [Phase 04-test-coverage]: [04-02] MutationScanner imported from protein_design_hub.analysis.mutation_scanner (not mutagenesis_agents which does not re-export it)
+- [Phase 04-test-coverage]: [04-02] TEST-01 uses patch.object(real_scanner, "predict_single") + _build_scanner patch to return real instance — real __init__ exercised, no HTTP calls
+- [Phase 04-test-coverage]: [04-02] TEST-01 excludes MutationComparisonAgent from Phase 2 pipeline — only MutationExecutionAgent needed to verify approved_mutations → mutation_results flow
 
 ### Pending Todos
 
@@ -85,10 +89,10 @@ None yet.
 - ~~Expert backend overrides silently ignored during pipeline execution~~ — RESOLVED by 02-03
 - ~~OST runs on too many positions causing multi-hour runtimes~~ — RESOLVED by 03-01 (cap) + 03-02 (Force OST override UI)
 - ~~LLM fallback decision invisible to user~~ — RESOLVED by 03-02 (context.extra warning + st.warning)
-- No Phase 1 to Phase 2 integration test — Phase 4 adds it; Phases 2-3 must complete first so there is correct behavior to test
+- ~~No Phase 1 to Phase 2 integration test~~ — RESOLVED by 04-02 (TEST-01 integration test)
 
 ## Session Continuity
 
 Last session: 2026-02-22
-Stopped at: Completed 04-01-PLAN.md (mutagenesis workflow unit tests; 2 tasks; 52 tests pass)
+Stopped at: Completed 04-02-PLAN.md (TEST-03 failure modes + TEST-01 Phase 1/Phase 2 integration; 2 tasks; 56 tests pass)
 Resume file: None
