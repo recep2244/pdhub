@@ -78,7 +78,11 @@ Plans:
   3. MutationExecutionAgent failure mode tests pass for: WT prediction fails, partial mutation failures, and all mutations fail
   4. LLMMutationSuggestionAgent has a test that passes when the `MUTATION_PLAN_JSON:` footer is missing from LLM output and confirms the saturation fallback activates
   5. A test exists that feeds a mock agent returning empty output into the LLM pipeline and confirms the pipeline surfaces an error rather than continuing silently
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — Create test_mutagenesis_workflow.py with TEST-02 (parse_approved_mutations), TEST-04 (LLM fallback), TEST-05 (empty output reliability)
+- [ ] 04-02-PLAN.md — Add TEST-03 (MutationExecutionAgent failure modes) and TEST-01 (Phase 1 to Phase 2 integration test)
 
 ### Phase 5: Reporting
 **Goal**: Mutagenesis results are visually interpretable in the web UI and exportable to PDF and HTML for sharing
@@ -130,7 +134,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 1. Git & Code Health | 2/2 | Complete   | 2026-02-21 |
 | 2. Mutagenesis Workflow Integrity | 3/3 | Complete   | 2026-02-21 |
 | 3. Performance & Reliability | 2/2 | Complete    | 2026-02-21 |
-| 4. Test Coverage | 0/TBD | Not started | - |
+| 4. Test Coverage | 0/2 | Not started | - |
 | 5. Reporting | 0/TBD | Not started | - |
 | 6. New Agent Workflows | 0/TBD | Not started | - |
 | 7. Async Job Queue | 0/TBD | Not started | - |
