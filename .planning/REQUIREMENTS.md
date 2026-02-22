@@ -28,10 +28,10 @@
 ### Testing
 
 - [ ] **TEST-01**: End-to-end integration test: Phase 1 → Phase 2 with mock LLM and real MutationScanner on short sequence
-- [ ] **TEST-02**: Unit test for `_parse_approved_mutations()` covering column rename, empty input, malformed input
+- [x] **TEST-02**: Unit test for `_parse_approved_mutations()` covering column rename, empty input, malformed input
 - [ ] **TEST-03**: Unit tests for MutationExecutionAgent failure modes (WT fails, partial failures, all mutations fail)
-- [ ] **TEST-04**: Test for LLMMutationSuggestionAgent JSON parse fallback path (missing MUTATION_PLAN_JSON footer)
-- [ ] **TEST-05**: LLM pipeline reliability test — agent returning bad/empty output is caught and surfaced, not silently swallowed
+- [x] **TEST-04**: Test for LLMMutationSuggestionAgent JSON parse fallback path (missing MUTATION_PLAN_JSON footer)
+- [x] **TEST-05**: LLM pipeline reliability test — agent returning bad/empty output is caught and surfaced, not silently swallowed
 
 ### Reporting
 
@@ -101,10 +101,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PERF-02 | Phase 3 | Complete |
 | PERF-03 | Phase 3 | Complete |
 | TEST-01 | Phase 4 | Pending |
-| TEST-02 | Phase 4 | Pending |
+| TEST-02 | Phase 4 | Complete |
 | TEST-03 | Phase 4 | Pending |
-| TEST-04 | Phase 4 | Pending |
-| TEST-05 | Phase 4 | Pending |
+| TEST-04 | Phase 4 | Complete |
+| TEST-05 | Phase 4 | Complete |
 | REP-01 | Phase 5 | Pending |
 | REP-02 | Phase 5 | Pending |
 | REP-03 | Phase 5 | Pending |

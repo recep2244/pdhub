@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 
 ## Current Position
 
-Phase: 3 of 8 (Performance & Reliability)
-Plan: 2 of 2 in current phase (phase complete)
-Status: Phase 3 complete — ready for Phase 4
-Last activity: 2026-02-21 — 03-02 complete: LLM fallback warning to context.extra + Force OST checkbox + st.warning surfaces (PERF-01, PERF-02)
+Phase: 4 of 8 (Test Coverage)
+Plan: 1 of 2 in current phase
+Status: Phase 4 in progress — 04-01 complete, 04-02 pending
+Last activity: 2026-02-22 — 04-01 complete: mutagenesis workflow unit tests (TEST-02, TEST-04, TEST-05); 52 tests pass
 
-Progress: [######░░░░] 35%
+Progress: [#######░░░] 40%
 
 ## Performance Metrics
 
@@ -36,6 +36,7 @@ Progress: [######░░░░] 35%
 - Trend: fast (simple surgical edits)
 
 *Updated after each plan completion*
+| Phase 04-test-coverage P01 | 5 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -68,6 +69,8 @@ Recent decisions affecting current work:
 - [03-02] Force OST checkbox only shown when >3 positions selected (matches OST cap threshold from 03-01)
 - [03-02] Module-level logger added to llm_guided.py; both inline import logging occurrences replaced with logger.warning()
 - [03-02] context.extra as UI signal bus: agent writes warning string, UI reads and renders st.warning before expensive execution
+- [Phase 04-test-coverage]: [04-01] _load_scanner_page uses patch() for UI helpers + real streamlit with AttrDict session_state; plan's pure MagicMock failed because ui.py holds real st refs at import time
+- [Phase 04-test-coverage]: [04-01] AttrDict(dict) subclass supports both session_state['key'] and session_state.key attribute-style access used by 10_mutation_scanner.py at module level
 
 ### Pending Todos
 
@@ -86,6 +89,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-21
-Stopped at: Completed 03-02-PLAN.md (LLM fallback warning to context.extra + Force OST checkbox + st.warning surfaces; 2/2 tasks; 46 tests pass)
+Last session: 2026-02-22
+Stopped at: Completed 04-01-PLAN.md (mutagenesis workflow unit tests; 2 tasks; 52 tests pass)
 Resume file: None
