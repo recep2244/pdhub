@@ -366,6 +366,143 @@ def test_mutation_execution_succeeds_with_partial_failures():
 
 
 # ---------------------------------------------------------------------------
+# TEST-01  Phase 1 → Phase 2 integration (mock LLM + real agents + patched scanner instance)
+# ---------------------------------------------------------------------------
+
+class _MockInputAgent(BaseAgent):
+    """Populates context.sequences to satisfy downstream agents."""
+    name = "input"
+
+    def run(self, context: WorkflowContext) -> AgentResult:
+        context.sequences = [Sequence(id="integration_protein", sequence="ACDEFGHIKL")]
+        return AgentResult.ok(context, "mock input set")
+
+
+class _MockBaselineReviewAgent(BaseAgent):
+    """Populates baseline review outputs used by LLMMutationSuggestionAgent."""
+    name = "llm_baseline_review"
+
+    def run(self, context: WorkflowContext) -> AgentResult:
+        context.extra["baseline_low_confidence_positions"] = [3, 5]
+        context.extra["baseline_plddt"] = [75.0, 80.0, 60.0, 85.0, 70.0, 65.0, 90.0, 72.0, 68.0, 88.0]
+        context.step_verdicts["baseline_review"] = {
+            "status": "PASS",
+            "key_findings": ["positions 3 and 5 show low confidence"],
+        }
+        return AgentResult.ok(context, "mock baseline review complete")
+
+
+class _MockSuggestionAgent(BaseAgent):
+    """Directly populates approved_mutations (bypasses LLM call entirely)."""
+    name = "llm_mutation_suggestion"
+
+    def run(self, context: WorkflowContext) -> AgentResult:
+        context.extra["approved_mutations"] = [
+            {"residue": 3, "wt_aa": "D", "targets": ["A"], "rationale": "low pLDDT in test"},
+        ]
+        context.extra["mutation_suggestions"] = {
+            "positions": [{"residue": 3, "wt_aa": "D", "targets": ["A"], "rationale": "test"}],
+            "strategy": "targeted",
+            "rationale": "mock test suggestion",
+        }
+        context.extra["mutation_suggestion_source"] = "llm"
+        return AgentResult.ok(context, "mock suggestion set")
+
+
+def test_phase1_to_phase2_integration():
+    """Phase 1 approved_mutations flows into Phase 2 MutationExecutionAgent.
+    Phase 2 produces mutation_results in context.extra using the shared WorkflowContext.
+
+    Test strategy:
+    - Phase 1: 3 mock agents that write approved_mutations into context.extra
+    - Phase 2: Real MutationExecutionAgent — MutationScanner instantiated normally (no
+      network calls in __init__), then instance.predict_single patched to avoid HTTP
+    - Assert: mutation_results exists in final context.extra
+
+    Why real MutationScanner (not MagicMock via _build_scanner):
+      TEST-01 success criterion requires MutationScanner.__init__ to be exercised.
+      MutationScanner(predictor='esmfold_api', output_dir=Path(tmp)) makes no network calls
+      during __init__ — only predict_single triggers HTTP. Patching the instance method
+      satisfies the "real scanner" requirement while keeping the test hermetic.
+    """
+    from protein_design_hub.agents.mutagenesis_agents import MutationExecutionAgent
+    from protein_design_hub.analysis.mutation_scanner import MutationScanner
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # --- Phase 1: mock pipeline ---
+        phase1_agents = [
+            _MockInputAgent(),
+            _MockBaselineReviewAgent(),
+            _MockSuggestionAgent(),
+        ]
+        ctx = WorkflowContext(job_id="integ-phase1-phase2", output_dir=Path(tmp))
+
+        orch1 = AgentOrchestrator(agents=phase1_agents)
+        r1 = orch1.run_with_context(ctx)
+
+        assert r1.success is True, (
+            f"Phase 1 mock pipeline failed: {r1.message!r}"
+        )
+        assert "approved_mutations" in r1.context.extra, (
+            "Phase 1 did not write approved_mutations to context.extra"
+        )
+        approved = r1.context.extra["approved_mutations"]
+        assert len(approved) > 0, "Phase 1 approved_mutations is empty"
+
+        # --- Phase 2: real MutationScanner instance, predict_single patched ---
+        # MutationScanner.__init__ stores config values but makes no HTTP calls.
+        # This satisfies the TEST-01 "real scanner" requirement.
+        real_scanner = MutationScanner(predictor="esmfold_api", output_dir=Path(tmp))
+
+        wt_pdb = "ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n"
+        wt_plddt = [75.0, 80.0, 60.0, 85.0, 70.0, 65.0, 90.0, 72.0, 68.0, 88.0]
+
+        call_count_p2 = [0]
+        def predict_side_effect_p2(sequence, *args, **kwargs):
+            call_count_p2[0] += 1
+            mut_path = Path(tmp) / f"pred_{call_count_p2[0]}.pdb"
+            mut_path.write_text(wt_pdb)
+            return (wt_pdb, wt_plddt, mut_path)
+
+        with patch.object(real_scanner, "predict_single", side_effect=predict_side_effect_p2):
+            # Also patch calculate_biophysical_metrics on the real instance
+            real_scanner.calculate_biophysical_metrics = MagicMock(return_value={
+                "clash_score": 5.0,
+                "sasa_total": 1200.0,
+                "rmsd": None,
+                "tm_score": None,
+                "extra_metrics": {},
+            })
+            with patch(
+                "protein_design_hub.agents.mutagenesis_agents._build_scanner",
+                return_value=real_scanner,
+            ):
+                # MutationComparisonAgent intentionally excluded: it requires additional context
+                # keys (comparison data) that the mock Phase 1 does not produce. The critical
+                # invariant — approved_mutations → mutation_results — is fully tested by
+                # MutationExecutionAgent alone.
+                orch2 = AgentOrchestrator(
+                    agents=[MutationExecutionAgent()],
+                    stop_on_failure=True,
+                )
+                r2 = orch2.run_with_context(r1.context)
+
+        # Core assertion: Phase 1 approved_mutations flowed into Phase 2 and produced results
+        assert r2.success is True, (
+            f"Phase 2 pipeline failed: {r2.message!r}\n"
+            f"approved_mutations was: {r1.context.extra.get('approved_mutations')}"
+        )
+        assert "mutation_results" in r2.context.extra, (
+            "Phase 2 did not produce mutation_results in context.extra"
+        )
+        mutation_results = r2.context.extra["mutation_results"]
+        assert len(mutation_results) > 0, "mutation_results is empty after Phase 2"
+        assert any(m.get("success", False) for m in mutation_results), (
+            "No successful mutations in Phase 2 results"
+        )
+
+
+# ---------------------------------------------------------------------------
 # TEST-05  LLM pipeline reliability — empty agent output caught, not swallowed
 # ---------------------------------------------------------------------------
 
