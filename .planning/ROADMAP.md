@@ -107,7 +107,11 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. The agents page in the web UI offers an "Antibody/Nanobody Design" pipeline mode that uses the nanobody team preset; running it on an antibody sequence produces a completed LLM-guided analysis report
   2. The agents page offers a "Binding Affinity Analysis" workflow that invokes the biophysicist persona against existing evaluation metrics; running it produces a binding affinity interpretation in the report
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — Add _build_nanobody_llm_pipeline and _build_binding_affinity_pipeline builders plus mode dispatch in orchestrator.py (AGT-01, AGT-02)
+- [ ] 06-02-PLAN.md — Wire four pipeline modes into 11_agents.py Tab 1 with _PIPELINE_MODES dict and dynamic steps preview (AGT-01, AGT-02)
 
 ### Phase 7: Async Job Queue
 **Goal**: Researchers can submit multiple pipeline runs without waiting for each to finish — jobs run in the background, and the jobs page shows live status without blocking
@@ -140,6 +144,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 3. Performance & Reliability | 2/2 | Complete    | 2026-02-21 |
 | 4. Test Coverage | 2/2 | Complete    | 2026-02-22 |
 | 5. Reporting | 2/2 | Complete    | 2026-02-23 |
-| 6. New Agent Workflows | 0/TBD | Not started | - |
+| 6. New Agent Workflows | 0/2 | Not started | - |
 | 7. Async Job Queue | 0/TBD | Not started | - |
 | 8. New Predictors | 0/TBD | Not started | - |
