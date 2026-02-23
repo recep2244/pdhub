@@ -84,6 +84,77 @@ def _load_team_presets():
         "full_pipeline": ("Full pipeline review (all experts)", S.DEFAULT_TEAM_LEAD, S.FULL_PIPELINE_TEAM_MEMBERS),
     }
 
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _get_pipeline_steps(mode: str) -> list[dict]:
+    """Load the current pipeline layout from the orchestrator."""
+    try:
+        from protein_design_hub.agents.orchestrator import AgentOrchestrator
+        return AgentOrchestrator(mode=mode).describe_pipeline()
+    except Exception:
+        return []
+
+
+def _pipeline_agent_type(step_name: str, step_type: str) -> str:
+    if step_type != "llm":
+        return "Compute"
+    if step_name == "llm_planning":
+        return "LLM Team"
+    if step_name == "llm_report_narrative":
+        return "LLM Report"
+    return "LLM Review"
+
+
+_STEP_DETAILS = {
+    "input": "Reads FASTA, validates sequence, and prepares the workflow context.",
+    "llm_input_review": "LLM validates sequence quality and flags potential risks.",
+    "llm_planning": "Scientist agents discuss predictor strategy and key checks.",
+    "prediction": "Runs selected structure predictors (ESMFold, ColabFold, Chai-1, etc.).",
+    "llm_prediction_review": "Interprets prediction confidence, runtime, and model consistency.",
+    "evaluation": "Computes structural quality metrics and geometry checks.",
+    "comparison": "Ranks predictors using composite scoring and consensus signals.",
+    "llm_evaluation_review": "Interprets metrics with PASS/WARN/FAIL verdicts.",
+    "llm_refinement_review": "Recommends targeted structure refinement actions.",
+    "llm_mutagenesis_planning": "Suggests mutation candidates and design strategy.",
+    "llm_report_narrative": "Synthesizes findings into an executive narrative.",
+    "report": "Writes artifacts (JSON/HTML/meeting outputs) to disk.",
+}
+
+
+def _pipeline_table_markdown(mode: str) -> str:
+    steps = _get_pipeline_steps(mode)
+    if not steps:
+        return "Pipeline definition not available."
+
+    mode_label = "LLM-guided" if mode == "llm" else "step-only"
+    rows = [
+        f"**The Agent Pipeline runs your protein through a {len(steps)}-step {mode_label} workflow:**",
+        "",
+        "| Step | What happens | Agent type |",
+        "|------|-------------|------------|",
+    ]
+    for i, step in enumerate(steps, 1):
+        name = str(step.get("name", ""))
+        label = str(step.get("label", name)).replace("|", "/")
+        what = _STEP_DETAILS.get(name, label).replace("|", "/")
+        kind = _pipeline_agent_type(name, str(step.get("type", "step")))
+        rows.append(f"| {i}. **{label}** | {what} | {kind} |")
+
+    if any(str(s.get("type")) == "llm" for s in steps):
+        rows.append("")
+        rows.append(
+            "Each LLM review step produces a **structured verdict** "
+            "(PASS / WARN / FAIL) with key findings."
+        )
+
+    return "\n".join(rows)
+
+
+_LLM_PIPELINE_STEPS = _get_pipeline_steps("llm")
+_STEP_PIPELINE_STEPS = _get_pipeline_steps("step")
+_LLM_PIPELINE_COUNT = len(_LLM_PIPELINE_STEPS) or 12
+_STEP_PIPELINE_COUNT = len(_STEP_PIPELINE_STEPS) or 5
+
 # ── CSS ──────────────────────────────────────────────────────────────
 
 st.markdown("""<style>
@@ -111,7 +182,7 @@ st.markdown("""<style>
 
 page_header(
     "Agent Pipeline",
-    "LLM-guided protein design with 10 specialist scientists and 12-step pipeline",
+    f"LLM-guided protein design with 10 specialist scientists and {_LLM_PIPELINE_COUNT}-step pipeline",
     "🤖",
 )
 
@@ -135,7 +206,7 @@ with c3:
     _sv = "success" if _conn and _mok else "warning" if _conn else "error"
     metric_card(_st, "LLM Status", _sv, "🔗")
 with c4:
-    metric_card("12 steps", "Pipeline", "default", "📋")
+    metric_card(f"{_LLM_PIPELINE_COUNT} steps", "Pipeline", "default", "📋")
 
 if not _conn:
     info_box(
@@ -190,38 +261,30 @@ with tabs[0]:
 with tabs[1]:
     section_header("Run Agent Pipeline", "Full prediction workflow with optional LLM guidance", "🚀")
 
+    _PIPELINE_MODES = {
+        "LLM-guided (recommended)":     "llm",
+        "Step-only (fast, no LLM)":     "step",
+        "Antibody / Nanobody Design":   "nanobody_llm",
+        "Binding Affinity Analysis":    "binding_affinity",
+    }
+    _cur_pm = st.session_state.get("p_mode", "LLM-guided (recommended)")
+    mode_str = _PIPELINE_MODES.get(_cur_pm, "llm")
+
     # Quick-start guide
     with st.expander("📖 How does the pipeline work? (click to expand)", expanded=False):
-        st.markdown("""
-**The Agent Pipeline runs your protein through a 12-step workflow:**
-
-| Step | What happens | Agent type |
-|------|-------------|------------|
-| 1. **Parse Input** | Reads your FASTA, validates sequence, counts residues | Compute |
-| 2. **Input Review** | LLM validates sequence quality, flags Cys/Pro/Gly patterns | LLM Review |
-| 3. **Planning Meeting** | LLM agents discuss which predictors to use and why | LLM Team |
-| 4. **Structure Prediction** | Runs selected predictors (ESMFold, ColabFold, etc.) | Compute |
-| 5. **Prediction Review** | Reviews pLDDT, pTM, runtime, per-residue confidence | LLM Review |
-| 6. **Evaluation** | Computes 20+ metrics: clash, VoroMQA, CAD, Rosetta, etc. | Compute |
-| 7. **Comparison** | Ranks predictors by composite score | Compute |
-| 8. **Evaluation Review** | Interprets ALL metrics, assigns PASS/WARN/FAIL verdict | LLM Review |
-| 9. **Refinement Strategy** | Advises on structure refinement targets | LLM Review |
-| 10. **Mutagenesis Planning** | Plans mutations/design based on evaluation verdicts | LLM Review |
-| 11. **Executive Summary** | Synthesizes all meeting outcomes into narrative report | LLM Report |
-| 12. **Report** | Saves results, metrics, verdicts and summaries to disk | Compute |
-
-Each LLM review step produces a **structured verdict** (PASS / WARN / FAIL) with key findings.
-
+        st.markdown(_pipeline_table_markdown(mode_str))
+        st.markdown(f"""
 ---
-**Quick Example — Predict a small protein:**
+**Quick Example - Predict a small protein:**
 1. Select **"Paste sequence"** below
 2. Paste this ubiquitin sequence: `MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG`
 3. Set pipeline mode to **"Step-only (fast, no LLM)"** for a quick run, or **"LLM-guided"** for full agent discussion
 4. Click **Run Pipeline** and watch the progress log
 
 **Performance tips:**
-- **Step-only mode** is much faster (seconds to minutes) — use for quick predictions
-- **LLM-guided mode** adds ~5-15s per meeting with `qwen2.5:14b` on GPU
+- **Step-only mode** runs {_STEP_PIPELINE_COUNT} compute steps and is faster for quick checks
+- **LLM-guided mode** runs {_LLM_PIPELINE_COUNT} steps and adds meeting overhead for richer interpretation
+- **LLM-guided mode** typically adds ~5-15s per meeting with `qwen2.5:14b` on GPU
 - Default model: **qwen2.5:14b** (fast, concise). Alternative: **deepseek-r1:14b** (deeper reasoning)
 - Switch models in **LLM Status** tab or via the **Model** dropdown in pipeline settings
 - For large proteins (>500 residues), expect longer prediction times
@@ -282,11 +345,9 @@ Each LLM review step produces a **structured verdict** (PASS / WARN / FAIL) with
 
     with ccf:
         st.markdown("#### Pipeline Settings")
-        pm = st.selectbox("Pipeline mode", [
-            "LLM-guided (recommended)",
-            "Step-only (fast, no LLM)",
-        ], key="p_mode")
-        use_llm = "LLM" in pm
+        pm = st.selectbox("Pipeline mode", list(_PIPELINE_MODES.keys()), key="p_mode")
+        mode_str = _PIPELINE_MODES[pm]
+        use_llm = mode_str != "step"
 
         try:
             from protein_design_hub.predictors.registry import PredictorRegistry
@@ -300,20 +361,48 @@ Each LLM review step produces a **structured verdict** (PASS / WARN / FAIL) with
         provider = None
         model_ov = ""
         num_rounds = 1
+        allow_fail_verdicts = False
         if use_llm:
             st.markdown("#### LLM Settings")
             try:
-                from protein_design_hub.core.config import LLM_PROVIDER_PRESETS
+                from protein_design_hub.core.config import (
+                    LLM_PROVIDER_PRESETS,
+                    normalize_ollama_model_name,
+                )
                 prov_names = list(LLM_PROVIDER_PRESETS.keys())
                 ci = prov_names.index(_cfg.provider) if _cfg and _cfg.provider in prov_names else 0
             except Exception:
-                prov_names = ["ollama","lmstudio","vllm","llamacpp","deepseek","openai","gemini","kimi"]
+                prov_names = [
+                    "ollama", "lmstudio", "vllm", "llamacpp", "groq",
+                    "cerebras", "sambanova", "deepseek", "openai",
+                    "gemini", "kimi", "openrouter", "custom",
+                ]
                 ci = 0
             provider = st.selectbox("LLM Provider", prov_names, index=ci, key="p_prov")
+            if provider == "ollama":
+                legacy_sel = str(st.session_state.get("p_mov", "")).strip().lower()
+                if legacy_sel in {"llama3.2", "llama3.2:latest"}:
+                    st.session_state["p_mov"] = "(provider default)"
 
             # Model selector: show available models from backend
             _avail_models = list_available_models()
             _cur_model = _cfg.model if _cfg else ""
+            if provider == "ollama":
+                try:
+                    _cur_model = normalize_ollama_model_name(_cur_model)
+                except Exception:
+                    if _cur_model.strip().lower() in {"llama3.2", "llama3.2:latest"}:
+                        _cur_model = "qwen2.5:14b"
+                # Ensure recommended local models are always visible
+                try:
+                    from protein_design_hub.core.config import OLLAMA_RECOMMENDED_MODELS
+                    for rec_model, _ in OLLAMA_RECOMMENDED_MODELS:
+                        if rec_model not in _avail_models:
+                            _avail_models.append(rec_model)
+                except Exception:
+                    for rec in ("qwen2.5:14b", "deepseek-r1:14b"):
+                        if rec not in _avail_models:
+                            _avail_models.append(rec)
             if _cur_model and _cur_model not in _avail_models:
                 _avail_models = [_cur_model] + _avail_models
             _model_opts = ["(provider default)"] + _avail_models
@@ -322,13 +411,19 @@ Each LLM review step produces a **structured verdict** (PASS / WARN / FAIL) with
             model_ov = "" if _sel_model == "(provider default)" else _sel_model
 
             num_rounds = st.slider("Discussion rounds per meeting", 1, 5, 1, key="p_rnd")
+            allow_fail_verdicts = st.checkbox(
+                "Allow pipeline to continue even if an LLM step returns FAIL",
+                value=False,
+                help="Default policy halts on FAIL verdicts for integrity. Enable only for troubleshooting.",
+                key="p_allow_fail",
+            )
 
     st.markdown("---")
 
     # pipeline preview
     try:
         from protein_design_hub.agents.orchestrator import AgentOrchestrator, _AGENT_LABELS
-        _po = AgentOrchestrator(mode="llm" if use_llm else "step")
+        _po = AgentOrchestrator(mode=mode_str)
         _steps = _po.describe_pipeline()
     except Exception:
         _steps = []
@@ -386,7 +481,7 @@ Each LLM review step produces a **structured verdict** (PASS / WARN / FAIL) with
             except Exception:
                 pass
 
-        mode = "llm" if use_llm else "step"
+        mode = mode_str
         t0 = time.time()
 
         def _prog(stage, item, current, total):
@@ -400,6 +495,7 @@ Each LLM review step produces a **structured verdict** (PASS / WARN / FAIL) with
         try:
             orch = AgentOrchestrator(
                 mode=mode, progress_callback=_prog,
+                allow_failed_llm_steps=allow_fail_verdicts if use_llm else False,
                 **({"num_rounds": num_rounds} if use_llm else {}),
             )
             with st.spinner("Running agent pipeline... this may take several minutes."):
@@ -410,7 +506,7 @@ Each LLM review step produces a **structured verdict** (PASS / WARN / FAIL) with
                     job_id=job_id_in or None,
                 )
             st.session_state.pipe_result = result
-            if result.success and result.context:
+            if result.context:
                 st.session_state.pipe_ctx = result.context
             st.session_state.pipe_running = False
             st.rerun()
@@ -508,6 +604,14 @@ Each LLM review step produces a **structured verdict** (PASS / WARN / FAIL) with
                             for f in findings[:3]:
                                 st.caption(f"• {_esc(str(f))}")
 
+            if ctx and ctx.extra.get("policy_log"):
+                section_header("Policy Log", "Pipeline guardrail events and overrides", "🛡️")
+                for event in ctx.extra.get("policy_log", []):
+                    ts = _esc(event.get("timestamp", ""))
+                    msg = _esc(event.get("message", ""))
+                    step = _esc(event.get("verdict_key", event.get("step", "unknown")))
+                    st.markdown(f"- `{ts}` `{step}`: {msg}")
+
             # ── LLM Agent Discussions ─────────────────────────────
             if ctx and ctx.extra:
                 _lk = [
@@ -533,6 +637,13 @@ Each LLM review step produces a **structured verdict** (PASS / WARN / FAIL) with
                 info_box(f"Results saved to: `{ctx.job_dir}`", variant="success", icon="📂")
         else:
             st.error(f"Pipeline failed: {result.message}")
+            if ctx and ctx.extra.get("policy_log"):
+                with st.expander("Policy log"):
+                    for event in ctx.extra.get("policy_log", []):
+                        ts = _esc(event.get("timestamp", ""))
+                        step = _esc(event.get("verdict_key", event.get("step", "unknown")))
+                        msg = _esc(event.get("message", ""))
+                        st.markdown(f"- `{ts}` `{step}`: {msg}")
             if result.error:
                 with st.expander("Error details"):
                     st.code(str(result.error), language="text")
@@ -873,10 +984,19 @@ with tabs[4]:
         for name, (url, model, _) in LLM_PROVIDER_PRESETS.items():
             is_loc = name in ("ollama", "lmstudio", "vllm", "llamacpp")
             display_model = model
-            if name == "ollama" and model in {"llama3.2", "llama3.2:latest"}:
-                display_model = "qwen2.5:14b"
-            elif name != "ollama" and name != cfg.provider:
-                display_model = "provider default"
+            if name == "ollama":
+                try:
+                    from protein_design_hub.core.config import normalize_ollama_model_name
+                    display_model = normalize_ollama_model_name(model)
+                except Exception:
+                    if str(model).strip().lower() in {"llama3.2", "llama3.2:latest"}:
+                        display_model = "qwen2.5:14b"
+            elif name == cfg.provider:
+                # Active cloud provider: show its actual model
+                display_model = model
+            else:
+                # Non-active providers: show friendly label
+                display_model = model if is_loc else "provider default"
             entry = (name, url, display_model, name == cfg.provider)
             (local_p if is_loc else cloud_p).append(entry)
 
@@ -1011,7 +1131,7 @@ with tabs[5]:
 st.markdown("")
 st.markdown(
     '<div style="text-align:center;color:var(--pdhub-text-muted);font-size:.73rem;padding:2rem 0">'
-    'Protein Design Hub &bull; 10 scientist agents &bull; 8 team configs &bull; 12-step LLM pipeline'
+    f'Protein Design Hub &bull; 10 scientist agents &bull; 8 team configs &bull; {_LLM_PIPELINE_COUNT}-step LLM pipeline'
     '</div>',
     unsafe_allow_html=True,
 )
