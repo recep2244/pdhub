@@ -464,22 +464,38 @@ workflow_breadcrumb(
 
 with st.expander("📖 Understanding evaluation metrics", expanded=False):
     st.markdown("""
-**Key metrics at a glance:**
+**Confidence & Accuracy**
 
 | Metric | What it measures | Good value | Action if bad |
 |--------|-----------------|------------|---------------|
-| **pLDDT** | Per-residue confidence | > 90 | Re-predict with ColabFold |
-| **Clash Score** | Steric clashes (MolProbity) | < 10 | Refine with AMBER |
-| **TM-score** | Global fold vs reference | > 0.7 | Check alignment |
-| **RMSD** | Deviation from reference (Å) | < 2.0 | Check domain alignment |
-| **Contact Energy** | Residue-residue contacts | < -30 | Review packing |
-| **SASA** | Solvent accessibility (Å²) | Depends on size | Check for exposed hydrophobics |
+| **pLDDT** | Per-residue model confidence (0–100) | > 90 very high, 70–90 confident, 50–70 low | Regions < 50 are disordered or unreliable — exclude from analysis |
+| **TM-score** | Global fold similarity vs reference (0–1) | > 0.7 same fold, > 0.5 similar topology | Low TM-score = different fold; check sequence alignment |
+| **RMSD** | Cα deviation from reference (Å) | < 2 Å excellent, < 5 Å acceptable | Check for domain swapping before trusting RMSD |
+| **GDT-TS** | % residues within 1/2/4/8 Å of reference | > 70 good | Robust to outliers unlike RMSD |
 
-**How to evaluate:**
-1. Upload a PDB/CIF file (from prediction) or select from recent outputs
-2. Optionally upload a **reference** structure for RMSD/TM-score comparison
-3. Click **Run Evaluation** to compute all metrics
-4. Use the **AI Analysis** button to get expert interpretation
+**Geometry & Packing**
+
+| Metric | What it measures | Good value | Action if bad |
+|--------|-----------------|------------|---------------|
+| **Clash Score** | Steric clashes per 1000 atoms (MolProbity) | < 10 good, < 2 excellent | Relax with AMBER/Rosetta; avoid over-refined structures |
+| **Ramachandran** | % residues in favoured φ/ψ regions | > 98% favoured | Outliers often at hinge/loop regions — inspect manually |
+| **VoroMQA** | Knowledge-based local quality (–1 to 1) | > 0 | Low regions may indicate wrong fold or clashing loops |
+| **CAD-score** | Contact area difference vs reference | > 0.8 | Low = incorrect packing vs reference |
+
+**Energetics & Interface**
+
+| Metric | What it measures | Good value | Action if bad |
+|--------|-----------------|------------|---------------|
+| **Contact Energy** | Residue-residue contact score | < –30 well-packed | High values → hydrophobic core exposure; run ProteinMPNN |
+| **SASA** | Total solvent-accessible surface (Å²) | ~25 Å²/residue | High SASA → exposed hydrophobics → aggregation risk |
+| **Interface BSA** | Buried surface area at interface (Å²) | > 1000 Å² stable | < 400 Å² → weak interaction; redesign interface |
+| **Salt Bridges** | Electrostatic stabilising pairs | Depends on size | Missing salt bridges → use computational design to add them |
+
+**Workflow:**
+1. Upload a PDB/CIF file or select from recent outputs
+2. Upload a **reference** structure to unlock RMSD, TM-score, and CAD-score
+3. Select **Quick (Design Ranking)** for fast screening, **Comprehensive** for full analysis
+4. Use **AI Analysis** to get scientist-agent interpretation of all metrics
     """)
 
 # Initialize metric selection

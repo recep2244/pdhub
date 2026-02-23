@@ -1544,7 +1544,16 @@ def _render_agent_pipeline_tab():
     # Sequence is loaded — show info and allow changing
     col_seq_info, col_seq_actions = st.columns([3, 1])
     with col_seq_info:
-        st.success(f"Sequence loaded: **{st.session_state.get('sequence_name', 'protein')}** ({len(seq)} residues)")
+        _mw = len(seq) * 110 / 1000
+        _hydrophobic = sum(1 for aa in seq if aa in "AVILMFYWP")
+        _charged = sum(1 for aa in seq if aa in "DEKRH")
+        _hpct = 100 * _hydrophobic / max(len(seq), 1)
+        _cpct = 100 * _charged / max(len(seq), 1)
+        st.success(
+            f"Sequence loaded: **{st.session_state.get('sequence_name', 'protein')}** "
+            f"· {len(seq)} aa · ~{_mw:.1f} kDa · "
+            f"{_hpct:.0f}% hydrophobic · {_cpct:.0f}% charged"
+        )
     with col_seq_actions:
         if st.button("Change Sequence", key="agent_change_seq", use_container_width=True):
             st.session_state.sequence = ""

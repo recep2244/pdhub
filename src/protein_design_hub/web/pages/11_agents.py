@@ -126,9 +126,13 @@ def _pipeline_table_markdown(mode: str) -> str:
     if not steps:
         return "Pipeline definition not available."
 
-    mode_label = "LLM-guided" if mode == "llm" else "step-only"
+    mode_label = "step-only" if mode == "step" else "LLM-guided"
+    _mode_prefix = {
+        "nanobody_llm": "🔬 **Nanobody Design** — Immunologist forced on all meetings for CDR/VHH analysis. ",
+        "binding_affinity": "🔗 **Binding Affinity** — Biophysicist leads evaluation for ΔΔG and interface scoring. ",
+    }.get(mode, "")
     rows = [
-        f"**The Agent Pipeline runs your protein through a {len(steps)}-step {mode_label} workflow:**",
+        f"{_mode_prefix}**The Agent Pipeline runs your protein through a {len(steps)}-step {mode_label} workflow:**",
         "",
         "| Step | What happens | Agent type |",
         "|------|-------------|------------|",
@@ -283,7 +287,7 @@ with tabs[1]:
 
 **Performance tips:**
 - **Step-only mode** runs {_STEP_PIPELINE_COUNT} compute steps and is faster for quick checks
-- **LLM-guided mode** runs {_LLM_PIPELINE_COUNT} steps and adds meeting overhead for richer interpretation
+- **LLM-guided / Nanobody / Binding Affinity modes** run {_LLM_PIPELINE_COUNT} steps and add meeting overhead for richer interpretation
 - **LLM-guided mode** typically adds ~5-15s per meeting with `qwen2.5:14b` on GPU
 - Default model: **qwen2.5:14b** (fast, concise). Alternative: **deepseek-r1:14b** (deeper reasoning)
 - Switch models in **LLM Status** tab or via the **Model** dropdown in pipeline settings
@@ -318,10 +322,15 @@ with tabs[1]:
             if sq and sq.strip():
                 import tempfile
                 tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".fasta", prefix="pdhub_")
-                clean = sq.strip().replace(" ", "").replace("\n", "")
+                clean = sq.strip().upper().replace(" ", "").replace("\n", "")
                 tmp.write(f">{sn}\n{clean}\n".encode()); tmp.close()
                 fasta_path = Path(tmp.name)
-                st.caption(f"{len(clean)} residues")
+                _CANONICAL_AA = set("ACDEFGHIKLMNPQRSTVWY")
+                _non_canon = sorted(set(clean) - _CANONICAL_AA)
+                _mw_kda = len(clean) * 110 / 1000
+                if _non_canon:
+                    st.warning(f"Non-canonical characters found: `{'`, `'.join(_non_canon)}` — may cause prediction errors")
+                st.caption(f"{len(clean)} aa · ~{_mw_kda:.1f} kDa · {'Valid AA sequence ✓' if not _non_canon else 'Contains non-standard residues'}")
         else:
             try:
                 from protein_design_hub.core.config import get_settings
@@ -348,6 +357,16 @@ with tabs[1]:
         pm = st.selectbox("Pipeline mode", list(_PIPELINE_MODES.keys()), key="p_mode")
         mode_str = _PIPELINE_MODES[pm]
         use_llm = mode_str != "step"
+
+        _MODE_INFO = {
+            "llm":              ("🧬", "10-expert team reviews every stage. Best for publication-quality analysis.", "info"),
+            "step":             ("⚡", "Compute-only — no LLM overhead. ~10× faster for quick screening.", "default"),
+            "nanobody_llm":     ("🔬", "Forces **Immunologist + Structural Biologist** on all LLM steps. Optimized for CDR loop analysis, VHH design, and paratope engineering.", "info"),
+            "binding_affinity": ("🔗", "Biophysicist-led workflow. Evaluates interface contacts, ΔΔG proxies, and binding pocket geometry.", "info"),
+        }
+        if mode_str in _MODE_INFO:
+            _mi, _mm, _mv = _MODE_INFO[mode_str]
+            info_box(_mm, variant=_mv, icon=_mi)
 
         try:
             from protein_design_hub.predictors.registry import PredictorRegistry

@@ -15,6 +15,7 @@ from protein_design_hub.web.ui import (
 )
 from protein_design_hub.web.agent_helpers import (
     render_contextual_insight,
+    render_agent_advice_panel,
     agent_sidebar_status,
     render_all_experts_panel,
 )
@@ -176,6 +177,31 @@ with main_tabs[0]:
         st.button("🔍 Generate MSA", disabled=True)
         st.caption("🚧 Coming soon — requires backend MSA tools (MMseqs2/HHblits) to be installed")
 
+    # MSA quality guide
+    with st.expander("💡 MSA Quality Guide", expanded=False):
+        st.markdown("""
+**Coverage (number of sequences):**
+| Sequences | Quality | Use case |
+|-----------|---------|----------|
+| < 30 | ⚠️ Poor | Consensus only; avoid coevolution analysis |
+| 30 – 100 | 🟡 Minimal | Conservation reliable; coevolution noisy |
+| 100 – 500 | ✅ Good | Reliable for most analyses |
+| > 500 | 🏆 Excellent | Full coevolution; high-confidence PSSM |
+
+**Sequence identity range (to query):**
+- **< 30%**: May include false homologs — check for domain swaps
+- **30 – 90%**: Optimal diversity for conservation and coevolution
+- **> 90%**: Too similar — little evolutionary signal; consider broader search
+
+**Gap fraction:**
+- **< 20%**: Well-aligned, high-quality MSA
+- **20 – 40%**: Acceptable; consider trimming gappy columns
+- **> 50%**: Over-gapped — consider filtering sequences with > 30% gaps
+
+**Effective sequences (Neff):** For deep-learning models, Neff > 64 gives confident predictions.
+Neff ≈ number of sequences × (1 − avg_pairwise_identity).
+        """)
+
     # Show alignment info
     if st.session_state.msa_alignment:
         alignment = st.session_state.msa_alignment
@@ -206,6 +232,18 @@ with main_tabs[0]:
             gap_pct = gaps / total_chars * 100
             st.metric("Gap %", f"{gap_pct:.1f}%")
 
+        # MSA quality verdict
+        n_seqs = len(alignment)
+        _gap_pct = gaps / total_chars * 100 if total_chars > 0 else 0
+        if n_seqs >= 500 and _gap_pct < 20:
+            st.success("Excellent MSA — ready for all analyses including coevolution and PSSM.")
+        elif n_seqs >= 100:
+            st.info(f"Good MSA ({n_seqs} sequences). Coevolution and conservation analyses will be reliable.")
+        elif n_seqs >= 30:
+            st.warning(f"Minimal MSA ({n_seqs} sequences). Conservation is usable; coevolution results may be noisy.")
+        else:
+            st.error(f"Too few sequences ({n_seqs}). Consider broadening your homolog search (lower identity threshold or larger database).")
+
         # Preview alignment
         st.markdown("#### Alignment Viewer")
         
@@ -233,7 +271,8 @@ with main_tabs[1]:
         # Conservation method
         method = st.selectbox(
             "Conservation method",
-            ["Shannon entropy", "Jensen-Shannon divergence", "Composite score"]
+            ["Shannon entropy", "Jensen-Shannon divergence", "Composite score"],
+            help="Shannon entropy: raw per-position variability. JSD: accounts for background frequencies — preferred. Composite: blends both."
         )
 
         if st.button("🔬 Calculate Conservation"):
@@ -701,6 +740,28 @@ with main_tabs[4]:
                 f"Total information: {result.total_information:.2f} bits",
                 "Top suggested mutations: " + (", ".join(suggestion_preview) if suggestion_preview else "none"),
             ])
+            msa_data = {
+                "Alignment size": f"{len(alignment)} sequences",
+                "Alignment length": len(alignment[0]) if alignment else 0,
+                "Total information": f"{result.total_information:.2f} bits",
+                "Suggested mutations": len(suggestion_rows),
+            }
+            render_contextual_insight(
+                "MSA",
+                msa_data,
+                key_prefix="msa_ctx",
+            )
+
+            render_agent_advice_panel(
+                page_context=msa_context,
+                default_question=(
+                    "Based on conservation patterns, which positions are safe "
+                    "to mutate and which should remain fixed?"
+                ),
+                expert="Computational Biologist",
+                key_prefix="msa_agent",
+            )
+
             render_all_experts_panel(
                 "All-Expert Review (MSA/PSSM job)",
                 agenda=(

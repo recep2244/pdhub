@@ -424,6 +424,18 @@ with st.expander("📖 How comparison works", expanded=False):
 - After running 2+ predictors on the same sequence
 - To decide which structure to use for downstream analysis
 - To identify regions where predictors disagree (may indicate disorder or flexibility)
+
+---
+**Cross-predictor calibration note:**
+pLDDT scores are **not directly comparable** across models. ColabFold pLDDT is AF2-calibrated (>90 = very high). ESMFold and Chai-1 use different training regimes — their absolute values can differ by ±5–15 points for the same structure quality. When no reference is provided, use **TM-score** or **structural RMSD** (requires reference) rather than raw pLDDT to rank predictors.
+
+**DockQ thresholds (multimers):**
+| DockQ | Quality |
+|-------|---------|
+| > 0.80 | Near-native — use for downstream design |
+| 0.49 – 0.80 | Medium quality |
+| 0.23 – 0.49 | Acceptable |
+| < 0.23 | Incorrect — re-run with more recycles or a different predictor |
     """)
 
 # =============================================================================
@@ -516,16 +528,16 @@ if predictors_to_run:
         </div>
         ''')
     pills_html.append('</div>')
-    st.markdown(''.join(pills_html), unsafe_allow_html=True)
+    st.html(''.join(pills_html))
 
     # Settings summary
-    st.markdown(f'''
+    st.html(f'''
     <div class="settings-summary">
         <div class="setting-tag">Models: <span class="setting-tag-value">{num_models}</span></div>
         <div class="setting-tag">Recycles: <span class="setting-tag-value">{num_recycles}</span></div>
         <div class="setting-tag">Metrics: <span class="setting-tag-value">{len(eval_metrics)}</span></div>
     </div>
-    ''', unsafe_allow_html=True)
+    ''')
 else:
     info_box("Select at least one predictor from the sidebar", variant="warning", icon="⚠️")
 
@@ -847,6 +859,17 @@ if "compare_result" in st.session_state:
                 f"- Rank {i}: {name} (score: {score:.3f})"
                 for i, (name, score) in enumerate(result.ranking, 1)
             )
+            compare_data = {
+                "Best predictor": result.best_predictor.upper() if result.best_predictor else "N/A",
+                "Top score": f"{result.ranking[0][1]:.3f}" if result.ranking else "N/A",
+                "Predictors compared": len(result.ranking),
+            }
+            render_contextual_insight(
+                "Compare",
+                compare_data,
+                key_prefix="compare_ctx",
+            )
+
             render_agent_advice_panel(
                 page_context=f"Predictor comparison ranking:\n{ranking_ctx}",
                 default_question=(
