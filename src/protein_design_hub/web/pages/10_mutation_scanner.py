@@ -9,16 +9,19 @@ This page provides:
 6. Side-by-side structure comparison
 """
 
+import base64
 import logging
 import os
+import re
 import sys
+import tempfile
 from pathlib import Path
 import json
-import tempfile
 import time
 from typing import Dict, List, Optional, Any, Tuple
 import pandas as pd
 import plotly.graph_objects as go
+from fpdf import FPDF
 
 PROJECT_SRC = Path(__file__).resolve().parents[3]
 if str(PROJECT_SRC) not in sys.path:
@@ -2153,6 +2156,233 @@ def _render_ost_table(ranked: list) -> None:
 
     st.markdown("#### OST Structural Metrics")
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
+def _strip_for_pdf(text: str) -> str:
+    """Remove characters fpdf2 Helvetica cannot render (emoji, CJK, high-Unicode).
+    Also strip common markdown markers for cleaner PDF text.
+    """
+    # Remove non-latin-1 characters
+    text = re.sub(r"[^\x00-\xFF]+", "", text)
+    # Strip markdown bold/italic/header markers
+    text = re.sub(r"[*#`]+", "", text)
+    return text.strip()
+
+
+def _embed_fig_in_pdf(pdf: "FPDF", fig: "go.Figure", width_mm: int = 180) -> None:
+    """Export plotly figure to PNG temp file, embed in PDF, delete temp file.
+    try/finally ensures cleanup even on exception (prevents /tmp accumulation).
+    fpdf2 image() requires file path — bytes not accepted.
+    """
+    png_bytes = fig.to_image(format="png", width=700, height=350)
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(png_bytes)
+        tmp_path = f.name
+    try:
+        pdf.image(tmp_path, w=width_mm)
+    finally:
+        os.unlink(tmp_path)
+
+
+def _build_report_pdf(ctx, comparison: dict) -> bytes:
+    """Build PDF mutagenesis report as bytes.
+    Returns bytes (not bytearray) — st.download_button requires bytes.
+    Uses _embed_fig_in_pdf for try/finally temp file cleanup.
+    OST table capped at 20 rows to prevent large-count slowness.
+    Narrative stripped of non-latin-1 and markdown via _strip_for_pdf.
+    """
+    ranked = comparison.get("ranked_mutations", [])
+    wt_per_res = ctx.extra.get("mutation_wt_plddt_per_residue", [])
+    interpretation = ctx.extra.get("mutation_interpretation", "")
+
+    ranking_fig = _build_ranking_figure(ranked)
+    plddt_fig = _build_plddt_figure(ranked, wt_per_res) if wt_per_res else None
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_left_margin(15)
+    pdf.set_right_margin(15)
+    pdf.add_page()
+
+    # Title
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.cell(0, 12, "Mutagenesis Report", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.ln(2)
+
+    # Summary
+    pdf.set_font("Helvetica", size=11)
+    best = comparison.get("best_overall")
+    if best:
+        line = (
+            f"Best mutation: {best.get('mutation_code', '?')} "
+            f"(score {best.get('improvement_score', 0):.3f})"
+        )
+        pdf.cell(0, 8, _strip_for_pdf(line), new_x="LMARGIN", new_y="NEXT")
+    total = comparison.get("total_mutations", 0)
+    beneficial = comparison.get("beneficial_count", 0)
+    detrimental = comparison.get("detrimental_count", 0)
+    pdf.cell(
+        0, 8,
+        f"Total: {total}  |  Beneficial: {beneficial}  |  Detrimental: {detrimental}",
+        new_x="LMARGIN", new_y="NEXT",
+    )
+    pdf.ln(3)
+
+    # Ranking chart
+    if ranked:
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 9, "Mutation Ranking", new_x="LMARGIN", new_y="NEXT")
+        _embed_fig_in_pdf(pdf, ranking_fig)
+        pdf.ln(4)
+
+    # pLDDT chart
+    if plddt_fig is not None:
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 9, "Per-Residue pLDDT", new_x="LMARGIN", new_y="NEXT")
+        _embed_fig_in_pdf(pdf, plddt_fig)
+        pdf.ln(4)
+
+    # OST metric table
+    ost_rows = [r for r in ranked if r.get("ost_lddt") is not None]
+    if ost_rows:
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 9, "OST Structural Metrics", new_x="LMARGIN", new_y="NEXT")
+        col_widths = [40, 30, 30, 35, 35]
+        headers = ["Mutation", "Score", "lDDT", "RMSD (CA)", "QS-score"]
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_fill_color(241, 245, 249)
+        for w, h in zip(col_widths, headers):
+            pdf.cell(w, 8, h, border=1, fill=True)
+        pdf.ln()
+        pdf.set_font("Helvetica", size=10)
+        for i, r in enumerate(ost_rows[:20]):
+            fill = i % 2 == 1
+            if fill:
+                pdf.set_fill_color(248, 250, 252)
+            vals = [
+                r.get("mutation_code", "?"),
+                f"{r.get('improvement_score', 0):.3f}",
+                f"{r.get('ost_lddt', 0):.3f}",
+                f"{r['ost_rmsd_ca']:.2f}" if r.get("ost_rmsd_ca") is not None else "-",
+                f"{r['ost_qs_score']:.3f}" if r.get("ost_qs_score") is not None else "-",
+            ]
+            for w, v in zip(col_widths, vals):
+                pdf.cell(w, 7, v, border=1, fill=fill)
+            pdf.ln()
+        pdf.ln(4)
+
+    # Narrative summary
+    if interpretation:
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 9, "Narrative Summary", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", size=10)
+        pdf.multi_cell(0, 6, _strip_for_pdf(interpretation[:3000]))
+
+    return bytes(pdf.output())
+
+
+def _build_report_html(ctx, comparison: dict) -> str:
+    """Build self-contained HTML mutagenesis report.
+    Uses base64-embedded PNG images (no CDN, no internet required).
+    html.escape() applied to LLM narrative to prevent broken HTML from <, >, & in output.
+    Output ~60 KB for 3-chart report.
+    """
+    import html as html_mod
+
+    ranked = comparison.get("ranked_mutations", [])
+    wt_per_res = ctx.extra.get("mutation_wt_plddt_per_residue", [])
+    interpretation = ctx.extra.get("mutation_interpretation", "")
+
+    def _to_b64_png(fig: "go.Figure") -> str:
+        return base64.b64encode(
+            fig.to_image(format="png", width=700, height=350)
+        ).decode("utf-8")
+
+    ranking_b64 = ""
+    if ranked:
+        ranking_b64 = _to_b64_png(_build_ranking_figure(ranked))
+
+    plddt_b64 = ""
+    if wt_per_res:
+        plddt_b64 = _to_b64_png(_build_plddt_figure(ranked, wt_per_res))
+
+    # Summary block
+    best = comparison.get("best_overall")
+    summary_html = ""
+    if best:
+        summary_html = (
+            f"<div class='summary'>"
+            f"<p><strong>Best mutation:</strong> {html_mod.escape(str(best.get('mutation_code', '?')))} "
+            f"(score: {best.get('improvement_score', 0):.3f})</p>"
+            f"<p>Total: {comparison.get('total_mutations', 0)} | "
+            f"Beneficial: {comparison.get('beneficial_count', 0)} | "
+            f"Detrimental: {comparison.get('detrimental_count', 0)}</p></div>"
+        )
+
+    # Charts
+    ranking_section = (
+        f"<h2>Mutation Ranking</h2>"
+        f"<img src='data:image/png;base64,{ranking_b64}' alt='Mutation Ranking Chart'>"
+        if ranking_b64 else ""
+    )
+    plddt_section = (
+        f"<h2>Per-Residue pLDDT</h2>"
+        f"<img src='data:image/png;base64,{plddt_b64}' alt='pLDDT Chart'>"
+        if plddt_b64 else ""
+    )
+
+    # OST table
+    ost_rows = [r for r in ranked if r.get("ost_lddt") is not None]
+    ost_table_html = ""
+    if ost_rows:
+        rows_html = ""
+        for r in ost_rows[:20]:
+            rmsd = f"{r['ost_rmsd_ca']:.2f}" if r.get("ost_rmsd_ca") is not None else "-"
+            qs = f"{r['ost_qs_score']:.3f}" if r.get("ost_qs_score") is not None else "-"
+            rows_html += (
+                f"<tr>"
+                f"<td>{html_mod.escape(str(r.get('mutation_code', '?')))}</td>"
+                f"<td>{r.get('improvement_score', 0):.3f}</td>"
+                f"<td>{r.get('ost_lddt', 0):.3f}</td>"
+                f"<td>{rmsd}</td>"
+                f"<td>{qs}</td>"
+                f"</tr>"
+            )
+        ost_table_html = (
+            f"<h2>OST Structural Metrics</h2>"
+            f"<table><tr><th>Mutation</th><th>Score</th>"
+            f"<th>lDDT</th><th>RMSD (CA)</th><th>QS-score</th></tr>"
+            f"{rows_html}</table>"
+        )
+
+    # Narrative
+    narrative_html = (
+        f"<h2>Narrative Summary</h2><p>{html_mod.escape(interpretation[:3000])}</p>"
+        if interpretation else ""
+    )
+
+    return f"""<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>Mutagenesis Report</title>
+<style>
+body{{font-family:Arial,sans-serif;max-width:900px;margin:0 auto;padding:20px;color:#1e293b}}
+h1{{color:#1e293b}}h2{{color:#334155;border-bottom:2px solid #e2e8f0;padding-bottom:8px}}
+table{{border-collapse:collapse;width:100%;margin:16px 0}}
+th{{background:#f1f5f9;padding:8px 12px;text-align:left;border:1px solid #e2e8f0}}
+td{{padding:7px 12px;border:1px solid #e2e8f0}}
+tr:nth-child(even){{background:#f8fafc}}
+img{{max-width:100%;height:auto;margin:12px 0;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.1)}}
+.summary{{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:16px 0}}
+</style></head>
+<body>
+<h1>Mutagenesis Report</h1>
+{summary_html}
+{ranking_section}
+{plddt_section}
+{ost_table_html}
+{narrative_html}
+</body></html>"""
 
 
 def _render_saturation_heatmap(mutations: list, position: int):
