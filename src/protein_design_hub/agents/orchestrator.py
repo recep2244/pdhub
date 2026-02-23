@@ -225,6 +225,49 @@ def _build_mutagenesis_post_approval_pipeline(
     ]
 
 
+def _build_binding_affinity_pipeline(
+    progress_callback: Optional[Callable] = None,
+    **kwargs,
+) -> List[BaseAgent]:
+    """Build a focused binding-affinity analysis pipeline (6 agents).
+
+    Runs structure prediction and evaluation, then brings in the Biophysicist
+    (+ Scientific Critic) to interpret binding-relevant metrics via
+    ``LLMEvaluationReviewAgent``.  Callers may override *team_members* or
+    *team_lead* via keyword arguments.
+    """
+    from protein_design_hub.agents.input_agent import InputAgent
+    from protein_design_hub.agents.prediction_agent import PredictionAgent
+    from protein_design_hub.agents.evaluation_agent import EvaluationAgent
+    from protein_design_hub.agents.comparison_agent import ComparisonAgent
+    from protein_design_hub.agents.report_agent import ReportAgent
+    from protein_design_hub.agents.llm_guided import LLMEvaluationReviewAgent
+    from protein_design_hub.agents.scientists import (
+        DEFAULT_TEAM_LEAD,
+        BIOPHYSICIST,
+        SCIENTIFIC_CRITIC,
+    )
+
+    ba_kwargs = dict(kwargs)
+    ba_kwargs.setdefault("team_lead", DEFAULT_TEAM_LEAD)
+    ba_kwargs.setdefault("team_members", (BIOPHYSICIST, SCIENTIFIC_CRITIC))
+
+    return [
+        # 1. Parse input
+        InputAgent(progress_callback=progress_callback),
+        # 2. Run structure predictions
+        PredictionAgent(progress_callback=progress_callback),
+        # 3. Evaluate structures
+        EvaluationAgent(progress_callback=progress_callback),
+        # 4. Compare and rank
+        ComparisonAgent(progress_callback=progress_callback),
+        # 5. Biophysicist-led evaluation review (interprets binding metrics)
+        LLMEvaluationReviewAgent(progress_callback=progress_callback, **ba_kwargs),
+        # 6. Write reports
+        ReportAgent(progress_callback=progress_callback),
+    ]
+
+
 class AgentOrchestrator:
     """
     Runs a sequence of agents, passing a single WorkflowContext through
@@ -246,7 +289,11 @@ class AgentOrchestrator:
             mode: ``"step"`` for computational-only pipeline,
                   ``"llm"`` for LLM-guided pipeline with meetings,
                   ``"mutagenesis_pre"`` for Phase 1 mutagenesis (7 agents),
-                  ``"mutagenesis_post"`` for Phase 2 mutagenesis (4 agents).
+                  ``"mutagenesis_post"`` for Phase 2 mutagenesis (4 agents),
+                  ``"nanobody_llm"`` for 12-step nanobody-specialised pipeline
+                  (NANOBODY_TEAM_MEMBERS forced on all LLM agents),
+                  ``"binding_affinity"`` for 6-step binding affinity analysis
+                  (Biophysicist-led evaluation review).
             stop_on_failure: If True, stop as soon as an agent fails.
             allow_failed_llm_steps: If True, continue even when an LLM step
                 returns a FAIL verdict (this is logged in context.extra["policy_log"]).
@@ -265,6 +312,14 @@ class AgentOrchestrator:
             )
         elif mode == "mutagenesis_post":
             self.agents = _build_mutagenesis_post_approval_pipeline(
+                progress_callback=progress_callback, **kwargs,
+            )
+        elif mode == "nanobody_llm":
+            self.agents = _build_nanobody_llm_pipeline(
+                progress_callback=progress_callback, **kwargs,
+            )
+        elif mode == "binding_affinity":
+            self.agents = _build_binding_affinity_pipeline(
                 progress_callback=progress_callback, **kwargs,
             )
         else:
