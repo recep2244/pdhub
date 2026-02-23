@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** A reliable, end-to-end protein design workflow where a researcher goes from sequence to structure to expert analysis to mutagenesis to report without data loss, silent failures, or manual workarounds.
-**Current focus:** Phase 3 - Performance & Reliability (complete)
+**Current focus:** Phase 5 - Reporting
 
 ## Current Position
 
-Phase: 4 of 8 (Test Coverage)
-Plan: 2 of 2 in current phase
-Status: Phase 4 complete — 04-01 complete, 04-02 complete
-Last activity: 2026-02-22 — 04-02 complete: TEST-03 failure modes + TEST-01 Phase 1/Phase 2 integration; 56 tests pass
+Phase: 5 of 8 (Reporting)
+Plan: 1 of 2 in current phase
+Status: 05-01 complete — mutation ranking chart (REP-01), pLDDT chart (REP-02), OST table (REP-03) added; ready for 05-02 (PDF/HTML export)
+Last activity: 2026-02-23 — 05-01 complete: visual charts + OST table wired into Phase 2 results panel; 5 functions added, fpdf2/kaleido declared
 
-Progress: [########░░] 50%
+Progress: [##########░░] 55%
 
 ## Performance Metrics
 
@@ -38,6 +38,7 @@ Progress: [########░░] 50%
 *Updated after each plan completion*
 | Phase 04-test-coverage P01 | 5 | 2 tasks | 1 files |
 | Phase 04-test-coverage P02 | 12 | 2 tasks | 1 files |
+| Phase 05-reporting P01 | 5 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,10 @@ Recent decisions affecting current work:
 - [Phase 04-test-coverage]: [04-02] MutationScanner imported from protein_design_hub.analysis.mutation_scanner (not mutagenesis_agents which does not re-export it)
 - [Phase 04-test-coverage]: [04-02] TEST-01 uses patch.object(real_scanner, "predict_single") + _build_scanner patch to return real instance — real __init__ exercised, no HTTP calls
 - [Phase 04-test-coverage]: [04-02] TEST-01 excludes MutationComparisonAgent from Phase 2 pipeline — only MutationExecutionAgent needed to verify approved_mutations → mutation_results flow
+- [Phase 05-reporting]: [05-01] _build_ranking_figure uses single go.Bar trace with per-bar marker_color list to preserve sorted x-axis order (not separate traces per category)
+- [Phase 05-reporting]: [05-01] OST table reads ost_lddt/ost_rmsd_ca/ost_qs_score directly from ranked mutation dicts — no ctx.extra["ost_metrics"] key exists
+- [Phase 05-reporting]: [05-01] _build_* functions are module-level shared builders, callable by Plan 02 export without Streamlit dependency
+- [Phase 05-reporting]: [05-01] pLDDT chart shows st.info message when mutation_wt_plddt_per_residue absent rather than silent skip
 
 ### Pending Todos
 
@@ -93,6 +98,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-22
-Stopped at: Completed 04-02-PLAN.md (TEST-03 failure modes + TEST-01 Phase 1/Phase 2 integration; 2 tasks; 56 tests pass)
+Last session: 2026-02-23
+Stopped at: Completed 05-01-PLAN.md (visual charts + OST table in Phase 2 results panel; 2 tasks; fpdf2/kaleido declared)
 Resume file: None
