@@ -3072,15 +3072,47 @@ with tab_manual:
             if variants:
                 st.markdown("#### Other Top Candidates")
                 for v in variants[1:5]:
-                    col1, col2 = st.columns([1, 4])
-                    with col1:
-                        st.metric(v.mutation_code, f"Δ {v.delta_mean_plddt:+.2f}")
-                    with col2:
-                        st.caption(
-                            f"Local pLDDT: {v.local_plddt_mean:.1f} (min {v.local_plddt_min:.1f}) | "
-                            f"RMSD: {v.rmsd_to_base:.2f} Å" if getattr(v, "rmsd_to_base", None) else
-                            f"Local pLDDT: {v.local_plddt_mean:.1f} (min {v.local_plddt_min:.1f})"
-                        )
+                    with st.container(border=True):
+                        col1, col2, col3 = st.columns([1, 3, 1])
+                        with col1:
+                            _delta = v.delta_mean_plddt
+                            _color = "#22c55e" if _delta > 0 else "#ef4444"
+                            st.markdown(
+                                f'<div style="font-size:15px;font-weight:700;color:{_color};">'
+                                f'{v.mutation_code}</div>'
+                                f'<div style="font-size:13px;color:{_color};">Δ {_delta:+.2f}</div>',
+                                unsafe_allow_html=True,
+                            )
+                        with col2:
+                            _rmsd = getattr(v, "rmsd_to_base", None)
+                            _local = getattr(v, "local_plddt_mean", None)
+                            details = []
+                            if _local is not None:
+                                details.append(f"Local pLDDT {_local:.1f}")
+                            if _rmsd is not None:
+                                details.append(f"RMSD {_rmsd:.2f} Å")
+                            st.caption("  ·  ".join(details) if details else "")
+                            # Inline structure viewer if structure exists
+                            _vpath = getattr(v, "structure_path", None)
+                            if _vpath and Path(_vpath).exists():
+                                with st.expander(f"🔬 View {v.mutation_code} structure"):
+                                    import streamlit.components.v1 as _cmp
+                                    from protein_design_hub.web.visualizations import create_structure_viewer as _csv
+                                    _cmp.html(
+                                        _csv(Path(_vpath), height=260, show_toolbar=True, title=v.mutation_code),
+                                        height=280,
+                                    )
+                        with col3:
+                            if st.button("Send to Predict", key=f"send_{v.mutation_code}", use_container_width=True, type="secondary"):
+                                _ms = list(res.sequence)
+                                for _p, _aa in zip(res.positions, v.mutant_aas):
+                                    _ms[_p - 1] = _aa
+                                st.session_state['incoming_prediction_job'] = {
+                                    'sequence': "".join(_ms),
+                                    'name': f"variant_{v.mutation_code}",
+                                    'source': 'mutation_scanner',
+                                }
+                                st.switch_page("pages/1_predict.py")
             else:
                 st.info("No successful variants produced.")
 
@@ -3348,15 +3380,41 @@ with tab_manual:
                     if st.button("Load into Structure Viewer", use_container_width=True):
                         st.session_state.comparison_mutation = target_variant
 
-            # List other top variants
+            # List other top variants with inline structure viewers
             st.markdown("#### Other Top Candidates")
             for mut in res.ranked_mutations[1:4]:
-                col1, col2 = st.columns([1, 4])
-                with col1:
-                    st.metric(mut.mutation_code, f"Δ {mut.delta_mean_plddt:.2f}", 
-                             delta_color="normal" if mut.is_beneficial else "inverse")
-                with col2:
-                    st.caption(f"RMSD: {mut.rmsd_to_base:.2f} Å | Clash Score: {mut.clash_score} | SASA: {mut.sasa_total}")
+                with st.container(border=True):
+                    col1, col2 = st.columns([1, 4])
+                    with col1:
+                        _mcolor = "#22c55e" if mut.is_beneficial else "#ef4444"
+                        st.markdown(
+                            f'<div style="font-weight:700;color:{_mcolor};">{mut.mutation_code}</div>'
+                            f'<div style="font-size:13px;color:{_mcolor};">Δ {mut.delta_mean_plddt:+.2f}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    with col2:
+                        _rmsd = getattr(mut, "rmsd_to_base", None)
+                        _clash = getattr(mut, "clash_score", None)
+                        _sasa = getattr(mut, "sasa_total", None)
+                        _parts = []
+                        if _rmsd: _parts.append(f"RMSD {_rmsd:.2f} Å")
+                        if _clash is not None: _parts.append(f"Clash {_clash}")
+                        if _sasa: _parts.append(f"SASA {_sasa:.0f} Ų")
+                        st.caption("  ·  ".join(_parts))
+                        _mpath = getattr(mut, "structure_path", None)
+                        if _mpath:
+                            try:
+                                _mpath = Path(_mpath) if not isinstance(_mpath, Path) else _mpath
+                                if _mpath.exists():
+                                    with st.expander(f"🔬 View {mut.mutation_code}"):
+                                        import streamlit.components.v1 as _cmp2
+                                        from protein_design_hub.web.visualizations import create_structure_viewer as _csv2
+                                        _cmp2.html(
+                                            _csv2(_mpath, height=240, show_toolbar=True, title=mut.mutation_code),
+                                            height=260,
+                                        )
+                            except Exception:
+                                pass
 
 
         with tab2:

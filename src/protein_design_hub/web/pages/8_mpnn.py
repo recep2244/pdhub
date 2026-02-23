@@ -221,6 +221,22 @@ with col_a:
              )
              components.html(html, height=340)
 
+             # Inline structural tip: estimate chain/length from PDB
+             try:
+                 _lines = preview_path.read_text().splitlines()
+                 _chains = sorted(set(l[21] for l in _lines if l.startswith("ATOM")))
+                 _residues = sorted(set(int(l[22:26]) for l in _lines if l.startswith("ATOM")))
+                 _nres = len(_residues)
+                 _tip_parts = [f"**{_nres} residues**"]
+                 if _chains:
+                     _tip_parts.append(f"Chains: {', '.join(_chains)}")
+                 st.info(
+                     "  ·  ".join(_tip_parts)
+                     + "  —  Use pLDDT coloring (default) to identify low-confidence regions before designing"
+                 )
+             except Exception:
+                 pass
+
 with col_b:
     section_header("Sampling Settings", "Configure design parameters", "⚙️")
 
@@ -431,37 +447,69 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=
                 # Show top sequences + metrics
                 for i, s in enumerate(result.sequences[:20]):
                     with st.expander(f"**{s.id}**", expanded=(i < 3)):
-                        st.markdown(f'<div class="sequence-code">{s.sequence}</div>', unsafe_allow_html=True)
+                        # Sequence display + metrics side by side
+                        _scol1, _scol2 = st.columns([2, 1])
+                        with _scol1:
+                            st.markdown(f'<div class="sequence-code">{s.sequence}</div>', unsafe_allow_html=True)
 
-                        try:
-                            m = compute_sequence_metrics(s.sequence)
-                            st.markdown("""
-                            <div class="metrics-row">
-                                <div class="mini-metric">
-                                    <div class="mini-metric-value">{:.2f}</div>
-                                    <div class="mini-metric-label">pI</div>
-                                </div>
-                                <div class="mini-metric">
-                                    <div class="mini-metric-value">{:.2f}</div>
-                                    <div class="mini-metric-label">Charge pH7</div>
-                                </div>
-                                <div class="mini-metric">
-                                    <div class="mini-metric-value">{:.3f}</div>
-                                    <div class="mini-metric-label">GRAVY</div>
-                                </div>
-                                <div class="mini-metric">
-                                    <div class="mini-metric-value">{:.1f}</div>
-                                    <div class="mini-metric-label">Instability</div>
-                                </div>
-                            </div>
-                            """.format(
-                                m.isoelectric_point,
-                                m.net_charge_ph7,
-                                m.gravy,
-                                m.instability_index
-                            ), unsafe_allow_html=True)
-                        except Exception as e:
-                            st.caption(f"Metrics unavailable: {e}")
+                        with _scol2:
+                            try:
+                                m = compute_sequence_metrics(s.sequence)
+                                _pi = m.isoelectric_point
+                                _chg = m.net_charge_ph7
+                                _gv = m.gravy
+                                _ii = m.instability_index
+
+                                # Color-coded instability
+                                _ii_color = "#22c55e" if _ii < 40 else "#f59e0b" if _ii < 60 else "#ef4444"
+                                _gv_color = "#60a5fa" if _gv < -0.5 else "#94a3b8" if _gv < 0.5 else "#f59e0b"
+
+                                st.markdown(
+                                    f"""<div style="font-size:12px;line-height:1.8;">
+                                    <b>pI</b> {_pi:.2f} &nbsp;
+                                    <b>Charge</b> {_chg:+.1f} &nbsp;
+                                    <b style="color:{_gv_color};">GRAVY</b> {_gv:.3f}<br>
+                                    <b>Instability</b> <span style="color:{_ii_color};">{_ii:.1f}</span>
+                                    {"✅ stable" if _ii < 40 else "⚠️ unstable"}
+                                    </div>""",
+                                    unsafe_allow_html=True,
+                                )
+                            except Exception as e:
+                                st.caption(f"Metrics unavailable: {e}")
+
+                        # Inline Protein Engineer analysis button for this sequence
+                        _seq_reply_key = f"_mpnn_seq_reply_{i}"
+                        _seq_btn_col, _ = st.columns([1, 2])
+                        with _seq_btn_col:
+                            if st.button(
+                                "🔧 Protein Engineer Analysis",
+                                key=f"mpnn_seq_btn_{i}",
+                                use_container_width=True,
+                            ):
+                                try:
+                                    m = compute_sequence_metrics(s.sequence)
+                                    _seq_ctx = (
+                                        f"ProteinMPNN designed sequence {s.id}:\n"
+                                        f"Sequence: {s.sequence[:80]}...\n"
+                                        f"pI: {m.isoelectric_point:.2f}, Charge pH7: {m.net_charge_ph7:.1f}, "
+                                        f"GRAVY: {m.gravy:.3f}, Instability index: {m.instability_index:.1f}\n"
+                                        f"Backbone: {backbone_path.name}"
+                                    )
+                                except Exception:
+                                    _seq_ctx = f"ProteinMPNN designed sequence {s.id}: {s.sequence[:60]}..."
+                                from protein_design_hub.web.agent_helpers import ask_agent_advice
+                                with st.spinner("Consulting Protein Engineer..."):
+                                    _seq_reply = ask_agent_advice(
+                                        "Evaluate this designed sequence's biophysical properties. "
+                                        "Is the instability index acceptable? Is the charge/pI suitable? "
+                                        "Would you recommend this for experimental validation?",
+                                        agent_name="Protein Engineer",
+                                        context=_seq_ctx,
+                                        max_tokens=250,
+                                    )
+                                st.session_state[_seq_reply_key] = _seq_reply
+                        if st.session_state.get(_seq_reply_key):
+                            st.markdown(f"**Protein Engineer:** {st.session_state[_seq_reply_key]}")
 
                 # Download FASTA
                 st.markdown("---")

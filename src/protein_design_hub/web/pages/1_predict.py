@@ -950,7 +950,39 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                     st.markdown(f"**Model:** {best_name}")
                     metric_card(f"{best_plddt:.1f}", "pLDDT Score", "success", "⭐")
 
-                    st.markdown("<br>", unsafe_allow_html=True)
+                    # pLDDT quality interpretation inline
+                    if best_plddt >= 90:
+                        st.success("Very high confidence — excellent for downstream use")
+                    elif best_plddt >= 70:
+                        st.info("Confident prediction — generally suitable for design/docking")
+                    elif best_plddt >= 50:
+                        st.warning("Low confidence — validate with orthogonal predictor")
+                    else:
+                        st.error("Very low confidence — likely disordered or prediction failure")
+
+                    st.markdown("---")
+
+                    # Inline structural biologist quick insight
+                    _struct_reply_key = "_predict_struct_insight"
+                    if st.button("🔬 Structural Insight", use_container_width=True, key="struct_insight_btn"):
+                        from protein_design_hub.web.agent_helpers import _get_cross_page_context
+                        _ctx = f"Best structure: {best_name}, pLDDT={best_plddt:.1f}"
+                        cross = _get_cross_page_context()
+                        if cross and "No cross-page" not in cross:
+                            _ctx += "\n\n" + cross
+                        with st.spinner("Consulting Structural Biologist..."):
+                            from protein_design_hub.web.agent_helpers import ask_agent_advice
+                            _reply = ask_agent_advice(
+                                "Interpret this structure prediction result. What is the quality level, are there likely disordered regions, and what should be done next?",
+                                agent_name="Structural Biologist",
+                                context=_ctx,
+                                max_tokens=300,
+                            )
+                        st.session_state[_struct_reply_key] = _reply
+                    if st.session_state.get(_struct_reply_key):
+                        st.markdown(st.session_state[_struct_reply_key])
+
+                    st.markdown("---")
                     if st.button("📊 Evaluate Structure", use_container_width=True, type="primary"):
                         from protein_design_hub.web.ui import set_selected_model
                         set_selected_model(best_pdb)
