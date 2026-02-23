@@ -8,7 +8,7 @@ This module provides:
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from enum import Enum
 from pathlib import Path
 import json
@@ -44,6 +44,7 @@ class EvolutionConfig:
     # Population parameters
     population_size: int = 100
     elite_size: int = 5
+    elite_fraction: float = 0.0  # If > 0, overrides elite_size (fraction of population)
 
     # Evolution parameters
     num_generations: int = 10
@@ -62,10 +63,22 @@ class EvolutionConfig:
 
     # Mutation operator settings
     num_mutations_per_variant: int = 1
+    max_mutations_per_sequence: int = 0  # Alias; if > 0 overrides num_mutations_per_variant
     conservative_mutations: bool = False
+
+    # Position constraints — enforced during mutation sampling
+    fixed_positions: List[int] = field(default_factory=list)  # 1-indexed positions never mutated
+    position_constraints: Dict[int, List[str]] = field(default_factory=dict)  # pos → allowed AAs
 
     # Diversity
     diversity_threshold: float = 0.9  # Max sequence identity
+
+    def __post_init__(self) -> None:
+        # Resolve alias fields
+        if self.max_mutations_per_sequence > 0:
+            self.num_mutations_per_variant = self.max_mutations_per_sequence
+        if self.elite_fraction > 0:
+            self.elite_size = max(1, int(self.population_size * self.elite_fraction))
 
     def to_dict(self) -> Dict:
         return {
@@ -192,11 +205,21 @@ class DirectedEvolution:
         self.fitness_function = fitness_function
         self.config = config or EvolutionConfig()
 
-        # Default mutation operator
-        self.mutation_operator = mutation_operator or PointMutation(
-            num_mutations=self.config.num_mutations_per_variant,
-            conservative_only=self.config.conservative_mutations,
-        )
+        # Build mutation operator — wire fixed_positions and position_constraints from config
+        if mutation_operator is not None:
+            self.mutation_operator = mutation_operator
+        elif self.config.position_constraints:
+            # Per-position AA constraints → use CombinatorialMutation for constrained sites
+            from protein_design_hub.evolution.mutation_operators import CombinatorialMutation
+            self.mutation_operator = CombinatorialMutation(
+                mutation_sites=self.config.position_constraints,
+            )
+        else:
+            self.mutation_operator = PointMutation(
+                num_mutations=self.config.num_mutations_per_variant,
+                conservative_only=self.config.conservative_mutations,
+                exclude_positions=list(self.config.fixed_positions) if self.config.fixed_positions else [],
+            )
 
         # Initialize fitness landscape
         self.landscape = FitnessLandscape(

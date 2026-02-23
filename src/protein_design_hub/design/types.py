@@ -21,6 +21,11 @@ class DesignInput:
     num_sequences: int = 8
     temperature: float = 0.1
     seed: Optional[int] = None
+    # Design constraints
+    fixed_positions: Optional[str] = None   # e.g. "1-10, 25, 30-35" (1-indexed, chain A)
+    chains_to_design: Optional[str] = None  # e.g. "A" or "A,B"
+    omit_aa: Optional[str] = None          # e.g. "CM" — globally excluded residues
+    use_soluble_model: bool = False
 
     def __post_init__(self) -> None:
         self.backbone_path = Path(self.backbone_path)

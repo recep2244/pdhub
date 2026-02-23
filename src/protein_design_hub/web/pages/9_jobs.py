@@ -9,7 +9,12 @@ from typing import Optional
 
 import streamlit as st
 
-from protein_design_hub.web.agent_helpers import agent_sidebar_status, render_all_experts_panel
+from protein_design_hub.web.agent_helpers import (
+    agent_sidebar_status,
+    render_contextual_insight,
+    render_agent_advice_panel,
+    render_all_experts_panel,
+)
 
 from protein_design_hub.web.ui import (
     get_selected_backbone,
@@ -122,10 +127,11 @@ if selected_model or selected_backbone:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # Job count info
-col_stats1, col_stats2, col_stats3 = st.columns(3)
+col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
 with col_stats1: metric_card(len(jobs), "Total Jobs", "info", "📁")
 with col_stats2: metric_card(sum(1 for j in jobs if j["has_prediction"]), "Predictions", "gradient", "🔮")
 with col_stats3: metric_card(len([j for j in jobs if j.get('has_scan') or j.get('has_evolution')]), "Analyses", "warning", "🧬")
+with col_stats4: metric_card(sum(j.get("meeting_count", 0) for j in jobs), "Meetings", "default", "🧠")
 
 st.markdown("<br>", unsafe_allow_html=True)
 section_header("Registry Index", f"Showing {len(jobs)} most recent runs", "📋")
@@ -161,10 +167,37 @@ for i in range(0, len(jobs), cols_per_row):
                     badge_html.append('<span style="background:#f59e0b;color:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Evo</span>')
                 if job.get('has_scan'):
                     badge_html.append('<span style="background:#8b5cf6;color:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Scan</span>')
+                if job.get('has_meetings'):
+                    badge_html.append(
+                        f'<span style="background:#ec4899;color:#e5e7eb;padding:2px 8px;border-radius:4px;'
+                        f'font-size:0.75rem;margin-right:4px;">Meetings:{job.get("meeting_count", 0)}</span>'
+                    )
 
                 if badge_html:
                     st.markdown(f'<div style="margin: 0.5rem 0;">{"".join(badge_html)}</div>', unsafe_allow_html=True)
 
+                # At-a-glance stats from prediction_summary
+                if job["has_prediction"] and job.get("prediction_summary"):
+                    try:
+                        _ps = json.loads(Path(job["prediction_summary"]).read_text())
+                        _best_plddt = None
+                        _total_runtime = 0.0
+                        for _pred in _ps.get("predictors", {}).values():
+                            _total_runtime += _pred.get("runtime_seconds", 0) or 0
+                            for _score in _pred.get("scores", []) or []:
+                                _p = _score.get("plddt")
+                                if _p and (_best_plddt is None or _p > _best_plddt):
+                                    _best_plddt = _p
+                        _stats = []
+                        if _best_plddt:
+                            _plddt_color = "#22c55e" if _best_plddt >= 70 else "#f59e0b" if _best_plddt >= 50 else "#ef4444"
+                            _stats.append(f'<span style="color:{_plddt_color};font-weight:600;">pLDDT {_best_plddt:.0f}</span>')
+                        if _total_runtime > 0:
+                            _stats.append(f'<span style="color:#a1a9b8;">{_total_runtime/60:.1f}min</span>')
+                        if _stats:
+                            st.markdown(f'<div style="font-size:0.8rem;margin:2px 0;">{"  ·  ".join(_stats)}</div>', unsafe_allow_html=True)
+                    except Exception:
+                        pass
                 if inferred_model:
                     st.caption(f"Best: {inferred_model.name}")
 
@@ -211,6 +244,7 @@ if jobs:
 
     if selected_job:
         job_path = selected_job["path"]
+        st.session_state["active_job_dir"] = str(job_path)
 
         col_detail, col_files = st.columns([1, 1])
 
@@ -218,6 +252,7 @@ if jobs:
             st.markdown("##### Job Information")
             st.markdown(f"**Path:** `{job_path}`")
             st.markdown(f"**Created:** {datetime.fromtimestamp(selected_job['mtime']).strftime('%Y-%m-%d %H:%M:%S')}")
+            st.markdown(f"**Meetings:** {selected_job.get('meeting_count', 0)}")
 
             # Load summary if exists
             summary_path = job_path / "prediction_summary.json"
@@ -235,10 +270,12 @@ if jobs:
                 files = list(job_path.glob("**/*"))
                 pdb_files = [f for f in files if f.suffix == ".pdb"]
                 json_files = [f for f in files if f.suffix == ".json"]
+                meeting_json = sorted((job_path / "meetings").glob("*.json")) if (job_path / "meetings").exists() else []
 
                 st.markdown(f"📦 **{len(pdb_files)}** PDB files")
                 st.markdown(f"📄 **{len(json_files)}** JSON files")
                 st.markdown(f"📁 **{len(files)}** total files")
+                st.markdown(f"🧠 **{len(meeting_json)}** meeting transcripts")
 
                 if pdb_files:
                     with st.expander("View PDB files"):
@@ -246,6 +283,12 @@ if jobs:
                             st.markdown(f"- `{pdb.name}`")
                         if len(pdb_files) > 10:
                             st.caption(f"...and {len(pdb_files) - 10} more")
+                if meeting_json:
+                    with st.expander("View meeting transcripts"):
+                        for mt in meeting_json[:20]:
+                            st.markdown(f"- `{mt.name}`")
+                        if len(meeting_json) > 20:
+                            st.caption(f"...and {len(meeting_json) - 20} more")
             except Exception as e:
                 st.warning(f"Could not list files: {e}")
 
@@ -256,8 +299,34 @@ if jobs:
             f"Has design: {selected_job.get('has_design', False)}",
             f"Has mutation scan: {selected_job.get('has_scan', False)}",
             f"Has evolution: {selected_job.get('has_evolution', False)}",
+            f"Meeting transcripts: {selected_job.get('meeting_count', 0)}",
             f"Job path: {job_path}",
         ])
+
+        job_data = {
+            "Job ID": selected_job['job_id'],
+            "Has prediction": selected_job.get('has_prediction', False),
+            "Has design": selected_job.get('has_design', False),
+            "Has mutation scan": selected_job.get('has_scan', False),
+            "Has evolution": selected_job.get('has_evolution', False),
+            "Meeting transcripts": selected_job.get('meeting_count', 0),
+        }
+        render_contextual_insight(
+            "Jobs",
+            job_data,
+            key_prefix=f"job_ctx_{selected_job['job_id']}",
+        )
+
+        render_agent_advice_panel(
+            page_context=job_ctx,
+            default_question=(
+                "Is this job output sufficient for decision-making? "
+                "What workflow step should be executed next?"
+            ),
+            expert="Computational Biologist",
+            key_prefix=f"job_agent_{selected_job['job_id']}",
+        )
+
         render_all_experts_panel(
             "All-Expert Review (selected job)",
             agenda=(
@@ -271,4 +340,5 @@ if jobs:
                 "Any reliability risks or missing artifacts to fix first?",
             ),
             key_prefix=f"job_all_{selected_job['job_id']}",
+            save_dir=job_path / "meetings",
         )

@@ -21,6 +21,7 @@ from protein_design_hub.web.ui import (
 )
 from protein_design_hub.web.agent_helpers import (
     render_contextual_insight,
+    render_agent_advice_panel,
     agent_sidebar_status,
     render_all_experts_panel,
 )
@@ -346,7 +347,7 @@ with main_tabs[1]:
                             else:
                                 fixed_pos_set.add(int(part) - 1)
 
-                    # Create config
+                    # Create config — all kwargs now exist on EvolutionConfig
                     config = EvolutionConfig(
                         population_size=population_size,
                         num_generations=num_generations,
@@ -355,27 +356,43 @@ with main_tabs[1]:
                         selection_strategy=SelectionStrategy[selection_strategy.upper()],
                         elite_fraction=top_fraction,
                         fixed_positions=list(fixed_pos_set),
+                        position_constraints=dict(st.session_state.get("position_constraints", {})),
                     )
 
-                    # Run evolution
+                    # Run evolution — DirectedEvolution.run() returns EvolutionResult
                     evolver = DirectedEvolution(
+                        parent_sequence=st.session_state.evolution_sequence,
                         fitness_function=fitness_fn,
                         config=config,
                     )
 
-                    generations = []
-                    for gen, result in enumerate(evolver.evolve_generator(
-                        st.session_state.evolution_sequence
-                    )):
-                        progress_bar.progress((gen + 1) / num_generations)
-                        status_text.text(f"Generation {gen + 1}/{num_generations} - Best fitness: {result.best_fitness:.4f}")
-                        generations.append({
-                            "generation": gen + 1,
-                            "best_fitness": result.best_fitness,
-                            "mean_fitness": result.mean_fitness,
-                            "best_sequence": result.best_sequence,
-                            "diversity": result.diversity,
-                        })
+                    # Register a progress callback to update the UI during run
+                    _progress_state = {"gen": 0}
+
+                    def _on_gen(gen_result):
+                        _progress_state["gen"] += 1
+                        g = _progress_state["gen"]
+                        progress_bar.progress(min(g / num_generations, 1.0))
+                        status_text.text(
+                            f"Generation {g}/{num_generations} — "
+                            f"Best: {gen_result.best_fitness:.4f} | "
+                            f"Mean: {gen_result.mean_fitness:.4f} | "
+                            f"Diversity: {gen_result.diversity:.3f}"
+                        )
+
+                    evolver.add_callback(_on_gen)
+                    evo_result = evolver.run()
+
+                    generations = [
+                        {
+                            "generation": g.generation + 1,
+                            "best_fitness": g.best_fitness,
+                            "mean_fitness": g.mean_fitness,
+                            "best_sequence": g.population[0].sequence if g.population else st.session_state.evolution_sequence,
+                            "diversity": g.diversity,
+                        }
+                        for g in evo_result.generations
+                    ]
 
                     st.session_state.evolution_results = {
                         "generations": generations,
@@ -556,6 +573,29 @@ with main_tabs[2]:
             f"Mean fitness (last gen): {generations[-1]['mean_fitness']:.4f}",
             f"Best sequence mutations: {mutation_summary}",
         ])
+        evo_data = {
+            "Generations": len(generations),
+            "Best fitness": f"{generations[-1]['best_fitness']:.4f}",
+            "Mean fitness (last gen)": f"{generations[-1]['mean_fitness']:.4f}",
+            "Mutations": len(mutations_list),
+            "Starting sequence length": len(orig_seq),
+        }
+        render_contextual_insight(
+            "Evolution",
+            evo_data,
+            key_prefix="evo_ctx",
+        )
+
+        render_agent_advice_panel(
+            page_context=evo_context,
+            default_question=(
+                "Is the fitness improvement significant? Which mutations "
+                "are most likely driving the improvement?"
+            ),
+            expert="Protein Engineer",
+            key_prefix="evo_agent",
+        )
+
         render_all_experts_panel(
             "All-Expert Review (evolution job)",
             agenda=(

@@ -18,6 +18,7 @@ from protein_design_hub.web.ui import (
 )
 from protein_design_hub.web.agent_helpers import (
     render_contextual_insight,
+    render_agent_advice_panel,
     agent_sidebar_status,
     render_all_experts_panel,
 )
@@ -531,6 +532,40 @@ if seq:
         </div>
         """, unsafe_allow_html=True)
 
+        # Conservation warning — check MSA conservation data if available
+        _conservation = st.session_state.get("conservation_results")
+        _high_cons_selected = []
+        if _conservation:
+            for pos in selected_list:
+                if pos < len(_conservation):
+                    r = _conservation[pos]
+                    if hasattr(r, "conservation_score") and r.conservation_score > 0.8:
+                        _high_cons_selected.append(f"{seq[pos]}{pos+1} ({r.conservation_score:.2f})")
+            if _high_cons_selected:
+                st.warning(
+                    f"⚠️ **Conservation alert:** {len(_high_cons_selected)} selected position(s) "
+                    f"are highly conserved (>0.8): `{'`, `'.join(_high_cons_selected[:5])}`"
+                    + (f" and {len(_high_cons_selected)-5} more" if len(_high_cons_selected) > 5 else "")
+                    + " — mutations here risk destabilizing function. Proceed with caution."
+                )
+        else:
+            # Heuristic: warn about chemically special residues (Cys, Pro, Gly, active-site hints)
+            _risky_selected = []
+            for pos in selected_list:
+                aa = seq[pos] if pos < len(seq) else ""
+                if aa == "C":
+                    _risky_selected.append(f"C{pos+1} (Cys — may form disulfide)")
+                elif aa == "P":
+                    _risky_selected.append(f"P{pos+1} (Pro — rigid backbone constraint)")
+                elif aa == "G":
+                    _risky_selected.append(f"G{pos+1} (Gly — maximum backbone flexibility)")
+            if _risky_selected:
+                st.info(
+                    "ℹ️ **Mutation note:** Selected positions include chemically constrained residues: "
+                    + ", ".join(_risky_selected[:5])
+                    + ". Load an MSA (MSA page) for conservation-aware editing."
+                )
+
     # Interactive residue grid - clickable buttons
     st.markdown("#### 🧬 Sequence (Click to Select/Deselect)")
 
@@ -932,6 +967,30 @@ if seq:
             ]
             if mean_plddt is not None:
                 context_lines.append(f"Mean pLDDT: {mean_plddt:.1f}")
+            design_data = {
+                "Sequence length": len(seq),
+                "Edits made": len(st.session_state.design_history),
+                "Ligands attached": len(st.session_state.residue_ligands),
+                "Selected positions": len(st.session_state.selected_positions),
+            }
+            if mean_plddt is not None:
+                design_data["Mean pLDDT"] = f"{mean_plddt:.1f}"
+            render_contextual_insight(
+                "Design",
+                design_data,
+                key_prefix="design_ctx",
+            )
+
+            render_agent_advice_panel(
+                page_context="\n".join(context_lines),
+                default_question=(
+                    "What mutations or modifications would improve this "
+                    "protein's stability and expressibility?"
+                ),
+                expert="Protein Engineer",
+                key_prefix="design_agent",
+            )
+
             render_all_experts_panel(
                 "All-Expert Review (design job)",
                 agenda=(

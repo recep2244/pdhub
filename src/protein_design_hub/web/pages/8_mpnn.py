@@ -278,15 +278,24 @@ with col_b:
             help="Apply bias to amino acid sampling"
         )
 
+        if bias_mode == "Favor hydrophilic":
+            _omit_aa_bias = "ACFILMVWY"  # omit strongly hydrophobic
+        elif bias_mode == "Avoid cysteine":
+            _omit_aa_bias = "C"
+        else:
+            _omit_aa_bias = ""
+
         if bias_mode == "Custom":
             st.text_input(
                 "Favored residues",
                 placeholder="e.g., A,L,V,I",
+                key="mpnn_favored_aa",
                 help="Residues to favor during design"
             )
             st.text_input(
                 "Avoided residues",
                 placeholder="e.g., C,M,W",
+                key="mpnn_avoided_aa",
                 help="Residues to avoid during design"
             )
 
@@ -318,6 +327,22 @@ with col_b:
             )
 
 st.markdown("---")
+
+# Show active constraints summary before running
+_active_constraints = []
+if fixed_positions:
+    _active_constraints.append(f"🔒 Fixed: `{fixed_positions}`")
+if design_chains and design_chains != "A":
+    _active_constraints.append(f"⛓️ Chains: `{design_chains}`")
+if omit_aa:
+    _active_constraints.append(f"🚫 Omit: `{omit_aa}`")
+if use_soluble_model:
+    _active_constraints.append("💧 Soluble model")
+if bias_mode != "None":
+    _active_constraints.append(f"⚖️ Bias: {bias_mode}")
+
+if _active_constraints:
+    st.info("**Active constraints:** " + " · ".join(_active_constraints))
 
 # Run button
 if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=True):
@@ -353,6 +378,17 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=
             # Show progress
             progress_steps(["Initialize", "Design", "Analyze", "Complete"], current_step=1)
 
+            # Resolve omit_aa from bias mode
+            _omit_final = omit_aa.strip() if omit_aa else ""
+            if bias_mode == "Favor hydrophilic":
+                _omit_final = (_omit_final + "ACFILMVWY").upper()
+            elif bias_mode == "Avoid cysteine":
+                _omit_final = (_omit_final + "C").upper()
+            elif bias_mode == "Custom":
+                _custom_avoided = st.session_state.get("mpnn_avoided_aa", "")
+                _omit_final = (_omit_final + _custom_avoided.replace(",", "")).upper()
+            _omit_final = "".join(sorted(set(_omit_final))) or None
+
             with st.spinner("Running ProteinMPNN sequence design..."):
                 result = designer.design(
                     DesignInput(
@@ -362,6 +398,10 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=
                         num_sequences=int(num_seqs),
                         temperature=float(temperature),
                         seed=None if int(seed) == 0 else int(seed),
+                        fixed_positions=fixed_positions.strip() or None,
+                        chains_to_design=design_chains.strip() or None,
+                        omit_aa=_omit_final,
+                        use_soluble_model=use_soluble_model,
                     ),
                     auto_install=auto_install,
                 )
@@ -458,6 +498,18 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=
                         )
                     except Exception:
                         seq_summaries.append(f"- {s.id}: len={len(s.sequence)}")
+
+                mpnn_data = {
+                    "Sequences designed": len(result.sequences),
+                    "Backbone": backbone_path.name,
+                    "Temperature": temperature,
+                    "Seed": seed,
+                }
+                render_contextual_insight(
+                    "MPNN",
+                    mpnn_data,
+                    key_prefix="mpnn_ctx",
+                )
 
                 render_agent_advice_panel(
                     page_context=(

@@ -19,6 +19,7 @@ from protein_design_hub.web.ui import (
 )
 from protein_design_hub.web.agent_helpers import (
     render_contextual_insight,
+    render_agent_advice_panel,
     agent_sidebar_status,
     render_all_experts_panel,
 )
@@ -520,6 +521,20 @@ with main_tabs[3]:
                     })
 
                 df = pd.DataFrame(data)
+
+                # pLDDT QC filter
+                _plddt_thresh = st.slider(
+                    "Min pLDDT for downstream use",
+                    min_value=30.0, max_value=95.0, value=70.0, step=5.0,
+                    help=">70 = confident; >90 = very high confidence",
+                    key="qc_plddt_thresh",
+                )
+                _pass_plddt = [j for j in complete if j.get("result", {}).get("plddt", 0) >= _plddt_thresh]
+                if _pass_plddt:
+                    st.success(f"✅ **{len(_pass_plddt)}/{len(complete)} structures pass pLDDT ≥ {_plddt_thresh:.0f}**")
+                else:
+                    st.warning(f"No structures pass pLDDT ≥ {_plddt_thresh:.0f}. Lower the threshold or re-run with more recycles.")
+
                 st.dataframe(df, use_container_width=True)
 
                 # Download all structures
@@ -557,6 +572,38 @@ with main_tabs[3]:
                     })
 
                 df = pd.DataFrame(data)
+
+                # QC filter
+                with st.expander("🔍 QC Filter", expanded=False):
+                    st.markdown("Filter sequences by biophysical criteria for downstream work:")
+                    _qc_col1, _qc_col2, _qc_col3 = st.columns(3)
+                    with _qc_col1:
+                        _pi_min = st.number_input("Min pI", value=5.0, min_value=1.0, max_value=14.0, step=0.1, key="qc_pi_min")
+                        _pi_max = st.number_input("Max pI", value=9.0, min_value=1.0, max_value=14.0, step=0.1, key="qc_pi_max")
+                    with _qc_col2:
+                        _instab_max = st.number_input("Max instability index", value=40.0, min_value=0.0, max_value=200.0, step=1.0,
+                                                       help="< 40 = stable protein (Parker scale)", key="qc_instab")
+                        _gravy_max = st.number_input("Max GRAVY", value=0.0, min_value=-5.0, max_value=5.0, step=0.1,
+                                                      help="Negative = hydrophilic (better solubility)", key="qc_gravy")
+                    with _qc_col3:
+                        _sol_min = st.number_input("Min solubility score", value=0.5, min_value=0.0, max_value=1.0, step=0.05, key="qc_sol")
+
+                    _pass_qc = []
+                    for job in complete:
+                        r = job.get("result", {})
+                        _pi = r.get("pi", 7.0)
+                        _inst = r.get("instability", 999.0)
+                        _grav = r.get("gravy", 0.0)
+                        _sol = r.get("solubility_score", 0.0)
+                        if _pi_min <= _pi <= _pi_max and _inst <= _instab_max and _grav <= _gravy_max and _sol >= _sol_min:
+                            _pass_qc.append(job["name"])
+
+                    if _pass_qc:
+                        st.success(f"✅ **{len(_pass_qc)}/{len(complete)} sequences pass QC:** " + ", ".join(_pass_qc[:10])
+                                   + ("..." if len(_pass_qc) > 10 else ""))
+                    else:
+                        st.warning("No sequences pass current QC criteria — relax the filters.")
+
                 st.dataframe(df, use_container_width=True)
 
                 # Download CSV
@@ -582,6 +629,30 @@ with main_tabs[3]:
                 f"Success rate: {success_rate:.1%}",
                 f"Sample completed job names: {sample_names or 'none'}",
             ]
+
+            batch_data = {
+                "Batch type": config.get('type', 'unknown'),
+                "Total jobs": len(jobs),
+                "Completed": len(complete),
+                "Failed": len(failed),
+                "Success rate": f"{success_rate:.1%}",
+            }
+            render_contextual_insight(
+                "Batch",
+                batch_data,
+                key_prefix="batch_ctx",
+            )
+
+            render_agent_advice_panel(
+                page_context="\n".join(context_lines),
+                default_question=(
+                    "What do the failure patterns suggest? Which completed "
+                    "jobs should be prioritized for downstream analysis?"
+                ),
+                expert="Computational Biologist",
+                key_prefix="batch_agent",
+            )
+
             render_all_experts_panel(
                 "All-Expert Review (batch job)",
                 agenda=(
