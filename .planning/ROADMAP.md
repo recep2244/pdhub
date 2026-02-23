@@ -94,7 +94,11 @@ Plans:
   3. The mutation scanner UI shows a table with OST metrics (lDDT, RMSD, QS-score) for each mutant when OST was enabled
   4. Clicking "Export PDF" in the mutation scanner UI downloads a PDF containing the ranking chart, pLDDT chart, OST metric table, and narrative summary
   5. Clicking "Export HTML" downloads a self-contained HTML file with the same content as the PDF export
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — Add chart helpers (_build_ranking_figure, _build_plddt_figure, _render_ranking_chart, _render_plddt_chart, _render_ost_table) and wire into Phase 2 results panel (REP-01, REP-02, REP-03)
+- [ ] 05-02-PLAN.md — Add PDF/HTML export builders (_build_report_pdf, _build_report_html) and wire Export PDF + Export HTML download buttons (REP-04, REP-05)
 
 ### Phase 6: New Agent Workflows
 **Goal**: Two new domain-specific workflows are available in the web UI using the existing agent infrastructure — antibody/nanobody design and binding affinity analysis
@@ -135,7 +139,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 2. Mutagenesis Workflow Integrity | 3/3 | Complete   | 2026-02-21 |
 | 3. Performance & Reliability | 2/2 | Complete    | 2026-02-21 |
 | 4. Test Coverage | 2/2 | Complete    | 2026-02-22 |
-| 5. Reporting | 0/TBD | Not started | - |
+| 5. Reporting | 0/2 | Not started | - |
 | 6. New Agent Workflows | 0/TBD | Not started | - |
 | 7. Async Job Queue | 0/TBD | Not started | - |
 | 8. New Predictors | 0/TBD | Not started | - |
