@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** A reliable, end-to-end protein design workflow where a researcher goes from sequence to structure to expert analysis to mutagenesis to report without data loss, silent failures, or manual workarounds.
-**Current focus:** Phase 5 - Reporting
+**Current focus:** Phase 6 - New Agent Workflows
 
 ## Current Position
 
-Phase: 5 of 8 (Reporting)
-Plan: 2 of 2 in current phase (checkpoint awaiting human verification)
-Status: 05-02 tasks complete — PDF export (_build_report_pdf, REP-04) and HTML export (_build_report_html, REP-05) added; download buttons wired with session_state caching; checkpoint pending user sign-off
-Last activity: 2026-02-23 — 05-02 complete: 4 export functions + 2 download buttons; 1 file modified
+Phase: 5 of 8 (Reporting) — COMPLETE
+Plan: 2 of 2 in current phase — COMPLETE (human-verify checkpoint approved 2026-02-23)
+Status: Phase 05 fully complete — REP-01 through REP-05 all satisfied; PDF export, HTML export, charts, OST table all verified working in Streamlit UI
+Last activity: 2026-02-23 — 05-02 checkpoint approved by user; all 6 verification points confirmed passing
 
-Progress: [############░] 60%
+Progress: [##############] 62%
 
 ## Performance Metrics
 
@@ -104,5 +104,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Checkpoint 05-02 (PDF/HTML export — awaiting human verification of download in Streamlit UI)
+Stopped at: Completed 05-02-PLAN.md — Phase 05 reporting fully done; human-verify checkpoint approved
 Resume file: None
