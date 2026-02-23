@@ -51,9 +51,11 @@ from protein_design_hub.web.ui import (
 from protein_design_hub.web.agent_helpers import (
     render_agent_advice_panel,
     render_contextual_insight,
+    render_ml_stats_panel,
     agent_sidebar_status,
     render_all_experts_panel,
 )
+from protein_design_hub.web.shared_context import set_page_results
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -2639,8 +2641,13 @@ with tab_manual:
                                     from protein_design_hub.web.visualizations import create_structure_viewer
                                     import streamlit.components.v1 as components
                                     components.html(
-                                        create_structure_viewer(Path(match.structure_path), height=350),
-                                        height=370,
+                                        create_structure_viewer(
+                                            Path(match.structure_path),
+                                            height=380,
+                                            show_toolbar=True,
+                                            title=getattr(match, "uniprot_id", ""),
+                                        ),
+                                        height=400,
                                     )
                                 with col_afdb_meta:
                                     st.markdown("#### AFDB Match")
@@ -2970,6 +2977,33 @@ with tab_manual:
             best_v = max(successful, key=lambda v: getattr(v, "delta_mean_plddt", 0))
             multi_insight_data["Best variant"] = best_v.mutation_code
             multi_insight_data["Best delta"] = f"{best_v.delta_mean_plddt:+.2f}"
+        # Save to shared context
+        _all_variants = getattr(res, "variants", [])
+        _successful_variants = [v for v in _all_variants if getattr(v, "success", True)]
+        set_page_results("MutationScanner", {
+            "num_variants": len(_successful_variants),
+            "positions": list(res.positions) if hasattr(res, "positions") else [],
+            "best_delta_plddt": max(
+                (getattr(v, "delta_mean_plddt", 0) for v in _successful_variants), default=0
+            ),
+            "scan_type": "multi_position",
+        })
+
+        # ML stats panel for mutation results
+        if _successful_variants:
+            _mut_records = [{
+                "delta_pLDDT": getattr(v, "delta_mean_plddt", 0),
+                "delta_local_pLDDT": getattr(v, "delta_local_plddt", 0),
+                "improvement_score": getattr(v, "improvement_score", 0) or 0,
+            } for v in _successful_variants[:100]]
+            render_ml_stats_panel(
+                _mut_records,
+                numeric_keys=["delta_pLDDT", "delta_local_pLDDT", "improvement_score"],
+                target_key="delta_pLDDT",
+                page_name="Mutation Scanner",
+                key_prefix="mut_ml_stats",
+            )
+
         render_contextual_insight(
             "Mutation",
             multi_insight_data,
@@ -3129,12 +3163,12 @@ with tab_manual:
                 with c1:
                     st.markdown("**Wild Type**")
                     if base_path:
-                        components.html(create_structure_viewer(base_path, height=300), height=320)
+                        components.html(create_structure_viewer(base_path, height=320, show_toolbar=True, title="Wild Type"), height=340)
                     elif st.session_state.base_structure:
                         with tempfile.NamedTemporaryFile(suffix=".pdb", mode="w", delete=False) as f:
                             f.write(st.session_state.base_structure)
                             p1 = f.name
-                        components.html(create_structure_viewer(Path(p1), height=300), height=320)
+                        components.html(create_structure_viewer(Path(p1), height=320, show_toolbar=True, title="Wild Type"), height=340)
                     else:
                         st.info("Base structure not available.")
 
@@ -3143,7 +3177,7 @@ with tab_manual:
                     try:
                         vpath = Path(variant.structure_path)
                         if vpath.exists():
-                            components.html(create_structure_viewer(vpath, height=300), height=320)
+                            components.html(create_structure_viewer(vpath, height=320, show_toolbar=True, title=variant.mutation_code), height=340)
                         else:
                             st.info("Variant structure not found.")
                     except Exception:
@@ -3225,6 +3259,32 @@ with tab_manual:
             scan_insight_data["Best delta"] = f"{best.delta_mean_plddt:+.2f}"
             beneficial_count = sum(1 for m in res.mutations if getattr(m, "is_beneficial", False))
             scan_insight_data["Beneficial mutations"] = f"{beneficial_count}/{len(res.mutations)}"
+        # Save single-position scan to shared context
+        set_page_results("MutationScanner", {
+            "position": res.position,
+            "original_aa": res.original_aa,
+            "num_mutations": len(getattr(res, "mutations", [])),
+            "best_mutation": res.ranked_mutations[0].mutation_code if res.ranked_mutations else "",
+            "best_delta_plddt": res.ranked_mutations[0].delta_mean_plddt if res.ranked_mutations else 0,
+            "scan_type": "single_position",
+        })
+
+        # ML stats panel for single-position scan
+        if getattr(res, "mutations", []):
+            _scan_records = [{
+                "delta_pLDDT": getattr(m, "delta_mean_plddt", 0),
+                "delta_local_pLDDT": getattr(m, "delta_local_plddt", 0),
+                "mutant_pLDDT": getattr(m, "mutant_mean_plddt", 0) or 0,
+                "score": getattr(m, "improvement_score", 0) or 0,
+            } for m in res.mutations[:20]]
+            render_ml_stats_panel(
+                _scan_records,
+                numeric_keys=["delta_pLDDT", "delta_local_pLDDT", "mutant_pLDDT", "score"],
+                target_key="delta_pLDDT",
+                page_name="Single-Position Scan",
+                key_prefix="scan_ml_stats",
+            )
+
         render_contextual_insight(
             "Mutation",
             scan_insight_data,
@@ -3368,14 +3428,34 @@ with tab_manual:
                     with tempfile.NamedTemporaryFile(suffix=".pdb", mode="w", delete=False) as f:
                         f.write(st.session_state.base_structure)
                         p1 = f.name
-                    components.html(create_structure_viewer(Path(p1), height=300), height=320)
-                
+                    components.html(
+                        create_structure_viewer(Path(p1), height=320, show_toolbar=True, title="Wild Type"),
+                        height=340,
+                    )
+
                 with c2:
                     st.markdown(f"**Mutant {mut.mutation_code}**")
                     with tempfile.NamedTemporaryFile(suffix=".pdb", mode="w", delete=False) as f:
                         f.write(mut.structure_path.read_text())
                         p2 = f.name
-                    components.html(create_structure_viewer(Path(p2), height=300), height=320)
+                    components.html(
+                        create_structure_viewer(
+                            Path(p2), height=320, show_toolbar=True, title=mut.mutation_code
+                        ),
+                        height=340,
+                    )
+                    # Inline agent interpretation of the comparison
+                    _delta = getattr(mut, "delta_mean_plddt", None)
+                    _rmsd = getattr(mut, "rmsd_to_base", None)
+                    if _delta is not None:
+                        _color = "#22c55e" if _delta > 0 else "#ef4444"
+                        st.markdown(
+                            f'<div style="font-size:13px;margin-top:6px;">'
+                            f'<span style="color:{_color};font-weight:700;">ΔpLDDT {_delta:+.2f}</span>'
+                            + (f' · RMSD {_rmsd:.2f} Å' if _rmsd else '')
+                            + '</div>',
+                            unsafe_allow_html=True,
+                        )
             else:
                 st.info("Select a mutation from Recommendations to compare.")
 

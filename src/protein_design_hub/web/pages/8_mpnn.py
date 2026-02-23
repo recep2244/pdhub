@@ -28,9 +28,11 @@ from protein_design_hub.web.ui import (
 from protein_design_hub.web.agent_helpers import (
     render_agent_advice_panel,
     render_contextual_insight,
+    render_ml_stats_panel,
     agent_sidebar_status,
     render_all_experts_panel,
 )
+from protein_design_hub.web.shared_context import set_page_results
 
 st.set_page_config(page_title="MPNN Design - Protein Design Hub", page_icon="🎯", layout="wide")
 inject_base_css()
@@ -214,8 +216,10 @@ with col_a:
         if preview_path:
              from protein_design_hub.web.visualizations import create_structure_viewer
              import streamlit.components.v1 as components
-             html = create_structure_viewer(preview_path, height=300, style="cartoon")
-             components.html(html, height=320)
+             html = create_structure_viewer(
+                 preview_path, height=320, show_toolbar=True, title=preview_path.stem
+             )
+             components.html(html, height=340)
 
 with col_b:
     section_header("Sampling Settings", "Configure design parameters", "⚙️")
@@ -498,6 +502,39 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=
                         )
                     except Exception:
                         seq_summaries.append(f"- {s.id}: len={len(s.sequence)}")
+
+                # Collect biophysics metrics for stats panel
+                _mpnn_records = []
+                for s in result.sequences:
+                    try:
+                        m = compute_sequence_metrics(s.sequence)
+                        _mpnn_records.append({
+                            "pI": m.isoelectric_point,
+                            "Charge pH7": m.net_charge_ph7,
+                            "GRAVY": m.gravy,
+                            "Instability": m.instability_index,
+                            "Length": len(s.sequence),
+                        })
+                    except Exception:
+                        _mpnn_records.append({"Length": len(s.sequence)})
+
+                # Save to shared cross-page context
+                set_page_results("MPNN", {
+                    "num_sequences": len(result.sequences),
+                    "backbone": backbone_path.name,
+                    "temperature": temperature,
+                    "sequences": [s.sequence for s in result.sequences[:10]],
+                })
+
+                # Stats + ML expert analysis
+                if _mpnn_records:
+                    render_ml_stats_panel(
+                        _mpnn_records,
+                        numeric_keys=["pI", "Charge pH7", "GRAVY", "Instability", "Length"],
+                        target_key="Instability",
+                        page_name="MPNN Design",
+                        key_prefix="mpnn_ml_stats",
+                    )
 
                 mpnn_data = {
                     "Sequences designed": len(result.sequences),

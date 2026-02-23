@@ -19,9 +19,11 @@ from protein_design_hub.web.ui import (
 from protein_design_hub.web.agent_helpers import (
     render_contextual_insight,
     render_agent_advice_panel,
+    render_ml_stats_panel,
     agent_sidebar_status,
     render_all_experts_panel,
 )
+from protein_design_hub.web.shared_context import set_page_results
 
 st.set_page_config(page_title="Design - Protein Design Hub", page_icon="🧬", layout="wide")
 
@@ -931,16 +933,15 @@ if seq:
                     tmp.write(st.session_state.current_structure)
                     tmp_path = Path(tmp.name)
                 
-                html_view = create_structure_viewer(
+                from protein_design_hub.web.visualizations import create_structure_viewer_with_interpretation
+                html_view = create_structure_viewer_with_interpretation(
                     tmp_path,
                     height=500,
-                    style="cartoon",
-                    color_by="spectrum",
-                    spin=True,
-                    background_color="#0f1015"
+                    title=st.session_state.get("protein_name", "Design"),
+                    background_color="#0f1015",
                 )
-                components.html(html_view, height=520)
-                st.caption("Auto-generated 3D preview")
+                components.html(html_view, height=700, scrolling=False)
+                st.caption("Interactive 3D — use toolbar to change style/color/spin")
             else:
                  st.markdown("""
                 <div style="border: 2px dashed rgba(255,255,255,0.2); border-radius: 10px; height: 350px; display: flex; align-items: center; justify-content: center; background: #1a1f2b;">

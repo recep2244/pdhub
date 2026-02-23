@@ -27,9 +27,11 @@ from protein_design_hub.web.ui import (
 from protein_design_hub.web.agent_helpers import (
     render_agent_advice_panel,
     render_contextual_insight,
+    render_ml_stats_panel,
     agent_sidebar_status,
     render_all_experts_panel,
 )
+from protein_design_hub.web.shared_context import set_page_results
 
 inject_base_css()
 sidebar_nav(current="Compare")
@@ -864,6 +866,25 @@ if "compare_result" in st.session_state:
                 "Top score": f"{result.ranking[0][1]:.3f}" if result.ranking else "N/A",
                 "Predictors compared": len(result.ranking),
             }
+
+            # Save to shared cross-page context
+            set_page_results("Compare", {
+                "best_predictor": result.best_predictor or "",
+                "top_score": result.ranking[0][1] if result.ranking else 0,
+                "num_predictors": len(result.ranking),
+                "ranking": [{"predictor": n, "score": s} for n, s in result.ranking],
+            })
+
+            # Stats panel for predictor comparison
+            if result.ranking:
+                _cmp_records = [{"Predictor": n, "Score": s} for n, s in result.ranking]
+                render_ml_stats_panel(
+                    _cmp_records,
+                    numeric_keys=["Score"],
+                    page_name="Compare",
+                    key_prefix="compare_ml_stats",
+                )
+
             render_contextual_insight(
                 "Compare",
                 compare_data,
@@ -1046,7 +1067,8 @@ if "compare_result" in st.session_state:
                     html_view = create_structure_comparison_3d(
                         selected_structure,
                         ref_path,
-                        highlight_differences=True
+                        highlight_differences=True,
+                        model_label=selected_structure.stem[:20],
                     )
                     components.html(html_view, height=500)
 

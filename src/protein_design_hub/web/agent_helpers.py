@@ -13,10 +13,18 @@ import html as _html
 import json
 import time
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import streamlit as st
 from protein_design_hub.agents.ollama_gpu import ensure_ollama_gpu, ollama_extra_body
+
+# Cross-page context (lazy import to avoid circular imports at module load)
+def _get_cross_page_context() -> str:
+    try:
+        from protein_design_hub.web.shared_context import get_all_context_summary
+        return get_all_context_summary()
+    except Exception:
+        return ""
 
 # ── LLM connectivity (cached to avoid blocking every page load) ──────
 
@@ -69,7 +77,15 @@ def list_available_models() -> list[str]:
         from openai import OpenAI
         client = OpenAI(base_url=cfg.base_url, api_key=cfg.api_key, timeout=5.0)
         models = client.models.list()
-        return sorted(m.id for m in models.data)
+        ids = sorted(m.id for m in models.data)
+        # Normalize legacy ollama model names so "llama3.2" shows as "qwen2.5:14b"
+        if cfg.provider == "ollama":
+            try:
+                from protein_design_hub.core.config import normalize_ollama_model_name
+                ids = sorted(set(normalize_ollama_model_name(m) for m in ids))
+            except Exception:
+                pass
+        return ids
     except Exception:
         return []
 
@@ -77,9 +93,11 @@ def list_available_models() -> list[str]:
 def switch_llm_model(model: str) -> None:
     """Switch the active LLM model in-memory (applies to all subsequent calls)."""
     try:
-        from protein_design_hub.core.config import get_settings
+        from protein_design_hub.core.config import get_settings, normalize_ollama_model_name
         from protein_design_hub.agents.meeting import reset_llm_client
         settings = get_settings()
+        if settings.llm.provider == "ollama":
+            model = normalize_ollama_model_name(model)
         settings.llm.model = model
         reset_llm_client()
         # Invalidate caches so the UI picks up the change
@@ -92,12 +110,14 @@ def switch_llm_model(model: str) -> None:
 def switch_llm_provider(provider: str, model: str = "") -> None:
     """Switch LLM provider and optionally model.  Resets client caches."""
     try:
-        from protein_design_hub.core.config import get_settings
+        from protein_design_hub.core.config import get_settings, normalize_ollama_model_name
         from protein_design_hub.agents.meeting import reset_llm_client
         settings = get_settings()
         settings.llm.provider = provider
         settings.llm.base_url = ""
         settings.llm.api_key = ""
+        if provider == "ollama":
+            model = normalize_ollama_model_name(model)
         settings.llm.model = model
         reset_llm_client()
         _cached_llm_status.clear()
@@ -381,6 +401,11 @@ def render_contextual_insight(
 
     context = f"{page_name} results:\n" + "\n".join(ctx_lines)
 
+    # Append cross-page workflow context so agents see the full picture
+    cross_ctx = _get_cross_page_context()
+    if cross_ctx and "No cross-page" not in cross_ctx:
+        context = context + "\n\n" + cross_ctx
+
     # Auto-generated question based on page type
     questions = {
         "Prediction": (
@@ -552,6 +577,125 @@ def render_contextual_insight(
                 st.markdown(stored["text"])
 
 
+def render_ml_stats_panel(
+    records: list,
+    numeric_keys: Optional[List[str]] = None,
+    target_key: Optional[str] = None,
+    page_name: str = "Analysis",
+    key_prefix: str = "ml_stats",
+    expanded: bool = False,
+) -> None:
+    """
+    Combined statistical analysis + ML expert interpretation panel.
+
+    Renders:
+    - Descriptive stats, correlation matrix, feature importance, distributions
+      (via ``stats_panel.render_stats_from_records``)
+    - AI interpretation by the Machine Learning Specialist + cross-page context
+    """
+    if not records:
+        return
+
+    # ── Stats visuals ─────────────────────────────────────────────────
+    try:
+        from protein_design_hub.web.stats_panel import render_stats_from_records
+        render_stats_from_records(
+            records,
+            numeric_keys=numeric_keys,
+            target_key=target_key,
+            title=f"{page_name} — Statistical Analysis",
+            key_prefix=key_prefix,
+            expanded=expanded,
+        )
+    except Exception as e:
+        st.caption(f"Stats panel unavailable: {e}")
+
+    # ── ML expert analysis button ─────────────────────────────────────
+    reply_key = f"_ml_stats_reply_{key_prefix}"
+    with st.expander(f"🤖 ML Specialist Interpretation — {page_name}", expanded=False):
+        st.caption(
+            "The Machine Learning Specialist will interpret correlations, "
+            "feature importance, and distribution patterns in context of your workflow."
+        )
+        col_btn, col_clr = st.columns([3, 1])
+        with col_btn:
+            clicked = st.button(
+                "🧠 Run ML Analysis",
+                key=f"{key_prefix}_ml_btn",
+                use_container_width=True,
+                type="primary",
+            )
+        with col_clr:
+            if st.button("Clear", key=f"{key_prefix}_ml_clr", use_container_width=True):
+                st.session_state.pop(reply_key, None)
+                st.rerun()
+
+        if clicked:
+            import pandas as pd
+            import numpy as np
+            try:
+                df = pd.DataFrame(records)
+                num_cols = numeric_keys or [c for c in df.select_dtypes(include=[np.number]).columns]
+                # Build a rich context with descriptive stats
+                stat_lines = [f"Dataset: {len(records)} samples, {len(num_cols)} numeric features"]
+                for col in num_cols[:12]:
+                    s = df[col].dropna()
+                    if not s.empty:
+                        stat_lines.append(
+                            f"  {col}: mean={s.mean():.4g}, std={s.std():.4g}, "
+                            f"min={s.min():.4g}, max={s.max():.4g}, "
+                            f"skew={float(s.skew()):.3f}"
+                        )
+                if len(num_cols) >= 2:
+                    corr = df[num_cols].corr()
+                    pairs = []
+                    for i, c1 in enumerate(num_cols):
+                        for j, c2 in enumerate(num_cols):
+                            if j <= i:
+                                continue
+                            pairs.append((c1, c2, corr.loc[c1, c2]))
+                    pairs.sort(key=lambda x: abs(x[2]), reverse=True)
+                    stat_lines.append("Top correlations:")
+                    for c1, c2, r in pairs[:5]:
+                        stat_lines.append(f"  {c1} ↔ {c2}: r={r:.3f}")
+                if target_key and target_key in num_cols:
+                    stat_lines.append(f"Target: {target_key}")
+
+                stats_context = "\n".join(stat_lines)
+                cross_ctx = _get_cross_page_context()
+                full_context = stats_context
+                if cross_ctx and "No cross-page" not in cross_ctx:
+                    full_context += "\n\n" + cross_ctx
+
+                question = (
+                    f"Analyze the statistical patterns in these {page_name} results. "
+                    "Identify: (1) any strongly correlated pairs that suggest redundancy "
+                    "or mechanistic linkage, (2) highly skewed distributions that suggest "
+                    "outliers or non-normal processes, (3) feature importances (highest |r| "
+                    "with the target) and what they imply biologically, (4) any anomalies "
+                    "or quality concerns flagged by the statistics. "
+                    "Conclude with 2-3 concrete recommendations for next steps."
+                )
+                with st.spinner("Running ML analysis..."):
+                    reply = ask_agent_advice(
+                        question=question,
+                        agent_name="Machine Learning Specialist",
+                        context=full_context,
+                        max_tokens=700,
+                    )
+                st.session_state[reply_key] = reply
+            except Exception as e:
+                st.session_state[reply_key] = f"[Error] Could not build statistical context: {e}"
+
+        stored = st.session_state.get(reply_key)
+        if stored:
+            if str(stored).startswith("[Error]"):
+                st.error(stored)
+            else:
+                st.markdown("**Machine Learning Specialist:**")
+                st.markdown(stored)
+
+
 # ── Agent icon lookup ─────────────────────────────────────────────────
 
 AGENT_ICONS: Dict[str, str] = {
@@ -578,7 +722,7 @@ def _temporary_llm_override(provider: str = "", model: str = ""):
     settings = None
     previous = None
     try:
-        from protein_design_hub.core.config import get_settings
+        from protein_design_hub.core.config import get_settings, normalize_ollama_model_name
         from protein_design_hub.agents.meeting import reset_llm_client
 
         settings = get_settings()
@@ -595,6 +739,8 @@ def _temporary_llm_override(provider: str = "", model: str = ""):
             settings.llm.api_key = ""
             settings.llm.model = ""
         if model:
+            if settings.llm.provider == "ollama":
+                model = normalize_ollama_model_name(model)
             settings.llm.model = model
 
         reset_llm_client()
@@ -625,6 +771,7 @@ def render_all_experts_panel(
     expanded: bool = False,
     provider_override: str = "",
     model_override: str = "",
+    save_dir: Optional[Path] = None,
 ) -> None:
     """Run a team meeting with all experts and render summary + transcript."""
     llm_online = llm_available()
@@ -688,8 +835,8 @@ def render_all_experts_panel(
                     index=provider_options.index(current_mode),
                     format_func=lambda x: {
                         "current": "Current configured provider",
-                        "ollama": "Ollama (recommended: qwen2.5:14b)",
-                        "deepseek": "DeepSeek",
+                        "ollama": "Ollama (local: qwen2.5:14b / deepseek-r1:14b)",
+                        "deepseek": "DeepSeek Cloud (requires API key)",
                         "custom": "Custom provider/model",
                     }.get(x, x),
                     key=mode_key,
@@ -718,13 +865,31 @@ def render_all_experts_panel(
                     effective_provider = ""
                     effective_model = model
                 elif mode == "ollama":
-                    model = st.text_input(
-                        "Ollama model (optional)",
-                        value=st.session_state.get(model_key, "qwen2.5:14b") or "qwen2.5:14b",
+                    from protein_design_hub.core.config import (
+                        normalize_ollama_model_name,
+                        OLLAMA_RECOMMENDED_MODELS,
+                    )
+                    default_model = normalize_ollama_model_name(
+                        st.session_state.get(model_key, "qwen2.5:14b") or "qwen2.5:14b"
+                    )
+                    if default_model != st.session_state.get(model_key, ""):
+                        st.session_state[model_key] = default_model
+                    rec_ids = [m[0] for m in OLLAMA_RECOMMENDED_MODELS]
+                    rec_labels = {m[0]: f"{m[0]} — {m[1]}" for m in OLLAMA_RECOMMENDED_MODELS}
+                    if default_model not in rec_ids:
+                        rec_ids = [default_model] + rec_ids
+                        rec_labels[default_model] = default_model
+                    sel_idx = rec_ids.index(default_model) if default_model in rec_ids else 0
+                    model = st.selectbox(
+                        "Ollama model",
+                        options=rec_ids,
+                        index=sel_idx,
+                        format_func=lambda m: rec_labels.get(m, m),
                         key=model_key,
-                    ).strip()
+                        help="qwen2.5:14b is fast; deepseek-r1:14b provides deeper reasoning.",
+                    )
                     effective_provider = "ollama"
-                    effective_model = model or "qwen2.5:14b"
+                    effective_model = normalize_ollama_model_name(model or "qwen2.5:14b")
                 elif mode == "deepseek":
                     model = st.text_input(
                         "DeepSeek model (optional)",
@@ -796,7 +961,17 @@ def render_all_experts_panel(
                 from protein_design_hub.core.config import get_settings
 
                 settings = get_settings()
-                sd = Path("./outputs/meetings")
+                if save_dir is not None:
+                    sd = Path(save_dir)
+                else:
+                    scoped_job = (st.session_state.get("active_job_dir") or "").strip()
+                    if not scoped_job:
+                        scoped_job = (st.session_state.get("mutagenesis_job_dir") or "").strip()
+                    if scoped_job:
+                        sd = Path(scoped_job) / "meetings"
+                    else:
+                        sd = Path("./outputs/meetings")
+                sd.mkdir(parents=True, exist_ok=True)
                 sn = f"{key_prefix}_{int(time.time())}"
                 with st.spinner("Running all-expert meeting... this may take a few minutes."):
                     with _temporary_llm_override(effective_provider, effective_model):

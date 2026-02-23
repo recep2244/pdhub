@@ -31,9 +31,11 @@ from protein_design_hub.web.ui import (
 from protein_design_hub.web.agent_helpers import (
     render_agent_advice_panel,
     render_contextual_insight,
+    render_ml_stats_panel,
     agent_sidebar_status,
     render_all_experts_panel,
 )
+from protein_design_hub.web.shared_context import set_page_results
 
 inject_base_css()
 sidebar_nav(current="Evaluate")
@@ -824,6 +826,7 @@ with col_visual:
     if active_model_path:
         from protein_design_hub.web.visualizations import (
             create_structure_comparison_3d,
+            create_structure_viewer_with_interpretation,
             create_protein_info_table,
             create_plddt_sequence_viewer,
             create_expandable_section,
@@ -835,9 +838,10 @@ with col_visual:
         html_view = create_structure_comparison_3d(
             active_model_path,
             active_ref_path,
-            highlight_differences=True
+            highlight_differences=True,
+            model_label=active_model_path.stem[:20],
         )
-        components.html(html_view, height=350)
+        components.html(html_view, height=400)
 
         # Extract sequence and pLDDT from structure for enhanced display
         try:
@@ -1174,6 +1178,12 @@ if run_quick:
                 eval_ctx_parts.append(f"VoroMQA: {result.voromqa_score:.3f}")
 
             if eval_ctx_parts:
+                # Save to shared cross-page context
+                _eval_results = {p.split(":")[0].strip(): p.split(":")[1].strip()
+                                 for p in eval_ctx_parts}
+                _eval_results["model"] = active_model_path.name
+                set_page_results("Evaluate", _eval_results)
+
                 # AI contextual insight
                 render_contextual_insight(
                     "Evaluation",

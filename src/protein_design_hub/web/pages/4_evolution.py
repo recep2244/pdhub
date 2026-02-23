@@ -22,9 +22,11 @@ from protein_design_hub.web.ui import (
 from protein_design_hub.web.agent_helpers import (
     render_contextual_insight,
     render_agent_advice_panel,
+    render_ml_stats_panel,
     agent_sidebar_status,
     render_all_experts_panel,
 )
+from protein_design_hub.web.shared_context import set_page_results
 
 st.set_page_config(page_title="Evolution - Protein Design Hub", page_icon="🧬", layout="wide")
 
@@ -466,7 +468,27 @@ with main_tabs[2]:
 
         import pandas as pd
 
+        # Save evolution results to shared context
+        set_page_results("Evolution", {
+            "best_fitness": generations[-1]["best_fitness"],
+            "num_generations": len(generations),
+            "improvement": generations[-1]["best_fitness"] - generations[0]["best_fitness"],
+            "mutations_from_parent": sum(
+                1 for a, b in zip(results["starting_sequence"], results["best_sequence"]) if a != b
+            ),
+            "best_sequence": results["best_sequence"][:40] + "...",
+        })
+
         df = pd.DataFrame(generations)
+
+        # ML stats panel on generation-by-generation data
+        render_ml_stats_panel(
+            generations,
+            numeric_keys=["best_fitness", "mean_fitness", "diversity"],
+            target_key="best_fitness",
+            page_name="Evolution",
+            key_prefix="evo_ml_stats",
+        )
 
         col_chart, col_data = st.columns([2, 1])
 
@@ -627,14 +649,13 @@ with main_tabs[2]:
                 tmp.write(st.session_state.evo_structure)
                 tmp_path = Path(tmp.name)
             
-            html_view = create_structure_viewer(
+            from protein_design_hub.web.visualizations import create_structure_viewer_with_interpretation
+            html_view = create_structure_viewer_with_interpretation(
                 tmp_path,
                 height=500,
-                style="cartoon",
-                color_by="spectrum",
-                spin=True
+                title="Best Evolved Sequence",
             )
-            components.html(html_view, height=520)
+            components.html(html_view, height=700, scrolling=False)
             
         with col_v2:
             st.info("Structure predicted by ESMFold")

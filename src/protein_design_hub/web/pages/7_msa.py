@@ -16,9 +16,11 @@ from protein_design_hub.web.ui import (
 from protein_design_hub.web.agent_helpers import (
     render_contextual_insight,
     render_agent_advice_panel,
+    render_ml_stats_panel,
     agent_sidebar_status,
     render_all_experts_panel,
 )
+from protein_design_hub.web.shared_context import set_page_results
 
 st.set_page_config(page_title="MSA Analysis - Protein Design Hub", page_icon="🧬", layout="wide")
 
@@ -746,6 +748,25 @@ with main_tabs[4]:
                 "Total information": f"{result.total_information:.2f} bits",
                 "Suggested mutations": len(suggestion_rows),
             }
+
+            # Save to shared cross-page context
+            set_page_results("MSA", {
+                "num_sequences": len(alignment),
+                "alignment_length": len(alignment[0]) if alignment else 0,
+                "total_information": result.total_information,
+                "num_suggestions": len(suggestion_rows),
+                "top_conserved": [r["Position"] for r in suggestion_rows[:5]] if suggestion_rows else [],
+            })
+
+            # ML stats on PSSM/conservation data
+            if suggestion_rows:
+                render_ml_stats_panel(
+                    suggestion_rows,
+                    numeric_keys=["Conservation", "PSSM Score"] if "PSSM Score" in (suggestion_rows[0] if suggestion_rows else {}) else None,
+                    page_name="MSA Analysis",
+                    key_prefix="msa_ml_stats",
+                )
+
             render_contextual_insight(
                 "MSA",
                 msa_data,

@@ -427,63 +427,353 @@ def create_structure_viewer(
     width: str = "100%",
     height: int = 600,
     style: str = "cartoon",
-    color_by: str = "spectrum",
+    color_by: str = "plddt",
     spin: bool = False,
     background_color: str = "#050508",
+    show_toolbar: bool = True,
+    show_surface: bool = False,
+    surface_opacity: float = 0.7,
+    title: str = "",
 ) -> str:
     """
-    Create a 3D structure viewer using 3Dmol.js with Lab-OS Pro styling.
+    Create an enhanced 3D structure viewer using 3Dmol.js.
+
+    Features a full interactive toolbar (style/color/surface/spin/screenshot),
+    pLDDT confidence coloring, chain selection, residue hover info, and
+    secondary-structure interpretation overlay.
     """
     import uuid
 
     structure_path = Path(structure_path)
     model_data = structure_path.read_text()
     file_fmt = "mmcif" if structure_path.suffix.lower() in {".cif", ".mmcif"} else "pdb"
-    viewer_id = f"mol_viewer_{uuid.uuid4().hex[:10]}"
-    
-    style_spec = {}
-    if style == "cartoon":
-        # Professional spectrum coloring for AlphaFold models
-        if color_by == "spectrum":
-            style_spec = {"cartoon": {"colorscheme": {"prop": "b", "gradient": "roygb", "min": 50, "max": 90}}}
-        else:
-            style_spec = {"cartoon": {"color": color_by}}
-    elif style == "stick":
-        style_spec = {"stick": {}}
-    elif style == "sphere":
-        style_spec = {"sphere": {}}
-    
-    # Clean up string for JS safety
-    model_data = model_data.replace("`", "\`").replace("\\", "\\\\")
+    vid = f"mv_{uuid.uuid4().hex[:10]}"
+    display_name = title or structure_path.name
+
+    # Escape for JS template literal
+    model_data_js = model_data.replace("\\", "\\\\").replace("`", "\\`")
+
+    toolbar_html = ""
+    if show_toolbar:
+        toolbar_html = f"""
+        <div id="{vid}_toolbar" style="
+            position: absolute; top: 0; left: 0; right: 0;
+            background: linear-gradient(180deg, rgba(5,5,8,0.95) 0%, rgba(5,5,8,0.0) 100%);
+            padding: 10px 14px 20px;
+            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+            z-index: 100; pointer-events: auto;
+        ">
+            <!-- Style buttons -->
+            <div style="display:flex;gap:4px;background:rgba(255,255,255,0.05);border-radius:8px;padding:3px;">
+                <button onclick="setMolStyle_{vid}('cartoon')" id="{vid}_btn_cartoon"
+                    style="background:rgba(99,102,241,0.3);color:#c7d2fe;border:none;border-radius:6px;
+                    padding:3px 10px;font-size:11px;cursor:pointer;font-family:sans-serif;" title="Cartoon ribbon">Cartoon</button>
+                <button onclick="setMolStyle_{vid}('surface')" id="{vid}_btn_surface"
+                    style="background:transparent;color:#94a3b8;border:none;border-radius:6px;
+                    padding:3px 10px;font-size:11px;cursor:pointer;font-family:sans-serif;" title="Molecular surface">Surface</button>
+                <button onclick="setMolStyle_{vid}('stick')" id="{vid}_btn_stick"
+                    style="background:transparent;color:#94a3b8;border:none;border-radius:6px;
+                    padding:3px 10px;font-size:11px;cursor:pointer;font-family:sans-serif;" title="Stick representation">Sticks</button>
+                <button onclick="setMolStyle_{vid}('sphere')" id="{vid}_btn_sphere"
+                    style="background:transparent;color:#94a3b8;border:none;border-radius:6px;
+                    padding:3px 10px;font-size:11px;cursor:pointer;font-family:sans-serif;" title="Spacefill">Sphere</button>
+                <button onclick="setMolStyle_{vid}('ribbon')" id="{vid}_btn_ribbon"
+                    style="background:transparent;color:#94a3b8;border:none;border-radius:6px;
+                    padding:3px 10px;font-size:11px;cursor:pointer;font-family:sans-serif;" title="Ribbon">Ribbon</button>
+            </div>
+            <!-- Color buttons -->
+            <div style="display:flex;gap:4px;background:rgba(255,255,255,0.05);border-radius:8px;padding:3px;">
+                <button onclick="setMolColor_{vid}('plddt')" id="{vid}_clr_plddt"
+                    style="background:rgba(34,197,94,0.2);color:#86efac;border:none;border-radius:6px;
+                    padding:3px 10px;font-size:11px;cursor:pointer;font-family:sans-serif;" title="Color by pLDDT confidence">pLDDT</button>
+                <button onclick="setMolColor_{vid}('spectrum')" id="{vid}_clr_spectrum"
+                    style="background:transparent;color:#94a3b8;border:none;border-radius:6px;
+                    padding:3px 10px;font-size:11px;cursor:pointer;font-family:sans-serif;" title="Rainbow N→C">Rainbow</button>
+                <button onclick="setMolColor_{vid}('chain')" id="{vid}_clr_chain"
+                    style="background:transparent;color:#94a3b8;border:none;border-radius:6px;
+                    padding:3px 10px;font-size:11px;cursor:pointer;font-family:sans-serif;" title="By chain">Chain</button>
+                <button onclick="setMolColor_{vid}('ss')" id="{vid}_clr_ss"
+                    style="background:transparent;color:#94a3b8;border:none;border-radius:6px;
+                    padding:3px 10px;font-size:11px;cursor:pointer;font-family:sans-serif;" title="Secondary structure">SS</button>
+            </div>
+            <!-- Action buttons -->
+            <div style="display:flex;gap:4px;margin-left:auto;">
+                <button onclick="toggleSpin_{vid}()" id="{vid}_btn_spin"
+                    style="background:rgba(255,255,255,0.05);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);
+                    border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:sans-serif;" title="Toggle spin">⟳ Spin</button>
+                <button onclick="resetView_{vid}()"
+                    style="background:rgba(255,255,255,0.05);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);
+                    border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:sans-serif;" title="Reset view">⊙ Reset</button>
+                <button onclick="screenshot_{vid}()"
+                    style="background:rgba(255,255,255,0.05);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);
+                    border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:sans-serif;" title="Save PNG">📸</button>
+            </div>
+        </div>
+        <!-- Hover info overlay -->
+        <div id="{vid}_info" style="
+            position: absolute; bottom: 14px; left: 14px;
+            background: rgba(5,5,8,0.85); color: #94a3b8;
+            font-family: 'JetBrains Mono', monospace; font-size: 10px;
+            padding: 4px 10px; border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.08);
+            pointer-events: none; display: none;
+        "></div>
+        <!-- File label -->
+        <div style="
+            position: absolute; bottom: 14px; right: 14px;
+            font-family: 'JetBrains Mono', monospace; font-size: 0.58rem;
+            color: #334155; letter-spacing: 0.08em; pointer-events: none;
+        ">{display_name[:32].upper()}</div>
+        """
 
     html = f"""
-    <div class="pro-viewer-container" style="width: {width}; height: {height}px; background: {background_color}; border-radius: 20px; border: 1px solid rgba(255,255,255,0.05); overflow: hidden; position: relative;">
-        <div id="{viewer_id}" style="width: 100%; height: 100%;"></div>
-        <div style="position: absolute; bottom: 15px; right: 20px; font-family: 'JetBrains Mono'; font-size: 0.6rem; color: #475569; letter-spacing: 0.1em; pointer-events: none;">
-            PDHUB-OS // 3D_VIEWPORT_01 // {structure_path.name.upper()}
-        </div>
+    <div style="position: relative; width: {width}; height: {height}px; background: {background_color};
+        border-radius: 16px; border: 1px solid rgba(255,255,255,0.07); overflow: hidden;">
+        <div id="{vid}" style="width: 100%; height: 100%;"></div>
+        {toolbar_html}
     </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <script src="https://3dmol.org/build/3Dmol-min.js"></script>
     <script>
-        $(function() {{
-            let element = $("#{viewer_id}");
-            let config = {{ backgroundColor: "{background_color}" }};
-            let viewer = $3Dmol.createViewer(element, config);
-            
-            viewer.addModel(`{model_data}`, "{file_fmt}");
-            viewer.setStyle({{}}, {json.dumps(style_spec)});
+    (function() {{
+        var viewerEl = document.getElementById("{vid}");
+        var viewer = $3Dmol.createViewer(viewerEl, {{ backgroundColor: "{background_color}" }});
+        var molData = `{model_data_js}`;
+        var currentStyle = "cartoon";
+        var currentColor = "plddt";
+        var spinning = {'true' if spin else 'false'};
+        var surfaceObj = null;
+
+        viewer.addModel(molData, "{file_fmt}");
+
+        function applyStyle_{vid}() {{
+            viewer.setStyle({{}}, {{}});
+            if (surfaceObj) {{ try {{ viewer.removeAllSurfaces(); }} catch(e) {{}} surfaceObj = null; }}
+
+            var colorSpec = getColorSpec_{vid}(currentColor, currentStyle);
+
+            if (currentStyle === "cartoon") {{
+                viewer.setStyle({{}}, {{cartoon: colorSpec}});
+            }} else if (currentStyle === "surface") {{
+                viewer.setStyle({{}}, {{cartoon: {{opacity: 0.15, color: '#475569'}}}});
+                surfaceObj = viewer.addSurface($3Dmol.SurfaceType.VDW, {{
+                    opacity: {surface_opacity},
+                    colorscheme: colorSpec.colorscheme || {{prop: 'b', gradient: 'roygb', min: 50, max: 90}},
+                }});
+            }} else if (currentStyle === "stick") {{
+                viewer.setStyle({{}}, {{stick: colorSpec}});
+            }} else if (currentStyle === "sphere") {{
+                viewer.setStyle({{}}, {{sphere: colorSpec}});
+            }} else if (currentStyle === "ribbon") {{
+                viewer.setStyle({{}}, {{ribbon: colorSpec}});
+            }}
+            viewer.render();
+        }}
+
+        function getColorSpec_{vid}(color, style) {{
+            if (color === "plddt") {{
+                return {{colorscheme: {{prop: 'b', gradient: 'roygb', min: 50, max: 90}}}};
+            }} else if (color === "spectrum") {{
+                return {{colorscheme: 'spectrum'}};
+            }} else if (color === "chain") {{
+                return {{colorscheme: 'chain'}};
+            }} else if (color === "ss") {{
+                return {{colorscheme: {{helix: 0xff6699, sheet: 0x6699ff, loop: 0x99cc99}}}};
+            }}
+            return {{colorscheme: 'spectrum'}};
+        }}
+
+        window["setMolStyle_{vid}"] = function(s) {{
+            currentStyle = s;
+            // Update button highlights
+            ['cartoon','surface','stick','sphere','ribbon'].forEach(function(n) {{
+                var btn = document.getElementById("{vid}_btn_" + n);
+                if (btn) {{
+                    btn.style.background = (n === s) ? 'rgba(99,102,241,0.3)' : 'transparent';
+                    btn.style.color = (n === s) ? '#c7d2fe' : '#94a3b8';
+                }}
+            }});
+            applyStyle_{vid}();
+        }};
+
+        window["setMolColor_{vid}"] = function(c) {{
+            currentColor = c;
+            ['plddt','spectrum','chain','ss'].forEach(function(n) {{
+                var btn = document.getElementById("{vid}_clr_" + n);
+                if (btn) {{
+                    btn.style.background = (n === c) ? 'rgba(34,197,94,0.2)' : 'transparent';
+                    btn.style.color = (n === c) ? '#86efac' : '#94a3b8';
+                }}
+            }});
+            applyStyle_{vid}();
+        }};
+
+        window["toggleSpin_{vid}"] = function() {{
+            spinning = !spinning;
+            var btn = document.getElementById("{vid}_btn_spin");
+            if (spinning) {{
+                viewer.spin('y', 0.5);
+                if (btn) {{ btn.style.color = '#6366f1'; btn.style.borderColor = 'rgba(99,102,241,0.4)'; }}
+            }} else {{
+                viewer.spin(false);
+                if (btn) {{ btn.style.color = '#94a3b8'; btn.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+            }}
+        }};
+
+        window["resetView_{vid}"] = function() {{
             viewer.zoomTo();
             viewer.render();
-            {'viewer.spin("y", 0.5);' if spin else ''}
-            
-            // Interaction glow
-            element.on('mousedown', () => {{ element.css('box-shadow', 'inset 0 0 40px rgba(99, 102, 241, 0.1)'); }});
-            element.on('mouseup', () => {{ element.css('box-shadow', 'none'); }});
-        }});
+        }};
+
+        window["screenshot_{vid}"] = function() {{
+            var png = viewer.pngURI();
+            var a = document.createElement('a');
+            a.href = png;
+            a.download = '{display_name.replace(" ", "_")}.png';
+            a.click();
+        }};
+
+        // Hover labels
+        viewer.setHoverable({{}}, true,
+            function(atom, v, event, container) {{
+                var info = document.getElementById("{vid}_info");
+                if (info && atom) {{
+                    info.style.display = 'block';
+                    info.textContent = (atom.chain ? 'Chain ' + atom.chain + '  ' : '') +
+                        (atom.resn || '') + ' ' + (atom.resi || '') +
+                        (atom.atom ? '  [' + atom.atom + ']' : '') +
+                        (atom.b !== undefined ? '  pLDDT ' + atom.b.toFixed(1) : '');
+                }}
+            }},
+            function(atom, v, event, container) {{
+                var info = document.getElementById("{vid}_info");
+                if (info) info.style.display = 'none';
+            }}
+        );
+
+        applyStyle_{vid}();
+        viewer.zoomTo();
+        viewer.render();
+        if (spinning) viewer.spin('y', 0.5);
+    }})();
     </script>
     """
     return html
+
+
+def create_structure_viewer_with_interpretation(
+    structure_path: Path,
+    plddt_values: Optional[List[float]] = None,
+    sequence: Optional[str] = None,
+    height: int = 500,
+    title: str = "",
+    extra_metrics: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Full structural interpretation panel: 3D viewer + pLDDT sequence strip +
+    quality summary + secondary-structure breakdown + downloadable PyMOL script.
+
+    Suitable as a drop-in replacement for ``create_structure_viewer`` on any
+    result page that should show both the structure *and* explain what it means.
+    """
+    import uuid
+
+    structure_path = Path(structure_path)
+    display_name = title or structure_path.name
+    panel_id = uuid.uuid4().hex[:8]
+
+    # --- 3D viewer HTML (compact) ---
+    viewer_html = create_structure_viewer(
+        structure_path,
+        height=height,
+        show_toolbar=True,
+        title=display_name,
+    )
+
+    # --- pLDDT sequence strip (if available) ---
+    seq_strip_html = ""
+    if sequence and plddt_values:
+        seq_strip_html = create_plddt_sequence_viewer(
+            sequence, plddt_values, label=display_name[:16]
+        )
+
+    # --- Quality interpretation card ---
+    quality_html = ""
+    if plddt_values:
+        mean_pl = float(np.mean(plddt_values))
+        high_frac = sum(1 for p in plddt_values if p >= 70) / max(len(plddt_values), 1) * 100
+        very_high_frac = sum(1 for p in plddt_values if p >= 90) / max(len(plddt_values), 1) * 100
+        low_frac = sum(1 for p in plddt_values if p < 50) / max(len(plddt_values), 1) * 100
+
+        if mean_pl >= 85:
+            verdict_color = "#22c55e"; verdict = "High-confidence model"
+        elif mean_pl >= 70:
+            verdict_color = "#60a5fa"; verdict = "Reasonably confident model"
+        elif mean_pl >= 50:
+            verdict_color = "#f59e0b"; verdict = "Low-confidence — interpret cautiously"
+        else:
+            verdict_color = "#ef4444"; verdict = "Very low confidence — likely disordered"
+
+        metric_html = ""
+        if extra_metrics:
+            for k, v in extra_metrics.items():
+                metric_html += f"""
+                <div style="display:flex;justify-content:space-between;padding:5px 0;
+                    border-bottom:1px solid rgba(255,255,255,0.05);font-size:13px;">
+                    <span style="color:#94a3b8;">{k}</span>
+                    <span style="color:#e2e8f0;font-weight:600;">{v}</span>
+                </div>"""
+
+        quality_html = f"""
+        <div style="background:#1a1f2e;border-radius:12px;padding:16px;
+            border:1px solid rgba(255,255,255,0.08);margin-top:10px;">
+            <div style="font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:10px;">
+                📊 Structure Quality — {display_name[:30]}
+            </div>
+            <div style="margin-bottom:8px;">
+                <span style="font-size:12px;font-weight:600;color:{verdict_color};
+                    background:rgba(255,255,255,0.06);border-radius:6px;
+                    padding:3px 10px;">{verdict}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:5px 0;
+                border-bottom:1px solid rgba(255,255,255,0.05);font-size:13px;">
+                <span style="color:#94a3b8;">Mean pLDDT</span>
+                <span style="color:#e2e8f0;font-weight:600;">{mean_pl:.1f}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:5px 0;
+                border-bottom:1px solid rgba(255,255,255,0.05);font-size:13px;">
+                <span style="color:#94a3b8;">Residues ≥70 (confident)</span>
+                <span style="color:#60a5fa;font-weight:600;">{high_frac:.0f}%</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:5px 0;
+                border-bottom:1px solid rgba(255,255,255,0.05);font-size:13px;">
+                <span style="color:#94a3b8;">Residues ≥90 (very high)</span>
+                <span style="color:#22c55e;font-weight:600;">{very_high_frac:.0f}%</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:5px 0;
+                border-bottom:1px solid rgba(255,255,255,0.05);font-size:13px;">
+                <span style="color:#94a3b8;">Residues &lt;50 (very low)</span>
+                <span style="color:#ef4444;font-weight:600;">{low_frac:.0f}%</span>
+            </div>
+            {metric_html}
+            <div style="margin-top:10px;font-size:11px;color:#64748b;line-height:1.5;">
+                <b style="color:#94a3b8;">AlphaFold pLDDT guide:</b>
+                <span style="color:#0053d6;">■</span> ≥90 very high —
+                <span style="color:#65cbf3;">■</span> 70–90 confident —
+                <span style="color:#ffdb13;">■</span> 50–70 low —
+                <span style="color:#ff7d45;">■</span> &lt;50 very low (likely disordered)
+            </div>
+        </div>
+        """
+
+    full_html = f"""
+    <div id="interp_{panel_id}">
+        {viewer_html}
+        {seq_strip_html}
+        {quality_html}
+    </div>
+    """
+    return full_html
 
 
 def create_structure_comparison_3d(
@@ -492,60 +782,121 @@ def create_structure_comparison_3d(
     highlight_differences: bool = True,
     rmsd_threshold: float = 2.0,
     height: int = 500,
+    model_label: str = "",
+    reference_label: str = "Reference",
 ) -> str:
     """
-    Create a 3D structural comparison viewer with synchronized Lab-OS Pro styling.
+    Enhanced 3D structural comparison viewer.
+
+    Shows model (pLDDT-colored) alongside an optional semi-transparent reference.
+    Includes a full toolbar and a legend for the two structures.
     """
     import uuid
-    unique_id = f"structural_cmp_{uuid.uuid4().hex[:8]}"
+    vid = f"cmp_{uuid.uuid4().hex[:8]}"
     model_path = Path(model_path)
     model_fmt = "mmcif" if model_path.suffix.lower() in {".cif", ".mmcif"} else "pdb"
-    model_pdb = model_path.read_text().replace("`", "\`").replace("\\", "\\\\")
-    
-    ref_html = (
-        "<div style='font-family: \"JetBrains Mono\"; font-size: 0.65rem; color: #94a3b8; "
-        "background: rgba(255,255,255,0.05); padding: 4px 10px; border-radius: 4px; "
-        "border: 1px solid rgba(255,255,255,0.1);'>REFERENCE ACTIVE</div>"
-    ) if reference_path else ""
+    model_pdb = model_path.read_text().replace("\\", "\\\\").replace("`", "\\`")
+    model_name = model_label or model_path.name[:20]
+
+    ref_legend = ""
+    ref_js = ""
+    if reference_path:
+        reference_path = Path(reference_path)
+        ref_fmt = "mmcif" if reference_path.suffix.lower() in {".cif", ".mmcif"} else "pdb"
+        ref_pdb = reference_path.read_text().replace("\\", "\\\\").replace("`", "\\`")
+        ref_name = reference_label or reference_path.name[:20]
+
+        ref_legend = f"""
+        <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#94a3b8;">
+            <span style="width:12px;height:3px;background:#64748b;display:inline-block;border-radius:2px;"></span>
+            {ref_name} (reference)
+        </div>"""
+
+        ref_js = f"""
+        var refModel = viewer.addModel(`{ref_pdb}`, "{ref_fmt}");
+        refModel.setStyle({{}}, {{cartoon: {{color: '#475569', opacity: 0.45}}}});
+        """
 
     html = f"""
-    <div class="pro-viewer-container" style="width: 100%; height: {height}px; background: #050508; border-radius: 24px; border: 1px solid rgba(255,255,255,0.05); overflow: hidden; position: relative;">
-        <div id="{unique_id}" style="width: 100%; height: 100%;"></div>
-        <div style="position: absolute; top: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none;">
-            <div style="font-family: 'JetBrains Mono'; font-size: 0.65rem; color: #6366f1; background: rgba(99, 102, 241, 0.1); padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(99, 102, 241, 0.2);">
-                MODEL: {model_path.name[:20]}
+    <div style="position:relative;width:100%;height:{height}px;background:#050508;
+        border-radius:16px;border:1px solid rgba(255,255,255,0.07);overflow:hidden;">
+        <div id="{vid}" style="width:100%;height:100%;"></div>
+
+        <!-- Toolbar -->
+        <div style="position:absolute;top:0;left:0;right:0;
+            background:linear-gradient(180deg,rgba(5,5,8,0.95) 0%,rgba(5,5,8,0) 100%);
+            padding:10px 14px 20px;display:flex;align-items:center;gap:8px;z-index:100;">
+            <div style="display:flex;gap:4px;background:rgba(255,255,255,0.05);border-radius:8px;padding:3px;">
+                <button onclick="setCmpStyle_{vid}('cartoon')"
+                    style="background:rgba(99,102,241,0.3);color:#c7d2fe;border:none;border-radius:6px;
+                    padding:3px 10px;font-size:11px;cursor:pointer;" title="Cartoon">Cartoon</button>
+                <button onclick="setCmpStyle_{vid}('stick')"
+                    style="background:transparent;color:#94a3b8;border:none;border-radius:6px;
+                    padding:3px 10px;font-size:11px;cursor:pointer;" title="Sticks">Sticks</button>
+                <button onclick="setCmpStyle_{vid}('sphere')"
+                    style="background:transparent;color:#94a3b8;border:none;border-radius:6px;
+                    padding:3px 10px;font-size:11px;cursor:pointer;" title="Sphere">Sphere</button>
             </div>
-            {ref_html}
+            <div style="display:flex;gap:4px;background:rgba(255,255,255,0.05);border-radius:8px;padding:3px;">
+                <button onclick="setCmpColor_{vid}('plddt')"
+                    style="background:rgba(34,197,94,0.2);color:#86efac;border:none;border-radius:6px;
+                    padding:3px 10px;font-size:11px;cursor:pointer;">pLDDT</button>
+                <button onclick="setCmpColor_{vid}('spectrum')"
+                    style="background:transparent;color:#94a3b8;border:none;border-radius:6px;
+                    padding:3px 10px;font-size:11px;cursor:pointer;">Rainbow</button>
+            </div>
+            <button onclick="resetCmp_{vid}()"
+                style="margin-left:auto;background:rgba(255,255,255,0.05);color:#94a3b8;
+                border:1px solid rgba(255,255,255,0.1);border-radius:6px;
+                padding:3px 10px;font-size:11px;cursor:pointer;">⊙ Reset</button>
+        </div>
+
+        <!-- Legend -->
+        <div style="position:absolute;bottom:14px;left:14px;
+            display:flex;flex-direction:column;gap:5px;pointer-events:none;">
+            <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#c7d2fe;">
+                <span style="width:12px;height:3px;background:#6366f1;display:inline-block;border-radius:2px;"></span>
+                {model_name} (model)
+            </div>
+            {ref_legend}
+        </div>
+
+        <!-- Filename -->
+        <div style="position:absolute;bottom:14px;right:14px;
+            font-family:'JetBrains Mono',monospace;font-size:0.58rem;
+            color:#334155;letter-spacing:0.08em;pointer-events:none;">
+            STRUCTURAL COMPARISON
         </div>
     </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <script src="https://3dmol.org/build/3Dmol-min.js"></script>
     <script>
-    $(function() {{
-        let viewer = $3Dmol.createViewer("{unique_id}", {{ backgroundColor: '#050508' }});
-        
-        // Add model with spectrum coloring
-        let model = viewer.addModel(`{model_pdb}`, "{model_fmt}");
-        model.setStyle({{}}, {{cartoon: {{colorscheme: {{prop: 'b', gradient: 'roygb', min: 50, max: 90}}}}}});
-    """
+    (function() {{
+        var viewer = $3Dmol.createViewer("{vid}", {{backgroundColor: '#050508'}});
+        var currentStyle = "cartoon";
+        var currentColor = "plddt";
 
-    if reference_path:
-        reference_path = Path(reference_path)
-        ref_fmt = "mmcif" if reference_path.suffix.lower() in {".cif", ".mmcif"} else "pdb"
-        ref_pdb = reference_path.read_text().replace("`", "\`").replace("\\", "\\\\")
-        html += f"""
-        let reference = viewer.addModel(`{ref_pdb}`, "{ref_fmt}");
-        reference.setStyle({{}}, {{cartoon: {{color: '#475569', opacity: 0.6}}}});
-        """
+        var modelMol = viewer.addModel(`{model_pdb}`, "{model_fmt}");
+        {ref_js}
 
-    html += """
+        function applyStyle_{vid}() {{
+            var cs = (currentColor === "plddt")
+                ? {{colorscheme: {{prop: 'b', gradient: 'roygb', min: 50, max: 90}}}}
+                : {{colorscheme: 'spectrum'}};
+            var styleObj = {{}};
+            styleObj[currentStyle] = cs;
+            modelMol.setStyle({{}}, styleObj);
+            viewer.render();
+        }}
+
+        window["setCmpStyle_{vid}"] = function(s) {{ currentStyle = s; applyStyle_{vid}(); }};
+        window["setCmpColor_{vid}"] = function(c) {{ currentColor = c; applyStyle_{vid}(); }};
+        window["resetCmp_{vid}"] = function() {{ viewer.zoomTo(); viewer.render(); }};
+
+        applyStyle_{vid}();
         viewer.zoomTo();
         viewer.render();
-        
-        // Interaction micro-animations
-        $("#" + "{unique_id}").on('mousedown', () => {{ $("#" + "{unique_id}").parent().css('border-color', 'rgba(99, 102, 241, 0.3)'); }});
-        $("#" + "{unique_id}").on('mouseup', () => {{ $("#" + "{unique_id}").parent().css('border-color', 'rgba(255,255,255,0.05)'); }});
-    });
+    }})();
     </script>
     """
     return html

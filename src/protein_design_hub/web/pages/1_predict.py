@@ -24,14 +24,17 @@ from protein_design_hub.web.ui import (
 from protein_design_hub.web.agent_helpers import (
     render_agent_advice_panel,
     render_contextual_insight,
+    render_ml_stats_panel,
     agent_sidebar_status,
     render_all_experts_panel,
 )
 from protein_design_hub.web.visualizations import (
     create_structure_viewer,
+    create_structure_viewer_with_interpretation,
     create_plddt_plot,
     create_pae_heatmap
 )
+from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 from protein_design_hub.io.afdb import AFDBClient, AFDBMatch, normalize_sequence
 from protein_design_hub.analysis.protein_utils import (
     parse_multichain_sequence,
@@ -912,7 +915,32 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
 
             with col_viewer:
                 if best_pdb and best_pdb.exists():
-                    st.components.v1.html(create_structure_viewer(best_pdb), height=500)
+                    # Gather pLDDT per-residue if available
+                    _plddt_per_res = None
+                    _seq = None
+                    try:
+                        for _n, _r in res_dict.items():
+                            if _r.success and _r.scores:
+                                _s = _r.scores[0]
+                                if hasattr(_s, "plddt_per_residue") and _s.plddt_per_residue:
+                                    _plddt_per_res = _s.plddt_per_residue
+                                if hasattr(_r, "sequence"):
+                                    _seq = _r.sequence
+                                if _plddt_per_res:
+                                    break
+                    except Exception:
+                        pass
+                    st.components.v1.html(
+                        create_structure_viewer_with_interpretation(
+                            best_pdb,
+                            plddt_values=_plddt_per_res,
+                            sequence=_seq,
+                            height=500,
+                            title=best_name,
+                        ),
+                        height=720,
+                        scrolling=False,
+                    )
                 else:
                     empty_state("No Structure", "Structure file not found", "🔬")
 
@@ -972,6 +1000,25 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                     df.style.format({"pLDDT": "{:.1f}", "pTM": "{:.3f}", "ipTM": "{:.3f}"})
                     .background_gradient(subset=["pLDDT"], cmap="RdYlGn"),
                     use_container_width=True,
+                )
+
+                # Save results to shared cross-page context
+                set_page_results("Predict", {
+                    "best_plddt": best["pLDDT"],
+                    "avg_plddt": avg,
+                    "best_ptm": best.get("pTM", 0),
+                    "best_predictor": best.get("Predictor", ""),
+                    "num_models": len(all_scores),
+                    "scores": all_scores,
+                })
+
+                # Statistical analysis + ML expert interpretation
+                render_ml_stats_panel(
+                    all_scores,
+                    numeric_keys=["pLDDT", "pTM", "ipTM"],
+                    target_key="pLDDT",
+                    page_name="Prediction",
+                    key_prefix="predict_ml_stats",
                 )
 
                 # AI Scientific Analysis
