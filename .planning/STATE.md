@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 
 ## Current Position
 
-Phase: 5 of 8 (Reporting) — COMPLETE
-Plan: 2 of 2 in current phase — COMPLETE (human-verify checkpoint approved 2026-02-23)
-Status: Phase 05 fully complete — REP-01 through REP-05 all satisfied; PDF export, HTML export, charts, OST table all verified working in Streamlit UI
-Last activity: 2026-02-23 — 05-02 checkpoint approved by user; all 6 verification points confirmed passing
+Phase: 6 of 8 (New Agent Workflows) — IN PROGRESS
+Plan: 1 of 3 in current phase — COMPLETE (06-01 executed 2026-02-23)
+Status: 06-01 complete — nanobody_llm and binding_affinity pipeline modes registered in orchestrator.py; all 56 tests pass
+Last activity: 2026-02-23 — 06-01 executed; _build_nanobody_llm_pipeline (12 agents) and _build_binding_affinity_pipeline (6 agents) added
 
-Progress: [##############] 62%
+Progress: [###############] 65%
 
 ## Performance Metrics
 
@@ -40,6 +40,7 @@ Progress: [##############] 62%
 | Phase 04-test-coverage P02 | 12 | 2 tasks | 1 files |
 | Phase 05-reporting P01 | 5 | 2 tasks | 2 files |
 | Phase 05-reporting P02 | 3 | 2 tasks | 1 files |
+| Phase 06-new-agent-workflows P01 | 2 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,9 @@ Recent decisions affecting current work:
 - [Phase 05-reporting]: [05-02] _embed_fig_in_pdf uses try/finally around os.unlink to guarantee temp PNG cleanup even when pdf.image() raises
 - [Phase 05-reporting]: [05-02] session_state cache uses id(ctx) as invalidation key — new ctx object on page reload clears stale cached bytes
 - [Phase 05-reporting]: [05-02] html.escape() applied to LLM narrative in HTML export to prevent malformed HTML from angle brackets/ampersands
+- [Phase 06-new-agent-workflows]: [06-01] nanobody_llm uses direct assignment for team_members (NANOBODY_TEAM_MEMBERS mandatory, caller overrides ignored by design)
+- [Phase 06-new-agent-workflows]: [06-01] binding_affinity uses setdefault for team_lead and team_members (callers may override with custom expert selection)
+- [Phase 06-new-agent-workflows]: [06-01] Specialised pipeline mode pattern: builder function at module level + elif branch in __init__ + updated docstring
 
 ### Pending Todos
 
@@ -104,5 +108,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 05-02-PLAN.md — Phase 05 reporting fully done; human-verify checkpoint approved
+Stopped at: Completed 06-01-PLAN.md — nanobody_llm and binding_affinity pipeline modes added to orchestrator.py
 Resume file: None

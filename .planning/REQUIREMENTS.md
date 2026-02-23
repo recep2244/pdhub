@@ -43,8 +43,8 @@
 
 ### New Agent Workflows
 
-- [ ] **AGT-01**: Antibody/nanobody design pipeline using existing nanobody team preset with LLM guidance
-- [ ] **AGT-02**: Binding affinity analysis workflow using existing biophysicist persona and evaluation metrics
+- [x] **AGT-01**: Antibody/nanobody design pipeline using existing nanobody team preset with LLM guidance
+- [x] **AGT-02**: Binding affinity analysis workflow using existing biophysicist persona and evaluation metrics
 
 ### Async Jobs
 
@@ -110,8 +110,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REP-03 | Phase 5 | Complete |
 | REP-04 | Phase 5 | Complete |
 | REP-05 | Phase 5 | Complete |
-| AGT-01 | Phase 6 | Pending |
-| AGT-02 | Phase 6 | Pending |
+| AGT-01 | Phase 6 | Complete |
+| AGT-02 | Phase 6 | Complete |
 | JOB-01 | Phase 7 | Pending |
 | JOB-02 | Phase 7 | Pending |
 | JOB-03 | Phase 7 | Pending |
