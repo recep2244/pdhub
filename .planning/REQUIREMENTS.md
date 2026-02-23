@@ -38,8 +38,8 @@
 - [x] **REP-01**: Mutation ranking chart in web UI (improvement score vs mutation, colored by mutation type/category)
 - [x] **REP-02**: Per-residue pLDDT visualization comparing WT vs top 3 mutants
 - [x] **REP-03**: OST metric table (lDDT, RMSD, QS-score) displayed per mutant in mutation scanner UI
-- [ ] **REP-04**: PDF export of mutagenesis report with embedded charts and metric tables
-- [ ] **REP-05**: HTML export option for sharing results without PDF dependency
+- [x] **REP-04**: PDF export of mutagenesis report with embedded charts and metric tables
+- [x] **REP-05**: HTML export option for sharing results without PDF dependency
 
 ### New Agent Workflows
 
@@ -108,8 +108,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REP-01 | Phase 5 | Complete |
 | REP-02 | Phase 5 | Complete |
 | REP-03 | Phase 5 | Complete |
-| REP-04 | Phase 5 | Pending |
-| REP-05 | Phase 5 | Pending |
+| REP-04 | Phase 5 | Complete |
+| REP-05 | Phase 5 | Complete |
 | AGT-01 | Phase 6 | Pending |
 | AGT-02 | Phase 6 | Pending |
 | JOB-01 | Phase 7 | Pending |

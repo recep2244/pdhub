@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 5 of 8 (Reporting)
-Plan: 1 of 2 in current phase
-Status: 05-01 complete — mutation ranking chart (REP-01), pLDDT chart (REP-02), OST table (REP-03) added; ready for 05-02 (PDF/HTML export)
-Last activity: 2026-02-23 — 05-01 complete: visual charts + OST table wired into Phase 2 results panel; 5 functions added, fpdf2/kaleido declared
+Plan: 2 of 2 in current phase (checkpoint awaiting human verification)
+Status: 05-02 tasks complete — PDF export (_build_report_pdf, REP-04) and HTML export (_build_report_html, REP-05) added; download buttons wired with session_state caching; checkpoint pending user sign-off
+Last activity: 2026-02-23 — 05-02 complete: 4 export functions + 2 download buttons; 1 file modified
 
-Progress: [##########░░] 55%
+Progress: [############░] 60%
 
 ## Performance Metrics
 
@@ -39,6 +39,7 @@ Progress: [##########░░] 55%
 | Phase 04-test-coverage P01 | 5 | 2 tasks | 1 files |
 | Phase 04-test-coverage P02 | 12 | 2 tasks | 1 files |
 | Phase 05-reporting P01 | 5 | 2 tasks | 2 files |
+| Phase 05-reporting P02 | 3 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -80,6 +81,10 @@ Recent decisions affecting current work:
 - [Phase 05-reporting]: [05-01] OST table reads ost_lddt/ost_rmsd_ca/ost_qs_score directly from ranked mutation dicts — no ctx.extra["ost_metrics"] key exists
 - [Phase 05-reporting]: [05-01] _build_* functions are module-level shared builders, callable by Plan 02 export without Streamlit dependency
 - [Phase 05-reporting]: [05-01] pLDDT chart shows st.info message when mutation_wt_plddt_per_residue absent rather than silent skip
+- [Phase 05-reporting]: [05-02] bytes(pdf.output()) conversion required — fpdf2 FPDF.output() returns bytearray, st.download_button requires bytes
+- [Phase 05-reporting]: [05-02] _embed_fig_in_pdf uses try/finally around os.unlink to guarantee temp PNG cleanup even when pdf.image() raises
+- [Phase 05-reporting]: [05-02] session_state cache uses id(ctx) as invalidation key — new ctx object on page reload clears stale cached bytes
+- [Phase 05-reporting]: [05-02] html.escape() applied to LLM narrative in HTML export to prevent malformed HTML from angle brackets/ampersands
 
 ### Pending Todos
 
@@ -99,5 +104,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 05-01-PLAN.md (visual charts + OST table in Phase 2 results panel; 2 tasks; fpdf2/kaleido declared)
+Stopped at: Checkpoint 05-02 (PDF/HTML export — awaiting human verification of download in Streamlit UI)
 Resume file: None
