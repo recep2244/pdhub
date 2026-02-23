@@ -104,6 +104,70 @@ def _build_llm_guided_pipeline(
     ]
 
 
+def _build_nanobody_llm_pipeline(
+    progress_callback: Optional[Callable] = None,
+    **kwargs,
+) -> List[BaseAgent]:
+    """Build the nanobody-specialised LLM-guided pipeline (12 agents).
+
+    Identical to ``_build_llm_guided_pipeline`` but forces
+    ``NANOBODY_TEAM_MEMBERS`` onto every LLM meeting agent so that the
+    Immunologist is always present.  Caller overrides of *team_members* are
+    intentionally ignored — the nanobody team is the defining characteristic
+    of this mode.
+    """
+    from protein_design_hub.agents.input_agent import InputAgent
+    from protein_design_hub.agents.prediction_agent import PredictionAgent
+    from protein_design_hub.agents.evaluation_agent import EvaluationAgent
+    from protein_design_hub.agents.comparison_agent import ComparisonAgent
+    from protein_design_hub.agents.report_agent import ReportAgent
+    from protein_design_hub.agents.llm_guided import (
+        LLMInputReviewAgent,
+        LLMPlanningAgent,
+        LLMPredictionReviewAgent,
+        LLMEvaluationReviewAgent,
+        LLMRefinementReviewAgent,
+        LLMMutagenesisPlanningAgent,
+        LLMReportNarrativeAgent,
+    )
+    from protein_design_hub.agents.scientists import (
+        DEFAULT_TEAM_LEAD,
+        NANOBODY_TEAM_MEMBERS,
+    )
+
+    nb_kwargs = dict(kwargs)
+    # Direct assignment — nanobody team is mandatory for this pipeline mode
+    nb_kwargs["team_members"] = NANOBODY_TEAM_MEMBERS
+    nb_kwargs.setdefault("team_lead", DEFAULT_TEAM_LEAD)
+
+    return [
+        # 1. Parse input
+        InputAgent(progress_callback=progress_callback),
+        # 2. Team meeting: validate input sequences & identify characteristics
+        LLMInputReviewAgent(progress_callback=progress_callback, **nb_kwargs),
+        # 3. Team meeting: plan predictors, metrics, params
+        LLMPlanningAgent(progress_callback=progress_callback, **nb_kwargs),
+        # 4. Run predictions
+        PredictionAgent(progress_callback=progress_callback),
+        # 5. Team meeting: review prediction quality (nanobody team)
+        LLMPredictionReviewAgent(progress_callback=progress_callback, **nb_kwargs),
+        # 6. Evaluate structures
+        EvaluationAgent(progress_callback=progress_callback),
+        # 7. Compare and rank
+        ComparisonAgent(progress_callback=progress_callback),
+        # 8. Team meeting: interpret evaluation (nanobody team)
+        LLMEvaluationReviewAgent(progress_callback=progress_callback, **nb_kwargs),
+        # 9. Team meeting: refinement strategy (nanobody team)
+        LLMRefinementReviewAgent(progress_callback=progress_callback, **nb_kwargs),
+        # 10. Team meeting: mutagenesis & design planning (nanobody team)
+        LLMMutagenesisPlanningAgent(progress_callback=progress_callback, **nb_kwargs),
+        # 11. Team meeting: synthesise all results into executive summary
+        LLMReportNarrativeAgent(progress_callback=progress_callback, **nb_kwargs),
+        # 12. Write reports
+        ReportAgent(progress_callback=progress_callback),
+    ]
+
+
 def _build_mutagenesis_pre_approval_pipeline(
     progress_callback: Optional[Callable] = None,
     **kwargs,
