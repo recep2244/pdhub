@@ -1979,6 +1979,23 @@ def _render_phase2_results(ctx):
         styled = result_df.style.map(_color_score, subset=["Score", "Delta pLDDT"])
         st.dataframe(styled, use_container_width=True, hide_index=True)
 
+    # Mutation ranking chart (REP-01)
+    if ranked:
+        st.markdown("#### Mutation Ranking Chart")
+        _render_ranking_chart(ranked)
+
+    # Per-residue pLDDT chart (REP-02)
+    wt_per_res = ctx.extra.get("mutation_wt_plddt_per_residue", [])
+    if wt_per_res:
+        st.markdown("#### Per-Residue pLDDT")
+        _render_plddt_chart(ranked, wt_per_res)
+    elif ranked:
+        st.info("Per-residue pLDDT chart not available (data missing from Phase 2 run).")
+
+    # OST structural metrics table (REP-03)
+    if ranked:
+        _render_ost_table(ranked)
+
     # Best mutation highlight
     best = comparison.get("best_overall")
     if best and best.get("improvement_score", 0) > 0:
@@ -2029,6 +2046,113 @@ def _render_phase2_results(ctx):
                     mime="text/markdown",
                     key="dl_md",
                 )
+
+
+def _build_ranking_figure(ranked: list) -> "go.Figure":
+    """Bar chart of improvement score per mutation, colored by category.
+    Used by both _render_ranking_chart (Streamlit display) and _build_report_pdf/_build_report_html (export).
+    Single go.Bar trace with per-bar marker_color — preserves sorted x-axis order.
+    """
+    CATEGORY_COLORS = {"beneficial": "#22c55e", "neutral": "#9ca3af", "detrimental": "#ef4444"}
+
+    def _cat(score: float) -> str:
+        if score > 0:
+            return "beneficial"
+        if score < -0.5:
+            return "detrimental"
+        return "neutral"
+
+    mutations = [r.get("mutation_code", "?") for r in ranked]
+    scores = [r.get("improvement_score", 0) for r in ranked]
+    cats = [_cat(s) for s in scores]
+    colors = [CATEGORY_COLORS[c] for c in cats]
+
+    fig = go.Figure(data=go.Bar(
+        x=mutations,
+        y=scores,
+        marker_color=colors,
+        text=cats,
+        hovertemplate="<b>%{x}</b><br>Score: %{y:.3f}<br>%{text}<extra></extra>",
+    ))
+    fig.update_layout(
+        title="Mutation Ranking by Improvement Score",
+        xaxis_title="Mutation",
+        yaxis_title="Improvement Score",
+        height=400,
+        showlegend=False,
+    )
+    return fig
+
+
+def _build_plddt_figure(ranked: list, wt_per_res: list) -> "go.Figure":
+    """Per-residue pLDDT line chart: Wildtype vs top 3 mutants.
+    Used by both Streamlit display and export functions.
+    Guards against missing plddt_per_residue (saturation failure paths).
+    """
+    MUTANT_COLORS = ["#22c55e", "#f59e0b", "#ef4444"]
+    fig = go.Figure()
+    if wt_per_res:
+        residues = list(range(1, len(wt_per_res) + 1))
+        fig.add_trace(go.Scatter(
+            x=residues,
+            y=wt_per_res,
+            name="Wildtype",
+            line={"color": "#6366f1", "width": 2},
+        ))
+    for mut, color in zip(ranked[:3], MUTANT_COLORS):
+        per_res = mut.get("plddt_per_residue") or []
+        if not per_res:
+            continue
+        residues = list(range(1, len(per_res) + 1))
+        fig.add_trace(go.Scatter(
+            x=residues,
+            y=per_res,
+            name=mut.get("mutation_code", "?"),
+            line={"color": color, "width": 1.5, "dash": "dot"},
+        ))
+    fig.update_layout(
+        title="Per-Residue pLDDT: Wildtype vs Top Mutants",
+        xaxis_title="Residue",
+        yaxis_title="pLDDT",
+        yaxis={"range": [0, 100]},
+        height=400,
+    )
+    return fig
+
+
+def _render_ranking_chart(ranked: list) -> None:
+    """Render mutation ranking bar chart in Streamlit (REP-01)."""
+    fig = _build_ranking_figure(ranked)
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _render_plddt_chart(ranked: list, wt_per_res: list) -> None:
+    """Render per-residue pLDDT comparison chart in Streamlit (REP-02)."""
+    fig = _build_plddt_figure(ranked, wt_per_res)
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _render_ost_table(ranked: list) -> None:
+    """OST structural metrics table, shown only when OST was enabled (REP-03).
+    Keys are on each ranked mutation dict: ost_lddt, ost_rmsd_ca, ost_qs_score.
+    Access via ranked[i].get("ost_lddt") NOT via ctx.extra["ost_metrics"] (that key does not exist).
+    """
+    ost_rows = [r for r in ranked if r.get("ost_lddt") is not None]
+    if not ost_rows:
+        return  # OST was disabled — silently skip
+
+    rows = []
+    for r in ost_rows:
+        rows.append({
+            "Mutation": r.get("mutation_code", "?"),
+            "Score": round(r.get("improvement_score", 0), 3),
+            "lDDT": round(r["ost_lddt"], 3),
+            "RMSD (CA)": round(r["ost_rmsd_ca"], 2) if r.get("ost_rmsd_ca") is not None else None,
+            "QS-score": round(r["ost_qs_score"], 3) if r.get("ost_qs_score") is not None else None,
+        })
+
+    st.markdown("#### OST Structural Metrics")
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 def _render_saturation_heatmap(mutations: list, position: int):
