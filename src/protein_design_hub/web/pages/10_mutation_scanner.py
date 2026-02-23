@@ -2050,6 +2050,45 @@ def _render_phase2_results(ctx):
                     key="dl_md",
                 )
 
+    # Export buttons (PDF + HTML) — cached in session_state to avoid rebuild per Streamlit re-run
+    if ranked:
+        st.markdown("#### Export Report")
+        exp_col1, exp_col2 = st.columns(2)
+
+        # Cache key tied to current context id — invalidated if page reloads with new context
+        ctx_key = id(ctx)
+        if st.session_state.get("_report_ctx_key") != ctx_key:
+            # Context changed — clear stale cache
+            st.session_state.pop("cached_report_pdf", None)
+            st.session_state.pop("cached_report_html", None)
+            st.session_state["_report_ctx_key"] = ctx_key
+
+        with exp_col1:
+            if "cached_report_pdf" not in st.session_state:
+                with st.spinner("Building PDF..."):
+                    st.session_state["cached_report_pdf"] = _build_report_pdf(ctx, comparison)
+            st.download_button(
+                "Export PDF",
+                data=st.session_state["cached_report_pdf"],
+                file_name="mutagenesis_report.pdf",
+                mime="application/pdf",
+                key="dl_pdf",
+                use_container_width=True,
+            )
+
+        with exp_col2:
+            if "cached_report_html" not in st.session_state:
+                with st.spinner("Building HTML..."):
+                    st.session_state["cached_report_html"] = _build_report_html(ctx, comparison)
+            st.download_button(
+                "Export HTML",
+                data=st.session_state["cached_report_html"],
+                file_name="mutagenesis_report.html",
+                mime="text/html",
+                key="dl_html",
+                use_container_width=True,
+            )
+
 
 def _build_ranking_figure(ranked: list) -> "go.Figure":
     """Bar chart of improvement score per mutation, colored by category.
