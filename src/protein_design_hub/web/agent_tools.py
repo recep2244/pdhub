@@ -624,26 +624,214 @@ def run_structure_analysis(pdb_path: Path) -> ToolResult:
 # STREAMLIT RENDERING — display ToolResult objects
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _plot_regression(data: dict) -> None:
+    """Plotly charts for the Regression Suite ToolResult."""
+    import streamlit as st
+    try:
+        import plotly.graph_objects as go
+        import plotly.express as px
+    except ImportError:
+        return
+
+    # ── R² comparison bar ─────────────────────────────────────────
+    metrics_df = data.get("metrics")
+    if metrics_df is not None and not metrics_df.empty:
+        r2_vals, labels = [], []
+        for _, row in metrics_df.iterrows():
+            r2 = row.get("R²")
+            try:
+                r2_vals.append(float(r2))
+                labels.append(str(row.get("Model", "")))
+            except (TypeError, ValueError):
+                pass
+        if r2_vals:
+            fig = go.Figure(go.Bar(
+                x=labels, y=r2_vals,
+                marker_color=["#6366f1", "#f59e0b", "#22c55e"][:len(r2_vals)],
+                text=[f"{v:.4f}" for v in r2_vals],
+                textposition="outside",
+            ))
+            fig.update_layout(
+                title="Model R² Comparison", yaxis_title="R²",
+                yaxis_range=[0, max(1.05, max(r2_vals) * 1.1)],
+                template="plotly_dark", height=280, margin=dict(t=40, b=30),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+    # ── Coefficient chart ──────────────────────────────────────────
+    coefs_df = data.get("coefs")
+    if coefs_df is not None and not coefs_df.empty and "Feature" in coefs_df.columns:
+        try:
+            features = coefs_df["Feature"].tolist()
+            ols_c = [float(str(v).replace("+", "")) for v in coefs_df["OLS coef"]]
+            lasso_c = [float(str(v).replace("+", "")) for v in coefs_df["Lasso coef"]]
+            ridge_c = [float(str(v).replace("+", "")) for v in coefs_df["Ridge coef"]]
+
+            fig2 = go.Figure()
+            fig2.add_trace(go.Bar(name="OLS", x=features, y=ols_c, marker_color="#6366f1"))
+            fig2.add_trace(go.Bar(name="Lasso", x=features, y=lasso_c, marker_color="#f59e0b"))
+            fig2.add_trace(go.Bar(name="Ridge", x=features, y=ridge_c, marker_color="#22c55e"))
+            fig2.update_layout(
+                title="Standardised Coefficients (OLS / Lasso / Ridge)",
+                barmode="group", template="plotly_dark", height=320,
+                yaxis_title="Coefficient", margin=dict(t=40, b=60),
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+        except Exception:
+            pass
+
+    # ── Actual vs Predicted scatter ────────────────────────────────
+    residuals = data.get("residuals")
+    if isinstance(residuals, dict) and "y_actual" in residuals:
+        try:
+            y_act = residuals["y_actual"]
+            y_pred = residuals["y_pred_ols"]
+            mn, mx = min(y_act + y_pred), max(y_act + y_pred)
+            fig3 = go.Figure()
+            fig3.add_trace(go.Scatter(
+                x=y_act, y=y_pred, mode="markers",
+                marker=dict(color="#6366f1", size=7, opacity=0.75),
+                name="OLS predictions",
+            ))
+            fig3.add_trace(go.Scatter(
+                x=[mn, mx], y=[mn, mx], mode="lines",
+                line=dict(color="white", dash="dash", width=1),
+                name="Perfect fit",
+            ))
+            fig3.update_layout(
+                title="OLS: Actual vs Predicted",
+                xaxis_title="Actual", yaxis_title="Predicted",
+                template="plotly_dark", height=320, margin=dict(t=40, b=40),
+            )
+            st.plotly_chart(fig3, use_container_width=True)
+        except Exception:
+            pass
+
+
+def _plot_feature_importance(df: pd.DataFrame) -> None:
+    """Plotly horizontal bar chart for Feature Importance ToolResult."""
+    import streamlit as st
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        return
+    if df.empty or "Feature" not in df.columns:
+        return
+    try:
+        pearson_vals = [float(str(v).replace("+", "")) for v in df["Pearson r"]]
+        abs_pearson = [abs(v) for v in pearson_vals]
+        colors = ["#22c55e" if v >= 0 else "#ef4444" for v in pearson_vals]
+        order = sorted(range(len(abs_pearson)), key=lambda i: abs_pearson[i])
+        feats = [df["Feature"].iloc[i] for i in order]
+        vals = [pearson_vals[i] for i in order]
+        cols = [colors[i] for i in order]
+
+        fig = go.Figure(go.Bar(
+            x=vals, y=feats, orientation="h",
+            marker_color=cols,
+            text=[f"{v:+.3f}" for v in vals], textposition="outside",
+        ))
+        fig.update_layout(
+            title="Feature Importance — Pearson r (green=positive, red=negative)",
+            xaxis_title="Pearson r", template="plotly_dark",
+            height=max(220, len(feats) * 28 + 80), margin=dict(t=40, l=120, b=40),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception:
+        pass
+
+
+def _plot_pca(data: dict) -> None:
+    """Plotly scree chart for PCA + Clustering ToolResult."""
+    import streamlit as st
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        return
+    pca_df = data.get("pca")
+    if pca_df is None or pca_df.empty:
+        return
+    try:
+        ve_str = pca_df["Variance explained"].str.rstrip("%").astype(float)
+        cum_str = pca_df["Cumulative"].str.rstrip("%").astype(float)
+        labels = pca_df["Component"].tolist()
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=labels, y=ve_str.tolist(), name="Variance explained",
+            marker_color="#6366f1",
+        ))
+        fig.add_trace(go.Scatter(
+            x=labels, y=cum_str.tolist(), mode="lines+markers",
+            name="Cumulative", line=dict(color="#f59e0b", width=2),
+            marker=dict(size=6),
+        ))
+        fig.add_hline(y=80, line_dash="dash", line_color="gray",
+                      annotation_text="80% threshold")
+        fig.update_layout(
+            title="PCA Scree Plot",
+            yaxis_title="Variance explained (%)", template="plotly_dark",
+            height=300, margin=dict(t=40, b=40),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        sil = data.get("silhouette")
+        k = data.get("best_k")
+        if sil is not None:
+            quality = "strong" if sil > 0.5 else "moderate" if sil > 0.25 else "weak"
+            st.caption(f"K-means best k={k}, silhouette={sil:.3f} ({quality} clustering)")
+    except Exception:
+        pass
+
+
 def render_tool_result(result: ToolResult) -> None:
-    """Render a single ToolResult in Streamlit."""
+    """Render a single ToolResult in Streamlit with Plotly charts."""
     import streamlit as st
 
     if not result.success:
         st.caption(f"⚠️ {result.tool_name}: {result.error}")
         return
 
-    with st.expander(f"🔧 {result.tool_name}", expanded=False):
+    _PLOT_EXPANDED = {"Regression Suite", "Feature Importance Suite", "PCA + Clustering",
+                      "Sequence Biophysics"}
+
+    with st.expander(f"🔧 {result.tool_name}", expanded=result.tool_name in _PLOT_EXPANDED):
         data = result.data
-        if isinstance(data, pd.DataFrame):
+
+        # ── Tool-specific chart rendering ──────────────────────────
+        if result.tool_name == "Regression Suite" and isinstance(data, dict):
+            _plot_regression(data)
+            # Also show raw metrics table
+            mdf = data.get("metrics")
+            if mdf is not None and not mdf.empty:
+                with st.expander("Raw metrics table", expanded=False):
+                    st.dataframe(mdf, use_container_width=True, hide_index=True)
+            coefs = data.get("coefs")
+            if coefs is not None and not coefs.empty:
+                with st.expander("Coefficients table", expanded=False):
+                    st.dataframe(coefs, use_container_width=True, hide_index=True)
+
+        elif result.tool_name == "Feature Importance Suite" and isinstance(data, pd.DataFrame):
+            _plot_feature_importance(data)
+            with st.expander("Full importance table", expanded=False):
+                st.dataframe(data, use_container_width=True, hide_index=True)
+
+        elif result.tool_name == "PCA + Clustering" and isinstance(data, dict):
+            _plot_pca(data)
+            pca_df = data.get("pca")
+            if pca_df is not None and not pca_df.empty:
+                with st.expander("PCA table", expanded=False):
+                    st.dataframe(pca_df, use_container_width=True, hide_index=True)
+
+        elif isinstance(data, pd.DataFrame):
             st.dataframe(data, use_container_width=True, hide_index=True)
+
         elif isinstance(data, dict):
             for key, val in data.items():
                 if isinstance(val, pd.DataFrame) and not val.empty:
                     st.markdown(f"**{key.replace('_', ' ').title()}**")
                     st.dataframe(val, use_container_width=True, hide_index=True)
-                elif isinstance(val, dict):
-                    st.json(val)
-                elif val is not None:
+                elif isinstance(val, dict) and key not in ("residuals",):
+                    pass  # skip raw residuals dict (plotted above)
+                elif val is not None and not isinstance(val, dict):
                     st.write(f"**{key}:** {val}")
 
 
