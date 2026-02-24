@@ -30,6 +30,7 @@ from protein_design_hub.web.agent_helpers import (
     render_ml_stats_panel,
     agent_sidebar_status,
     render_all_experts_panel,
+    observed_scoring_section,
 )
 from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 
@@ -1059,19 +1060,16 @@ if "compare_result" in st.session_state:
 
             with col_view:
                 if selected_structure and selected_structure.exists():
-                    from protein_design_hub.web.visualizations import create_structure_comparison_3d
-                    import streamlit.components.v1 as components
+                    from protein_design_hub.web.visualizations import show_structure_with_pymol_fallback
 
                     ref_candidate = job_dir / "reference.pdb"
                     ref_path = ref_candidate if ref_candidate.exists() else None
 
-                    html_view = create_structure_comparison_3d(
+                    show_structure_with_pymol_fallback(
                         selected_structure,
-                        ref_path,
-                        highlight_differences=True,
-                        model_label=selected_structure.stem[:20],
+                        title=selected_structure.stem[:20],
+                        height=500,
                     )
-                    components.html(html_view, height=500)
 
                     if ref_path:
                         st.caption(f"Aligned with reference: {ref_path.name}")
@@ -1174,23 +1172,25 @@ if existing_results and Path(existing_results).exists():
 
         with col_view:
             if selected_structure:
-                from protein_design_hub.web.visualizations import create_structure_comparison_3d
-                import streamlit.components.v1 as components
+                from protein_design_hub.web.visualizations import show_structure_with_pymol_fallback
 
                 ref_candidate = job_path / "reference.pdb"
                 ref_path = ref_candidate if ref_candidate.exists() else None
 
-                html_view = create_structure_comparison_3d(
+                show_structure_with_pymol_fallback(
                     selected_structure,
-                    ref_path,
-                    highlight_differences=True
+                    title=selected_structure.stem[:20],
+                    height=500,
                 )
-                components.html(html_view, height=500)
 
                 if ref_path:
                     st.caption(f"Showing alignment with reference: {ref_path.name}")
                 else:
                     st.caption("No reference found in job folder for alignment")
+
+                _cmp_models = [p for p in [selected_structure] if Path(p).exists()]
+                _cmp_ref = ref_path if ref_path and Path(ref_path).exists() else None
+                observed_scoring_section(model_paths=_cmp_models, reference_path=_cmp_ref, section_key="compare_obs")
 
     # Load summary if exists
     summary_file = job_path / "prediction_summary.json"

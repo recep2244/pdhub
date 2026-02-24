@@ -31,7 +31,9 @@ from protein_design_hub.web.agent_helpers import (
     render_ml_stats_panel,
     agent_sidebar_status,
     render_all_experts_panel,
+    observed_scoring_section,
 )
+from protein_design_hub.web.visualizations import show_structure_with_pymol_fallback
 from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 
 st.set_page_config(page_title="MPNN Design - Protein Design Hub", page_icon="🎯", layout="wide")
@@ -215,12 +217,16 @@ with col_a:
              preview_path = chosen
         
         if preview_path:
-             from protein_design_hub.web.visualizations import create_structure_viewer
-             import streamlit.components.v1 as components
-             html = create_structure_viewer(
-                 preview_path, height=320, show_toolbar=True, title=preview_path.stem
+             show_structure_with_pymol_fallback(preview_path, title="Backbone Preview", height=320)
+
+             # Backbone quality check (MolProbity — no reference needed)
+             observed_scoring_section(
+                 model_paths=[preview_path],
+                 reference_path=None,
+                 allow_upload=False,
+                 section_key="mpnn_mp",
+                 expanded=False,
              )
-             components.html(html, height=340)
 
              # Inline structural tip: estimate chain/length from PDB
              try:

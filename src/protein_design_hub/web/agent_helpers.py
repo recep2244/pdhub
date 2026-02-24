@@ -1606,3 +1606,194 @@ def render_agent_chatbot(key_prefix: str = "chatbot") -> None:
         f"| Chatting with **{agent_name}** "
         f"| Switch agents above to get different perspectives"
     )
+
+
+# =============================================================================
+# Observed Scoring Section (MolProbity + OST) — reusable across all pages
+# =============================================================================
+
+def observed_scoring_section(
+    model_paths: Optional[List[Path]] = None,
+    reference_path: Optional[Path] = None,
+    allow_upload: bool = True,
+    section_key: str = "obs_scoring",
+    parallel_jobs: int = 4,
+    expanded: bool = False,
+) -> None:
+    """Render a self-contained MolProbity + OST observed-scoring panel.
+
+    Call from any page to add structure validation against a reference.
+
+    Args:
+        model_paths: Pre-supplied model PDB/CIF files.  If None, shows uploader.
+        reference_path: Pre-supplied reference PDB/CIF.  If None, shows PDB-ID
+            input + optional file upload.
+        allow_upload:  Show upload widgets when paths are not pre-supplied.
+        section_key:   Unique key prefix for Streamlit widgets (avoids conflicts).
+        parallel_jobs: Default parallelism for scoring runner.
+        expanded:      Whether the expander starts open.
+    """
+    try:
+        from protein_design_hub.evaluation.observed_scoring import ObservedScoringRunner
+        import pandas as pd
+        import plotly.graph_objects as go
+    except ImportError as e:
+        st.warning(f"Observed scoring unavailable: {e}")
+        return
+
+    runner = ObservedScoringRunner()
+    avail = runner.availability_summary()
+
+    with st.expander("🏆 Observed Scoring (OST + MolProbity)", expanded=expanded):
+        # ── Availability ─────────────────────────────────────────────────────
+        c1, c2 = st.columns(2)
+        c1.metric(
+            "OpenStructure (OST)",
+            "✅ Available" if avail["ost"] else "❌ Not found",
+        )
+        c2.metric(
+            "MolProbity",
+            "✅ Available" if avail["molprobity"] else "❌ Not found",
+        )
+
+        if not avail["ost"] and not avail["molprobity"]:
+            st.error("Neither OST nor MolProbity found. Check config paths.")
+            return
+
+        st.divider()
+
+        # ── Reference selection ───────────────────────────────────────────────
+        ref_path = reference_path
+        if ref_path is None and allow_upload:
+            ref_col1, ref_col2 = st.columns(2)
+            pdb_id = ref_col1.text_input(
+                "Reference PDB ID (auto-download)",
+                placeholder="e.g. 7K3G",
+                key=f"{section_key}_pdb_id",
+            )
+            ref_file = ref_col2.file_uploader(
+                "Or upload reference PDB/CIF",
+                type=["pdb", "cif", "ent"],
+                key=f"{section_key}_ref_upload",
+            )
+            if ref_file is not None:
+                import tempfile
+                with tempfile.NamedTemporaryFile(
+                    suffix=Path(ref_file.name).suffix, delete=False
+                ) as tmp:
+                    tmp.write(ref_file.read())
+                    ref_path = Path(tmp.name)
+            elif pdb_id.strip():
+                with st.spinner(f"Downloading {pdb_id.upper()} from RCSB…"):
+                    import tempfile
+                    tmp_dir = Path(tempfile.mkdtemp())
+                    ref_path = runner.fetch_pdb(pdb_id.strip().upper(), tmp_dir)
+                    if ref_path:
+                        st.success(f"Downloaded {pdb_id.upper()}")
+                    else:
+                        st.error(f"Failed to download {pdb_id.upper()}")
+
+        # ── Model selection ───────────────────────────────────────────────────
+        models: List[Path] = list(model_paths or [])
+        if not models and allow_upload:
+            up_files = st.file_uploader(
+                "Upload model PDB/CIF files",
+                type=["pdb", "cif", "ent"],
+                accept_multiple_files=True,
+                key=f"{section_key}_models_upload",
+            )
+            if up_files:
+                import tempfile
+                for uf in up_files:
+                    with tempfile.NamedTemporaryFile(
+                        suffix=Path(uf.name).suffix, delete=False
+                    ) as tmp:
+                        tmp.write(uf.read())
+                        models.append(Path(tmp.name))
+
+        if not models:
+            st.info("No model files yet.  Run a prediction first or upload PDB/CIF files.")
+            return
+
+        jobs_slider = st.slider(
+            "Parallel scoring jobs",
+            1, 8, parallel_jobs,
+            key=f"{section_key}_jobs",
+        )
+
+        # ── Run ───────────────────────────────────────────────────────────────
+        run_key = f"{section_key}_results"
+        if st.button("▶ Run Observed Scoring", key=f"{section_key}_run"):
+            import tempfile
+            out_dir = Path(tempfile.mkdtemp(prefix="obs_scoring_"))
+            entries = [
+                type("ME", (), {"tool": "model", "model": p.stem, "model_path": p, "model_stage": "upload"})()
+                for p in models
+            ]
+            with st.spinner("Scoring structures…"):
+                results = runner.score(
+                    models=entries,
+                    reference=ref_path,
+                    output_dir=out_dir,
+                    jobs=jobs_slider,
+                )
+            st.session_state[run_key] = results
+            runner._write_tsv(results, out_dir)
+            st.session_state[f"{run_key}_tsv"] = out_dir / "observed_scores.tsv"
+
+        # ── Show results ──────────────────────────────────────────────────────
+        results = st.session_state.get(run_key)
+        if results:
+            df = runner.results_to_dataframe(results)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+
+            # OST chart
+            try:
+                ost_cols = ["lDDT", "BB-lDDT", "TM-score", "QS-global", "DockQ (avg)"]
+                pcols = [c for c in ost_cols if c in df.columns and df[c].ne("").any()]
+                if pcols:
+                    fig_ost = go.Figure()
+                    for mc in pcols:
+                        vals = pd.to_numeric(df[mc], errors="coerce")
+                        fig_ost.add_trace(go.Bar(name=mc, x=df["Model"].tolist(), y=vals.tolist()))
+                    fig_ost.update_layout(
+                        title="OST Structural Quality",
+                        barmode="group",
+                        template="plotly_dark",
+                        height=320,
+                        margin=dict(t=40, b=60),
+                    )
+                    st.plotly_chart(fig_ost, use_container_width=True)
+            except Exception:
+                pass
+
+            # MolProbity chart
+            try:
+                mp_cols = ["MP Score", "MP Clashscore", "Rama outliers %", "Rota outliers %"]
+                pcols_mp = [c for c in mp_cols if c in df.columns and df[c].ne("").any()]
+                if pcols_mp:
+                    fig_mp = go.Figure()
+                    for mc in pcols_mp:
+                        vals = pd.to_numeric(df[mc], errors="coerce")
+                        fig_mp.add_trace(go.Bar(name=mc, x=df["Model"].tolist(), y=vals.tolist()))
+                    fig_mp.update_layout(
+                        title="MolProbity Validation",
+                        barmode="group",
+                        template="plotly_dark",
+                        height=320,
+                        margin=dict(t=40, b=60),
+                    )
+                    st.plotly_chart(fig_mp, use_container_width=True)
+            except Exception:
+                pass
+
+            # TSV download
+            tsv_path = st.session_state.get(f"{run_key}_tsv")
+            if tsv_path and Path(tsv_path).exists():
+                st.download_button(
+                    "⬇ Download TSV",
+                    data=Path(tsv_path).read_text(),
+                    file_name="observed_scores.tsv",
+                    mime="text/tab-separated-values",
+                    key=f"{section_key}_dl",
+                )

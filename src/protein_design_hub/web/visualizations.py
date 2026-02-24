@@ -1900,3 +1900,91 @@ def create_model_quality_summary(
     </div>
     '''
     return html
+
+
+# =============================================================================
+# PyMOL-first structure display (falls back to 3Dmol.js)
+# =============================================================================
+
+def show_structure_with_pymol_fallback(
+    structure_paths,
+    title: str = "",
+    height: int = 400,
+    superimpose: bool = True,
+    ray: bool = False,
+    key: str = "struct",
+) -> None:
+    """Display structure(s) using PyMOL (high-quality PNG) with 3Dmol.js fallback.
+
+    Args:
+        structure_paths: One of:
+            - A single ``Path``/``str``
+            - A list of ``Path``/``str``
+            - A list of ``(Path, name)`` tuples
+        title: Caption shown above the image.
+        height: Height for 3Dmol.js viewer (pixels).
+        superimpose: Align structures to the first when using PyMOL.
+        ray: Enable PyMOL ray-tracing (slower, higher quality).
+        key: Unique Streamlit widget key prefix.
+    """
+    import streamlit as st
+    import tempfile
+
+    # ---------- normalise input ----------
+    def _to_tuple(p):
+        if isinstance(p, (list, tuple)) and len(p) == 2 and isinstance(p[1], str):
+            return (Path(p[0]), p[1])
+        return (Path(p), Path(p).stem)
+
+    if isinstance(structure_paths, (str, Path)):
+        structs = [_to_tuple(structure_paths)]
+    elif isinstance(structure_paths, list):
+        structs = [_to_tuple(p) for p in structure_paths]
+    else:
+        structs = [_to_tuple(structure_paths)]
+
+    structs = [(p, n) for p, n in structs if p.exists()]
+    if not structs:
+        st.warning("No structure files found.")
+        return
+
+    # ---------- try PyMOL ----------
+    pymol_ok = is_pymol_available()
+    rendered = False
+
+    if pymol_ok:
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            out_img = Path(tmp.name)
+        try:
+            success = render_pymol_headless(structs, out_img, superimpose=superimpose, ray=ray)
+            if success and out_img.exists() and out_img.stat().st_size > 1000:
+                if title:
+                    st.caption(f"🔬 **{title}** — PyMOL render")
+                st.image(str(out_img), use_container_width=True)
+                with st.expander("🔄 Interactive 3D view"):
+                    if len(structs) == 1:
+                        create_structure_viewer(structs[0][0], title=structs[0][1], height=height)
+                    else:
+                        create_structure_comparison_3d(
+                            model_path=structs[0][0],
+                            reference_path=structs[1][0],
+                            title=title,
+                            height=height,
+                        )
+                rendered = True
+        except Exception:
+            pass
+
+    # ---------- 3Dmol.js fallback ----------
+    if not rendered:
+        if title:
+            st.caption(f"🔬 **{title}**")
+        if len(structs) == 1:
+            create_structure_viewer(structs[0][0], title=structs[0][1], height=height)
+        else:
+            create_structure_comparison_3d(
+                model_path=structs[0][0],
+                reference_path=structs[1][0],
+                title=title,
+                height=height,
+            )

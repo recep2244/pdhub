@@ -27,10 +27,12 @@ from protein_design_hub.web.agent_helpers import (
     render_ml_stats_panel,
     agent_sidebar_status,
     render_all_experts_panel,
+    observed_scoring_section,
 )
 from protein_design_hub.web.visualizations import (
     create_structure_viewer,
     create_structure_viewer_with_interpretation,
+    show_structure_with_pymol_fallback,
     create_plddt_plot,
     create_pae_heatmap
 )
@@ -919,30 +921,11 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
             with col_viewer:
                 if best_pdb and best_pdb.exists():
                     # Gather pLDDT per-residue if available
-                    _plddt_per_res = None
-                    _seq = None
-                    try:
-                        for _n, _r in res_dict.items():
-                            if _r.success and _r.scores:
-                                _s = _r.scores[0]
-                                if hasattr(_s, "plddt_per_residue") and _s.plddt_per_residue:
-                                    _plddt_per_res = _s.plddt_per_residue
-                                if hasattr(_r, "sequence"):
-                                    _seq = _r.sequence
-                                if _plddt_per_res:
-                                    break
-                    except Exception:
-                        pass
-                    st.components.v1.html(
-                        create_structure_viewer_with_interpretation(
-                            best_pdb,
-                            plddt_values=_plddt_per_res,
-                            sequence=_seq,
-                            height=500,
-                            title=best_name,
-                        ),
-                        height=720,
-                        scrolling=False,
+                    show_structure_with_pymol_fallback(
+                        best_pdb,
+                        title=best_name,
+                        height=500,
+                        key="predict_struct_viewer",
                     )
                 else:
                     empty_state("No Structure", "Structure file not found", "🔬")
@@ -1142,6 +1125,25 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                 st.download_button("📦 Download All as ZIP", buf.getvalue(), "prediction_results.zip", "application/zip", key="dl_all", use_container_width=True)
             else:
                 empty_state("No Files", "No structure files found", "📭")
+
+            st.divider()
+            # Collect model paths from predictions
+            _obs_model_paths = []
+            for _pred_key in ["boltz_models", "chai_models", "colabfold_pdb", "esmfold_pdb"]:
+                _v = st.session_state.get(_pred_key)
+                if _v:
+                    if isinstance(_v, list):
+                        _obs_model_paths.extend([Path(p) for p in _v if Path(p).exists()])
+                    elif Path(str(_v)).exists():
+                        _obs_model_paths.append(Path(str(_v)))
+            _obs_ref = st.session_state.get("reference_pdb_path")
+            if _obs_ref:
+                _obs_ref = Path(_obs_ref)
+            observed_scoring_section(
+                model_paths=_obs_model_paths if _obs_model_paths else None,
+                reference_path=_obs_ref if (_obs_ref and _obs_ref.exists()) else None,
+                section_key="predict_obs",
+            )
 
 
 if __name__ == "__main__":

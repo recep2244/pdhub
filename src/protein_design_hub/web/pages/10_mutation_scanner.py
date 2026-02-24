@@ -54,7 +54,9 @@ from protein_design_hub.web.agent_helpers import (
     render_ml_stats_panel,
     agent_sidebar_status,
     render_all_experts_panel,
+    observed_scoring_section,
 )
+from protein_design_hub.web.visualizations import show_structure_with_pymol_fallback
 from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -2639,16 +2641,10 @@ with tab_manual:
                             if match and match.structure_path and Path(match.structure_path).exists():
                                 col_afdb_view, col_afdb_meta = st.columns([3, 1])
                                 with col_afdb_view:
-                                    from protein_design_hub.web.visualizations import create_structure_viewer
-                                    import streamlit.components.v1 as components
-                                    components.html(
-                                        create_structure_viewer(
-                                            Path(match.structure_path),
-                                            height=380,
-                                            show_toolbar=True,
-                                            title=getattr(match, "uniprot_id", ""),
-                                        ),
-                                        height=400,
+                                    show_structure_with_pymol_fallback(
+                                        Path(match.structure_path),
+                                        height=380,
+                                        title=getattr(match, "uniprot_id", ""),
                                     )
                                 with col_afdb_meta:
                                     st.markdown("#### AFDB Match")
@@ -3097,11 +3093,8 @@ with tab_manual:
                             _vpath = getattr(v, "structure_path", None)
                             if _vpath and Path(_vpath).exists():
                                 with st.expander(f"🔬 View {v.mutation_code} structure"):
-                                    import streamlit.components.v1 as _cmp
-                                    from protein_design_hub.web.visualizations import create_structure_viewer as _csv
-                                    _cmp.html(
-                                        _csv(Path(_vpath), height=260, show_toolbar=True, title=v.mutation_code),
-                                        height=280,
+                                    show_structure_with_pymol_fallback(
+                                        Path(_vpath), height=260, title=v.mutation_code
                                     )
                         with col3:
                             if st.button("Send to Predict", key=f"send_{v.mutation_code}", use_container_width=True, type="secondary"):
@@ -3189,19 +3182,16 @@ with tab_manual:
 
             variant = st.session_state.multi_comparison_variant or (variants[0] if variants else None)
             if variant:
-                from protein_design_hub.web.visualizations import create_structure_viewer
-                import streamlit.components.v1 as components
-
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("**Wild Type**")
                     if base_path:
-                        components.html(create_structure_viewer(base_path, height=320, show_toolbar=True, title="Wild Type"), height=340)
+                        show_structure_with_pymol_fallback(base_path, height=320, title="Wild Type")
                     elif st.session_state.base_structure:
                         with tempfile.NamedTemporaryFile(suffix=".pdb", mode="w", delete=False) as f:
                             f.write(st.session_state.base_structure)
-                            p1 = f.name
-                        components.html(create_structure_viewer(Path(p1), height=320, show_toolbar=True, title="Wild Type"), height=340)
+                            _wt_tmp_path = f.name
+                        show_structure_with_pymol_fallback(Path(_wt_tmp_path), height=320, title="Wild Type")
                     else:
                         st.info("Base structure not available.")
 
@@ -3210,11 +3200,28 @@ with tab_manual:
                     try:
                         vpath = Path(variant.structure_path)
                         if vpath.exists():
-                            components.html(create_structure_viewer(vpath, height=320, show_toolbar=True, title=variant.mutation_code), height=340)
+                            show_structure_with_pymol_fallback(vpath, height=320, title=variant.mutation_code)
                         else:
                             st.info("Variant structure not found.")
                     except Exception:
                         st.info("Variant structure not found.")
+
+                # Full MolProbity + OST observed scoring for variant vs wildtype
+                _variant_structure_path = None
+                try:
+                    _vp = Path(variant.structure_path)
+                    if _vp.exists():
+                        _variant_structure_path = _vp
+                except Exception:
+                    pass
+                _wt_structure_path = base_path
+                _obs_paths = [p for p in [_variant_structure_path] if p is not None]
+                if _obs_paths:
+                    observed_scoring_section(
+                        model_paths=_obs_paths,
+                        reference_path=_wt_structure_path if _wt_structure_path else None,
+                        section_key="scanner_variant_obs",
+                    )
             else:
                 st.info("No variant selected.")
 
@@ -3408,11 +3415,8 @@ with tab_manual:
                                 _mpath = Path(_mpath) if not isinstance(_mpath, Path) else _mpath
                                 if _mpath.exists():
                                     with st.expander(f"🔬 View {mut.mutation_code}"):
-                                        import streamlit.components.v1 as _cmp2
-                                        from protein_design_hub.web.visualizations import create_structure_viewer as _csv2
-                                        _cmp2.html(
-                                            _csv2(_mpath, height=240, show_toolbar=True, title=mut.mutation_code),
-                                            height=260,
+                                        show_structure_with_pymol_fallback(
+                                            _mpath, height=240, title=mut.mutation_code
                                         )
                             except Exception:
                                 pass
@@ -3478,30 +3482,21 @@ with tab_manual:
             if st.session_state.comparison_mutation:
                 mut = st.session_state.comparison_mutation
                 c1, c2 = st.columns(2)
-            
-                from protein_design_hub.web.visualizations import create_structure_viewer
-                import streamlit.components.v1 as components
 
                 with c1:
                     st.markdown("**Wild Type**")
                     with tempfile.NamedTemporaryFile(suffix=".pdb", mode="w", delete=False) as f:
                         f.write(st.session_state.base_structure)
                         p1 = f.name
-                    components.html(
-                        create_structure_viewer(Path(p1), height=320, show_toolbar=True, title="Wild Type"),
-                        height=340,
-                    )
+                    show_structure_with_pymol_fallback(Path(p1), height=320, title="Wild Type")
 
                 with c2:
                     st.markdown(f"**Mutant {mut.mutation_code}**")
                     with tempfile.NamedTemporaryFile(suffix=".pdb", mode="w", delete=False) as f:
                         f.write(mut.structure_path.read_text())
                         p2 = f.name
-                    components.html(
-                        create_structure_viewer(
-                            Path(p2), height=320, show_toolbar=True, title=mut.mutation_code
-                        ),
-                        height=340,
+                    show_structure_with_pymol_fallback(
+                        Path(p2), height=320, title=mut.mutation_code
                     )
                     # Inline agent interpretation of the comparison
                     _delta = getattr(mut, "delta_mean_plddt", None)
@@ -3515,6 +3510,25 @@ with tab_manual:
                             + '</div>',
                             unsafe_allow_html=True,
                         )
+
+                # Full MolProbity + OST observed scoring for mutant vs wildtype
+                _scan_wt_pdb = st.session_state.get("base_structure_path")
+                _scan_mut_path = getattr(mut, "structure_path", None)
+                if _scan_mut_path:
+                    try:
+                        _scan_mut_path = Path(_scan_mut_path) if not isinstance(_scan_mut_path, Path) else _scan_mut_path
+                        if not _scan_mut_path.exists():
+                            _scan_mut_path = None
+                    except Exception:
+                        _scan_mut_path = None
+                if _scan_mut_path is None:
+                    # Fallback: use the temp file written above
+                    _scan_mut_path = Path(p2)
+                observed_scoring_section(
+                    model_paths=[_scan_mut_path],
+                    reference_path=Path(_scan_wt_pdb) if _scan_wt_pdb and Path(_scan_wt_pdb).exists() else None,
+                    section_key="scanner_sat_obs",
+                )
             else:
                 st.info("Select a mutation from Recommendations to compare.")
 

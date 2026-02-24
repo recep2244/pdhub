@@ -22,6 +22,7 @@ from protein_design_hub.web.agent_helpers import (
     render_agent_advice_panel,
     agent_sidebar_status,
     render_all_experts_panel,
+    observed_scoring_section,
 )
 
 st.set_page_config(page_title="Batch - Protein Design Hub", page_icon="📦", layout="wide")
@@ -556,6 +557,27 @@ with main_tabs[3]:
                         zip_buffer.getvalue(),
                         "batch_structures.zip",
                         mime="application/zip"
+                    )
+
+                # Observed scoring for batch-predicted structures
+                # Write PDB strings to temp files so observed_scoring_section can read them
+                _batch_pdb_paths = []
+                for _job in complete:
+                    _pdb_str = _job.get("result", {}).get("pdb")
+                    if _pdb_str:
+                        import tempfile as _tmpmod
+                        _tmp = _tmpmod.NamedTemporaryFile(
+                            suffix=".pdb", delete=False,
+                            prefix=f"batch_{_job['name']}_"
+                        )
+                        _tmp.write(_pdb_str.encode())
+                        _tmp.flush()
+                        _tmp.close()
+                        _batch_pdb_paths.append(Path(_tmp.name))
+                if _batch_pdb_paths:
+                    observed_scoring_section(
+                        model_paths=_batch_pdb_paths,
+                        section_key="batch_obs",
                     )
 
             elif config.get('type') == 'biophysics':

@@ -25,6 +25,7 @@ from protein_design_hub.web.agent_helpers import (
     render_ml_stats_panel,
     agent_sidebar_status,
     render_all_experts_panel,
+    observed_scoring_section,
 )
 from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 
@@ -658,21 +659,20 @@ with main_tabs[2]:
         col_v1, col_v2 = st.columns([3, 1])
         
         with col_v1:
-            from protein_design_hub.web.visualizations import create_structure_viewer
-            import streamlit.components.v1 as components
+            from protein_design_hub.web.visualizations import show_structure_with_pymol_fallback
             import tempfile
-            
+
             with tempfile.NamedTemporaryFile(suffix=".pdb", delete=False, mode="w") as tmp:
                 tmp.write(st.session_state.evo_structure)
                 tmp_path = Path(tmp.name)
-            
-            from protein_design_hub.web.visualizations import create_structure_viewer_with_interpretation
-            html_view = create_structure_viewer_with_interpretation(
-                tmp_path,
-                height=500,
-                title="Best Evolved Sequence",
-            )
-            components.html(html_view, height=700, scrolling=False)
+
+            show_structure_with_pymol_fallback(tmp_path, title="Best Evolved Variant", height=400)
+
+            if tmp_path and Path(tmp_path).exists():
+                observed_scoring_section(
+                    model_paths=[Path(tmp_path)],
+                    section_key="evo_obs",
+                )
             
         with col_v2:
             st.info("Structure predicted by ESMFold")
