@@ -32,7 +32,7 @@ from protein_design_hub.web.agent_helpers import (
     agent_sidebar_status,
     render_all_experts_panel,
 )
-from protein_design_hub.web.shared_context import set_page_results
+from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 
 st.set_page_config(page_title="MPNN Design - Protein Design Hub", page_icon="🎯", layout="wide")
 inject_base_css()
@@ -129,6 +129,7 @@ page_header(
     "Fixed-backbone sequence design using ProteinMPNN neural network",
     "🎯"
 )
+render_workflow_status_bar()
 
 workflow_breadcrumb(
     ["Predict Structure", "Evaluate", "Design Sequence (MPNN)", "Validate"],

@@ -26,7 +26,7 @@ from protein_design_hub.web.agent_helpers import (
     agent_sidebar_status,
     render_all_experts_panel,
 )
-from protein_design_hub.web.shared_context import set_page_results
+from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 
 st.set_page_config(page_title="Evolution - Protein Design Hub", page_icon="🧬", layout="wide")
 
@@ -41,6 +41,7 @@ page_header(
     "Run iterative design cycles with fitness landscape exploration and automated optimization",
     "🧬"
 )
+render_workflow_status_bar()
 
 workflow_breadcrumb(
     ["Design Sequence", "Predict", "Directed Evolution", "Select Best"],

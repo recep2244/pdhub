@@ -31,7 +31,7 @@ from protein_design_hub.web.agent_helpers import (
     agent_sidebar_status,
     render_all_experts_panel,
 )
-from protein_design_hub.web.shared_context import set_page_results
+from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 
 inject_base_css()
 sidebar_nav(current="Compare")
@@ -405,6 +405,7 @@ page_header(
     "Run multiple predictors and compare results with detailed analysis",
     "⚖️"
 )
+render_workflow_status_bar()
 
 workflow_breadcrumb(
     ["Sequence Input", "Predict", "Evaluate", "Compare", "Refine / Design"],

@@ -35,7 +35,7 @@ from protein_design_hub.web.agent_helpers import (
     agent_sidebar_status,
     render_all_experts_panel,
 )
-from protein_design_hub.web.shared_context import set_page_results
+from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 
 inject_base_css()
 sidebar_nav(current="Evaluate")
@@ -458,6 +458,7 @@ page_header(
     "Comprehensive evaluation with 18+ metrics including lDDT, TM-score, DockQ, and energy calculations",
     "📊",
 )
+render_workflow_status_bar()
 
 workflow_breadcrumb(
     ["Sequence Input", "Predict", "Evaluate", "Refine / Design", "Export"],

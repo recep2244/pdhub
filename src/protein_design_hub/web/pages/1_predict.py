@@ -502,6 +502,9 @@ def main():
         "🔮"
     )
 
+    # Cross-page workflow status
+    render_workflow_status_bar()
+
     # Workflow breadcrumb
     workflow_breadcrumb(
         ["Sequence Input", "Predict", "Evaluate", "Refine / Design", "Export"],

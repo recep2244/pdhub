@@ -20,7 +20,7 @@ from protein_design_hub.web.agent_helpers import (
     agent_sidebar_status,
     render_all_experts_panel,
 )
-from protein_design_hub.web.shared_context import set_page_results
+from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 
 st.set_page_config(page_title="MSA Analysis - Protein Design Hub", page_icon="🧬", layout="wide")
 
@@ -68,6 +68,7 @@ page_header(
     "Analyze conservation, coevolution, and ancestral sequences",
     "🧬"
 )
+render_workflow_status_bar()
 
 workflow_breadcrumb(
     ["Input Sequences", "Align (MSA)", "Conservation", "Coevolution", "Design"],

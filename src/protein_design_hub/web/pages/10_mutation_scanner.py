@@ -55,7 +55,7 @@ from protein_design_hub.web.agent_helpers import (
     agent_sidebar_status,
     render_all_experts_panel,
 )
-from protein_design_hub.web.shared_context import set_page_results
+from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -79,6 +79,7 @@ page_header(
     "Saturation mutagenesis and multi-mutation design with stability analysis",
     "🧬",
 )
+render_workflow_status_bar()
 workflow_breadcrumb(
     ["Predict Structure", "Evaluate", "Scan Mutations", "Design"],
     current=2,
