@@ -1910,6 +1910,194 @@ if run_comprehensive:
             with st.expander("Error details"):
                 st.code(traceback.format_exc())
 
+# ========== OBSERVED SCORING (OST + MolProbity) ==========
+st.markdown("---")
+section_header(
+    "Observed Structure Scoring",
+    "Compare model(s) to an experimental reference with OST (lDDT, TM-score, DockQ) + MolProbity",
+    "🔬",
+)
+
+try:
+    from protein_design_hub.evaluation.observed_scoring import (
+        ObservedScoringRunner, ModelEntry, get_observed_scorer,
+    )
+    from protein_design_hub.core.config import get_settings as _get_settings
+
+    _scoring_settings = _get_settings().scoring
+    _obs_runner = ObservedScoringRunner(
+        ost_prefix=_scoring_settings.ost_prefix,
+        molprobity_root=_scoring_settings.molprobity_root,
+    )
+
+    _obs_col1, _obs_col2 = st.columns([1, 1])
+    with _obs_col1:
+        st.markdown(f"**OST:** {'✅ Available' if _obs_runner.is_ost_available() else '❌ Not found at ' + _scoring_settings.ost_prefix}")
+        st.markdown(f"**MolProbity:** {'✅ Available' if _obs_runner.is_molprobity_available() else '❌ Not found at ' + _scoring_settings.molprobity_root}")
+    with _obs_col2:
+        st.caption("Configure paths in Settings → Scoring if needed.")
+
+    with st.expander("🔬 Run Observed Structure Scoring", expanded=False):
+        _obs_ref_method = st.radio(
+            "Reference structure",
+            ["PDB ID (auto-download)", "Upload file"],
+            horizontal=True,
+            key="obs_ref_method",
+        )
+
+        _obs_ref_path = None
+        if _obs_ref_method == "PDB ID (auto-download)":
+            _obs_pdb_id = st.text_input("PDB ID", placeholder="e.g. 1UBQ", key="obs_pdb_id")
+        else:
+            _obs_ref_file = st.file_uploader(
+                "Reference structure (PDB/CIF)",
+                type=["pdb", "cif", "mmcif"],
+                key="obs_ref_file",
+            )
+
+        _obs_model_files = st.file_uploader(
+            "Model structures to score (PDB/CIF, can select multiple)",
+            type=["pdb", "cif", "mmcif"],
+            accept_multiple_files=True,
+            key="obs_model_files",
+        )
+
+        if _obs_model_files:
+            st.caption(f"{len(_obs_model_files)} model(s) selected")
+
+        _obs_jobs = st.slider("Parallel scoring jobs", 1, 8, _scoring_settings.scoring_jobs, key="obs_jobs")
+
+        if st.button("🚀 Run Observed Scoring", type="primary", key="run_obs_scoring",
+                     use_container_width=True,
+                     disabled=not _obs_model_files):
+            try:
+                import tempfile as _tmp_mod
+                with st.spinner("Running OST + MolProbity scoring (this may take a few minutes)…"):
+                    _obs_out_dir = Path(tempfile.mkdtemp(prefix="pdhub_obs_scoring_"))
+
+                    # Save model files
+                    _model_entries = []
+                    for _mf in _obs_model_files:
+                        _mpath = _obs_out_dir / _mf.name
+                        _mpath.write_bytes(_mf.read())
+                        _model_entries.append(ModelEntry(
+                            tool="user",
+                            model=_mpath.stem,
+                            model_path=_mpath,
+                        ))
+
+                    # Resolve reference
+                    if _obs_ref_method == "PDB ID (auto-download)":
+                        if not _obs_pdb_id.strip():
+                            st.error("Please enter a PDB ID.")
+                            st.stop()
+                        _obs_ref_path = _obs_runner.fetch_pdb(
+                            _obs_pdb_id.strip(), _obs_out_dir
+                        )
+                    else:
+                        if _obs_ref_file is None:
+                            st.error("Please upload a reference file.")
+                            st.stop()
+                        _obs_ref_path = _obs_out_dir / _obs_ref_file.name
+                        _obs_ref_path.write_bytes(_obs_ref_file.read())
+
+                    _obs_results, _obs_tsv = _obs_runner.score(
+                        _model_entries, _obs_ref_path, _obs_out_dir, jobs=_obs_jobs
+                    )
+                    st.session_state["obs_scoring_results"] = _obs_results
+                    st.session_state["obs_scoring_tsv"] = str(_obs_tsv)
+                st.success(f"✅ Scored {len(_obs_results)} model(s) against {_obs_ref_path.name}")
+            except Exception as _obs_e:
+                st.error(f"Scoring failed: {_obs_e}")
+                import traceback
+                with st.expander("Error details"):
+                    st.code(traceback.format_exc())
+
+        # Display results
+        _obs_results_cached = st.session_state.get("obs_scoring_results")
+        if _obs_results_cached:
+            st.markdown("### Scoring Results")
+            _obs_df = _obs_runner.results_to_dataframe(_obs_results_cached)
+            st.dataframe(_obs_df, use_container_width=True, hide_index=True)
+
+            # Plot key metrics
+            try:
+                import plotly.graph_objects as go
+                _key_cols = ["lDDT", "BB-lDDT", "TM-score", "QS-global", "DockQ (avg)"]
+                _plot_cols = [c for c in _key_cols if c in _obs_df.columns and _obs_df[c].ne("").any()]
+                if _plot_cols and len(_obs_df) > 0:
+                    _fig_obs = go.Figure()
+                    for _mc in _plot_cols:
+                        _vals = pd.to_numeric(_obs_df[_mc], errors="coerce")
+                        _fig_obs.add_trace(go.Bar(
+                            name=_mc,
+                            x=_obs_df["Model"].tolist(),
+                            y=_vals.tolist(),
+                        ))
+                    _fig_obs.update_layout(
+                        title="OST Structural Quality Metrics",
+                        barmode="group", template="plotly_dark",
+                        height=350, margin=dict(t=40, b=60),
+                    )
+                    st.plotly_chart(_fig_obs, use_container_width=True)
+            except Exception:
+                pass
+
+            # MolProbity plot
+            try:
+                _mp_cols = ["MP Score", "MP Clashscore", "Rama outliers %"]
+                _mp_avail = [c for c in _mp_cols if c in _obs_df.columns and _obs_df[c].ne("").any()]
+                if _mp_avail:
+                    _fig_mp = go.Figure()
+                    for _mc in _mp_avail:
+                        _vals = pd.to_numeric(_obs_df[_mc], errors="coerce")
+                        _fig_mp.add_trace(go.Bar(
+                            name=_mc,
+                            x=_obs_df["Model"].tolist(),
+                            y=_vals.tolist(),
+                        ))
+                    _fig_mp.update_layout(
+                        title="MolProbity Geometry Quality",
+                        barmode="group", template="plotly_dark",
+                        height=300, margin=dict(t=40, b=60),
+                    )
+                    st.plotly_chart(_fig_mp, use_container_width=True)
+            except Exception:
+                pass
+
+            # Download TSV
+            _tsv_path_str = st.session_state.get("obs_scoring_tsv")
+            if _tsv_path_str and Path(_tsv_path_str).exists():
+                st.download_button(
+                    "📥 Download Scores (TSV)",
+                    data=Path(_tsv_path_str).read_text(),
+                    file_name="observed_scores.tsv",
+                    mime="text/tab-separated-values",
+                    use_container_width=True,
+                )
+
+            # ML stats panel on scoring results
+            _obs_ml_records = []
+            for sr in _obs_results_cached:
+                _rec = {}
+                for k, v in sr.ost_metrics.items():
+                    if isinstance(v, float):
+                        _rec[k.replace("ost.", "").replace(".", "_")] = v
+                for k, v in sr.molprobity_metrics.items():
+                    if isinstance(v, float):
+                        _rec[k] = v
+                if _rec:
+                    _obs_ml_records.append(_rec)
+            if _obs_ml_records:
+                render_ml_stats_panel(
+                    _obs_ml_records,
+                    page_name="Observed Scoring",
+                    key_prefix="obs_ml_stats",
+                )
+
+except ImportError as _obs_imp_e:
+    st.info(f"Observed scoring module not available: {_obs_imp_e}")
+
 # ========== METRIC DESCRIPTIONS ==========
 with st.expander("ℹ️ Metric Descriptions"):
     st.markdown(

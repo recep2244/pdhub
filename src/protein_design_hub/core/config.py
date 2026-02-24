@@ -234,6 +234,14 @@ class EvaluationConfig(BaseModel):
     rmsd: RMSDConfig = Field(default_factory=RMSDConfig)
 
 
+class ScoringConfig(BaseModel):
+    """Observed-structure scoring configuration (OST + MolProbity)."""
+
+    ost_prefix: str = "/home/recep/.local/share/mamba/envs/ost"
+    molprobity_root: str = "/home/recep/Desktop/programs/scoring/Molprobity"
+    scoring_jobs: int = 4  # parallel scoring threads
+
+
 class InstallationConfig(BaseModel):
     """Installation configuration."""
 
@@ -418,6 +426,7 @@ class Settings(BaseSettings):
     output: OutputConfig = Field(default_factory=OutputConfig)
     predictors: PredictorConfig = Field(default_factory=PredictorConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
+    scoring: ScoringConfig = Field(default_factory=ScoringConfig)
     installation: InstallationConfig = Field(default_factory=InstallationConfig)
     gpu: GPUConfig = Field(default_factory=GPUConfig)
     web: WebConfig = Field(default_factory=WebConfig)
