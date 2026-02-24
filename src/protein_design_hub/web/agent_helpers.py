@@ -316,9 +316,20 @@ def render_agent_advice_panel(
     default_question: str = "",
     expert: str = "Structural Biologist",
     key_prefix: str = "agent",
+    tool_data: Optional[dict] = None,
 ) -> None:
-    """Professional 'Consult Expert' panel with styled agent response cards."""
+    """Professional 'Consult Expert' panel with styled agent response cards.
+
+    Args:
+        tool_data: Optional structured data for tool pre-execution. Recognised keys:
+            ``sequences``: List[Tuple[str,str]] — (name, seq) pairs for biophysics
+            ``pdb_path``: Path — for structure analysis
+            ``records``: list of dicts — for ML suite
+            ``numeric_keys``: List[str] (optional, used with records)
+            ``target_key``: str (optional, used with records)
+    """
     reply_key = f"_agent_reply_{key_prefix}"
+    adv_tool_key = f"_agent_tools_{key_prefix}"
     icon = AGENT_ICONS.get(expert, "🧬")
     color = AGENT_COLORS.get(expert, "#6366f1")
 
@@ -367,6 +378,7 @@ def render_agent_advice_panel(
         with col_clear:
             if st.button("↺ Clear", key=f"{key_prefix}_clr", use_container_width=True):
                 st.session_state.pop(reply_key, None)
+                st.session_state.pop(adv_tool_key, None)
                 st.rerun()
 
         if clicked:
@@ -380,11 +392,54 @@ def render_agent_advice_panel(
                         "Think step by step. Provide a thorough, structured analysis. "
                         "Use numbered sections where appropriate.\n\n" + q
                     )
+
+                # ── Tool pre-execution (agent-type aware) ──────────────────
+                tool_context_addition = ""
+                if tool_data:
+                    try:
+                        from protein_design_hub.web.agent_tools import (
+                            run_sequence_biophysics, run_structure_analysis,
+                            run_ml_tool_suite, AgentToolReport,
+                        )
+                        _bio_agents = {"Protein Engineer", "Biophysicist"}
+                        _struct_agents = {"Structural Biologist", "Digital Recep", "Liam"}
+                        _ml_agents = {"Machine Learning Specialist"}
+
+                        adv_report: Optional[AgentToolReport] = None
+                        if agent_choice in _bio_agents and "sequences" in tool_data:
+                            with st.spinner("Running biophysical analysis…"):
+                                adv_report = AgentToolReport()
+                                adv_report.tool_results.append(
+                                    run_sequence_biophysics(tool_data["sequences"])
+                                )
+                        elif agent_choice in _struct_agents and "pdb_path" in tool_data:
+                            with st.spinner("Analyzing structure…"):
+                                adv_report = AgentToolReport()
+                                adv_report.tool_results.append(
+                                    run_structure_analysis(tool_data["pdb_path"])
+                                )
+                        elif agent_choice in _ml_agents and "records" in tool_data:
+                            with st.spinner("Running ML tools…"):
+                                adv_report = run_ml_tool_suite(
+                                    tool_data["records"],
+                                    tool_data.get("numeric_keys"),
+                                    tool_data.get("target_key"),
+                                )
+
+                        if adv_report and adv_report.any_success:
+                            st.session_state[adv_tool_key] = adv_report
+                            tool_context_addition = (
+                                "\n\nTool analysis results:\n" + adv_report.context_string
+                            )
+                    except Exception:
+                        pass
+
+                full_context = page_context + tool_context_addition
                 with st.spinner(f"Consulting {agent_choice}…"):
                     reply = ask_agent_advice(
                         question=q,
                         agent_name=agent_choice,
-                        context=page_context,
+                        context=full_context,
                         max_tokens=max_tok,
                     )
                 st.session_state[reply_key] = {"agent": agent_choice, "text": reply}
@@ -395,6 +450,14 @@ def render_agent_advice_panel(
                 st.error(stored["text"])
                 st.info("Make sure Ollama is running (`ollama serve`) or configure LLM on the Agents page.")
             else:
+                # Show tool computation results first (if any)
+                adv_tool_report = st.session_state.get(adv_tool_key)
+                if adv_tool_report:
+                    try:
+                        from protein_design_hub.web.agent_tools import render_agent_tool_report
+                        render_agent_tool_report(adv_tool_report)
+                    except Exception:
+                        pass
                 _render_agent_response_card(stored["agent"], stored["text"])
 
         st.caption("🔌 Configure LLM backend · Agents page")
@@ -599,11 +662,59 @@ def render_contextual_insight(
             q = auto_q
             if deep_mode:
                 q = "Think step by step. Structure your response with numbered sections.\n\n" + q
+
+            # ── Auto-detect and run tools from session state ───────────
+            tool_ctx_extra = ""
+            try:
+                from protein_design_hub.web.agent_tools import (
+                    run_sequence_biophysics, run_structure_analysis,
+                )
+                _bio_agents = {"Protein Engineer", "Biophysicist"}
+                _struct_agents = {"Structural Biologist", "Digital Recep", "Liam",
+                                  "Computational Biologist"}
+
+                if expert in _bio_agents:
+                    # Gather (name, sequence) tuples from common session state keys
+                    seqs: list = []
+                    for _sk in ["design_sequences", "mpnn_sequences", "evolved_sequences",
+                                "mutation_sequences", "msa_sequences"]:
+                        _v = st.session_state.get(_sk)
+                        if isinstance(_v, list):
+                            for item in _v:
+                                if isinstance(item, (tuple, list)) and len(item) >= 2:
+                                    seqs.append((str(item[0]), str(item[1])))
+                                elif isinstance(item, dict):
+                                    n = item.get("name", "seq")
+                                    s = item.get("sequence") or item.get("seq", "")
+                                    if s:
+                                        seqs.append((n, s))
+                    if seqs:
+                        with st.spinner("Running biophysical analysis…"):
+                            _r = run_sequence_biophysics(seqs[:20])
+                            if _r.success:
+                                tool_ctx_extra = "\n\nBiophysical analysis:\n" + _r.context_text
+
+                elif expert in _struct_agents:
+                    # Look for a PDB in the active job directory
+                    import glob as _glob
+                    job_dir = (st.session_state.get("active_job_dir") or
+                               st.session_state.get("mutagenesis_job_dir") or "")
+                    if job_dir:
+                        pdbs = _glob.glob(f"{job_dir}/**/*.pdb", recursive=True)[:1]
+                        if pdbs:
+                            with st.spinner("Analyzing structure…"):
+                                _r = run_structure_analysis(Path(pdbs[0]))
+                                if _r.success:
+                                    tool_ctx_extra = "\n\nStructure analysis:\n" + _r.context_text
+            except Exception:
+                pass
+
+            full_context = context + tool_ctx_extra
             with st.spinner(f"Consulting {expert}…"):
                 reply = ask_agent_advice(
                     question=q,
                     agent_name=expert,
-                    context=context,
+                    context=full_context,
                     max_tokens=max_tok,
                 )
             st.session_state[reply_key] = {"agent": expert, "text": reply}
@@ -651,6 +762,7 @@ def render_ml_stats_panel(
 
     # ── ML expert analysis button ─────────────────────────────────────
     reply_key = f"_ml_stats_reply_{key_prefix}"
+    tool_report_key = f"_ml_stats_tools_{key_prefix}"
     _ml_color = AGENT_COLORS["Machine Learning Specialist"]
     with st.expander(f"🤖 ML Specialist — {page_name}", expanded=False):
         st.markdown(
@@ -675,6 +787,7 @@ def render_ml_stats_panel(
         with col_clr:
             if st.button("↺", key=f"{key_prefix}_ml_clr", use_container_width=True, help="Clear"):
                 st.session_state.pop(reply_key, None)
+                st.session_state.pop(tool_report_key, None)
                 st.rerun()
 
         if clicked:
@@ -684,7 +797,17 @@ def render_ml_stats_panel(
                 df = pd.DataFrame(records)
                 num_cols = numeric_keys or [c for c in df.select_dtypes(include=[np.number]).columns]
 
-                # Build rich statistical context
+                # ── Step 1: Run ML tool suite (normality, outliers, PCA, regression) ──
+                tool_report = None
+                with st.spinner("Running ML tools (normality · outliers · PCA · regression)…"):
+                    try:
+                        from protein_design_hub.web.agent_tools import run_ml_tool_suite
+                        tool_report = run_ml_tool_suite(records, num_cols, target_key)
+                        st.session_state[tool_report_key] = tool_report
+                    except Exception:
+                        pass
+
+                # ── Step 2: Supplementary pandas-based context ─────────────────────
                 stat_lines = [f"Dataset: {len(records)} samples, {len(num_cols)} numeric features"]
                 for col in num_cols[:14]:
                     s = df[col].dropna()
@@ -716,43 +839,45 @@ def render_ml_stats_panel(
 
                 if target_key and target_key in num_cols:
                     stat_lines.append(f"Regression target: {target_key}")
-                    # Add sklearn feature importance if available
-                    try:
-                        from sklearn.feature_selection import mutual_info_regression
-                        feat_cols = [c for c in num_cols if c != target_key]
-                        X = df[feat_cols].fillna(0).values
-                        y = df[target_key].fillna(0).values
-                        mi = mutual_info_regression(X, y, random_state=42)
-                        mi_pairs = sorted(zip(feat_cols, mi), key=lambda x: x[1], reverse=True)
-                        stat_lines.append("Mutual information with target:")
-                        for feat, score in mi_pairs[:6]:
-                            stat_lines.append(f"  {feat}: MI={score:.4f}")
-                    except Exception:
-                        pass
 
+                # ── Step 3: Combine tool context + supplementary stats for LLM ──────
                 stats_context = "\n".join(stat_lines)
+                tool_ctx = (tool_report.context_string
+                            if tool_report and tool_report.any_success else "")
+                if tool_ctx:
+                    full_stats = tool_ctx + "\n\nSupplementary stats:\n" + stats_context
+                else:
+                    full_stats = stats_context
+
                 cross_ctx = _get_cross_page_context()
-                full_context = stats_context
+                full_context = full_stats
                 if cross_ctx and "No cross-page" not in cross_ctx:
                     full_context += "\n\n" + cross_ctx
 
+                # ── Step 4: LLM interpretation of computed results ─────────────────
                 max_tok = 1100 if deep_mode else 750
                 question = (
                     f"You are analyzing {page_name} results from a protein design workflow. "
-                    f"The dataset has {len(records)} samples and {len(num_cols)} numeric features.\n\n"
+                    f"The dataset has {len(records)} samples and {len(num_cols)} numeric features. "
+                    f"Tool suite results are provided above (normality tests, outlier detection, "
+                    f"PCA, Lasso/Ridge feature importance, and regression).\n\n"
                     "Provide a structured ML analysis covering:\n"
-                    "1. **Distributional patterns** — flag high skew (|skew|>1) or heavy tails (|kurt|>2)\n"
-                    "2. **Correlation structure** — identify strongly correlated pairs (|r|>0.7) that suggest "
-                    "mechanistic linkage or redundancy; flag multicollinearity risks\n"
-                    "3. **Feature relevance** — rank features by relevance to the target; interpret what "
-                    "high/low importance means biologically or structurally\n"
-                    "4. **Anomalies and outliers** — flag metrics with extreme values or inconsistent patterns\n"
-                    "5. **Recommendations** — 2-3 concrete next steps for analysis or experimental follow-up"
+                    "1. **Distributional patterns** — flag high skew (|skew|>1) or heavy tails "
+                    "(|kurt|>2); recommend transformations for non-normal features\n"
+                    "2. **Correlation structure** — identify strongly correlated pairs (|r|>0.7) "
+                    "suggesting mechanistic linkage or multicollinearity risk\n"
+                    "3. **Feature relevance** — interpret Lasso-selected features and Mutual Info "
+                    "scores; explain biological or structural significance\n"
+                    "4. **Anomalies and outliers** — interpret Isolation Forest anomaly rate and "
+                    "Z-score outlier counts; flag any suspicious samples\n"
+                    "5. **Regression quality** — evaluate R² and CV R²; flag overfitting "
+                    "(OLS R² >> CV R²) and interpret Lasso regularisation strength\n"
+                    "6. **Recommendations** — 2–3 concrete next steps for analysis or experiment"
                 )
                 if deep_mode:
                     question = "Think step by step. Use numbered headers for each section.\n\n" + question
 
-                with st.spinner("Running ML analysis…"):
+                with st.spinner("ML Specialist interpreting tool results…"):
                     reply = ask_agent_advice(
                         question=question,
                         agent_name="Machine Learning Specialist",
@@ -762,6 +887,16 @@ def render_ml_stats_panel(
                 st.session_state[reply_key] = reply
             except Exception as e:
                 st.session_state[reply_key] = f"[Error] Could not build statistical context: {e}"
+
+        # Render stored tool computation results (persists across reruns)
+        stored_report = st.session_state.get(tool_report_key)
+        if stored_report:
+            try:
+                from protein_design_hub.web.agent_tools import render_agent_tool_report
+                st.markdown("**Tool Computation Results**")
+                render_agent_tool_report(stored_report)
+            except Exception:
+                pass
 
         stored = st.session_state.get(reply_key)
         if stored:
