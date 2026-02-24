@@ -3,7 +3,7 @@
 import json
 import subprocess
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple
 
 from protein_design_hub.predictors.base import BasePredictor
 from protein_design_hub.predictors.registry import PredictorRegistry
@@ -17,6 +17,10 @@ from protein_design_hub.core.types import (
 )
 from protein_design_hub.core.installer import ToolInstaller
 from protein_design_hub.core.exceptions import PredictionError
+
+# Module-level cache: verify_installation() runs `boltz --help` (subprocess, ~4s).
+# Cache the result process-wide so repeated UI renders don't re-pay that cost.
+_VERIFY_CACHE: Optional[Tuple[bool, str]] = None
 
 
 @PredictorRegistry.register("boltz2")
@@ -156,6 +160,8 @@ class Boltz2Predictor(BasePredictor):
             "--out_dir", str(output_dir),
             # Model selection
             "--model", config.model,
+            # Cache directory (model weights location)
+            "--cache", str(Path.home() / ".boltz"),
             # Core prediction parameters
             "--recycling_steps", str(config.recycling_steps),
             "--sampling_steps", str(config.sampling_steps),
@@ -342,7 +348,11 @@ class Boltz2Predictor(BasePredictor):
             return False
 
     def verify_installation(self) -> tuple[bool, str]:
-        """Verify Boltz-2 installation."""
+        """Verify Boltz-2 installation (result cached process-wide after first call)."""
+        global _VERIFY_CACHE
+        if _VERIFY_CACHE is not None:
+            return _VERIFY_CACHE
+
         checks = []
 
         # Check import
@@ -350,15 +360,17 @@ class Boltz2Predictor(BasePredictor):
             import boltz
             checks.append(f"boltz v{getattr(boltz, '__version__', 'unknown')} imported")
         except ImportError as e:
-            return False, f"Cannot import boltz: {e}"
+            result = (False, f"Cannot import boltz: {e}")
+            _VERIFY_CACHE = result
+            return result
 
-        # Check CLI
+        # Check CLI (expensive: ~4s subprocess; only runs once per process)
         try:
             result = subprocess.run(
                 ["boltz", "--help"],
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=15,
             )
             if result.returncode == 0:
                 checks.append("CLI available")
@@ -369,7 +381,8 @@ class Boltz2Predictor(BasePredictor):
         cuda_ok, cuda_msg = self._installer.verify_cuda()
         checks.append(cuda_msg)
 
-        return True, "; ".join(checks)
+        _VERIFY_CACHE = (True, "; ".join(checks))
+        return _VERIFY_CACHE
 
     def get_available_parameters(self) -> dict:
         """Get all available parameters with descriptions."""

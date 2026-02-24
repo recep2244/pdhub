@@ -1,7 +1,7 @@
 """Chai-1 predictor implementation with comprehensive parameters."""
 
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import json
 
 from protein_design_hub.predictors.base import BasePredictor
@@ -16,6 +16,9 @@ from protein_design_hub.core.types import (
 )
 from protein_design_hub.core.installer import ToolInstaller
 from protein_design_hub.core.exceptions import PredictionError
+
+# Module-level cache: chai_lab import takes ~0.8s; cache per process.
+_VERIFY_CACHE: Optional[Tuple[bool, str]] = None
 
 
 @PredictorRegistry.register("chai1")
@@ -288,15 +291,21 @@ class Chai1Predictor(BasePredictor):
             return False
 
     def verify_installation(self) -> tuple[bool, str]:
-        """Verify Chai-1 installation."""
+        """Verify Chai-1 installation (result cached process-wide after first call)."""
+        global _VERIFY_CACHE
+        if _VERIFY_CACHE is not None:
+            return _VERIFY_CACHE
+
         checks = []
 
-        # Check import
+        # Check import (slow first time — chai_lab imports torch, ~0.8s)
         try:
             import chai_lab
             checks.append(f"chai_lab v{getattr(chai_lab, '__version__', 'unknown')} imported")
         except ImportError as e:
-            return False, f"Cannot import chai_lab: {e}"
+            result = (False, f"Cannot import chai_lab: {e}")
+            _VERIFY_CACHE = result
+            return result
 
         # Check CUDA
         cuda_ok, cuda_msg = self._installer.verify_cuda()
@@ -306,7 +315,8 @@ class Chai1Predictor(BasePredictor):
         model_ok, model_msg = self._installer.verify_model_weights()
         checks.append(model_msg)
 
-        return True, "; ".join(checks)
+        _VERIFY_CACHE = (True, "; ".join(checks))
+        return _VERIFY_CACHE
 
     def get_available_parameters(self) -> dict:
         """Get all available parameters with descriptions."""

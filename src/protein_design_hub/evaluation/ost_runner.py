@@ -7,6 +7,20 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 import shutil
 
+# Module-level singleton: the first call to is_available() costs ~0.04s via
+# micromamba subprocess. Cache the result and the runner instance so every
+# evaluator shares a single probe result rather than each re-running the check.
+_SINGLETON: Optional["OpenStructureRunner"] = None
+_AVAILABLE_CACHE: Optional[bool] = None
+
+
+def get_ost_runner() -> "OpenStructureRunner":
+    """Return the shared OpenStructureRunner singleton."""
+    global _SINGLETON
+    if _SINGLETON is None:
+        _SINGLETON = OpenStructureRunner()
+    return _SINGLETON
+
 
 class OpenStructureRunner:
     """

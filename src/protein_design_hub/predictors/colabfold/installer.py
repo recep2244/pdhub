@@ -38,11 +38,18 @@ class ColabFoldInstaller(ToolInstaller):
             return Path(which_result)
 
         # Check common installation locations (including new pixi-based install)
+        # YoshitakaMo/localcolabfold installs to either ~/localcolabfold or
+        # ~/.localcolabfold depending on how the user ran the install script.
         common_paths = [
-            # New pixi-based LocalColabFold installation
+            # New pixi-based install — ~/localcolabfold (installed from home dir)
             Path.home() / "localcolabfold" / ".pixi" / "envs" / "default" / "bin" / "colabfold_batch",
-            # Legacy conda-based installation
+            # New pixi-based install — ~/.localcolabfold (hidden dir, also common)
+            Path.home() / ".localcolabfold" / ".pixi" / "envs" / "default" / "bin" / "colabfold_batch",
+            # Legacy conda-based install — ~/localcolabfold
             Path.home() / "localcolabfold" / "colabfold-conda" / "bin" / "colabfold_batch",
+            # Legacy conda-based install — ~/.localcolabfold
+            Path.home() / ".localcolabfold" / "colabfold-conda" / "bin" / "colabfold_batch",
+            # User-local bin
             Path.home() / ".local" / "bin" / "colabfold_batch",
             Path("/usr/local/bin/colabfold_batch"),
             Path("/opt/localcolabfold/colabfold-conda/bin/colabfold_batch"),
