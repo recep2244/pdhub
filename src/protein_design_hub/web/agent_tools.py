@@ -461,7 +461,8 @@ def run_sequence_biophysics(sequences: List[Tuple[str, str]]) -> ToolResult:
             if len(clean) < 5:
                 continue
             try:
-                agg_score, _ = predict_aggregation_propensity(clean)
+                agg_result = predict_aggregation_propensity(clean)
+                agg_score = agg_result[0]  # (score, per_residue, hotspots)
                 rows.append({
                     "Name": name[:30],
                     "Length": len(clean),
