@@ -371,12 +371,19 @@ def render_stats_panel(
                         eng_feature_names.append(f"{col}²")
 
                 if fe_interact and len(feature_cols) >= 2:
+                    _interact_cap = 20  # avoid combinatorial explosion
+                    _n_added = 0
                     for i, c1 in enumerate(feature_cols):
                         for c2 in feature_cols[i + 1:]:
+                            if _n_added >= _interact_cap:
+                                break
                             if c1 in eng_df.columns and c2 in eng_df.columns:
                                 iname = f"{c1}×{c2}"
                                 eng_df[iname] = eng_df[c1] * eng_df[c2]
                                 eng_feature_names.append(iname)
+                                _n_added += 1
+                        if _n_added >= _interact_cap:
+                            break
 
                 # Align X and y
                 common_idx = eng_df.dropna().index.intersection(y_vals.index)
