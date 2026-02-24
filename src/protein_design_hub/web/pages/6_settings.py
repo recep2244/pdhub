@@ -18,7 +18,11 @@ from protein_design_hub.web.ui import (
     info_box,
     workflow_breadcrumb,
 )
-from protein_design_hub.web.agent_helpers import agent_sidebar_status
+from protein_design_hub.web.agent_helpers import (
+    agent_sidebar_status,
+    render_agent_advice_panel,
+    render_all_experts_panel,
+)
 
 inject_base_css()
 sidebar_nav(current="Settings")
@@ -36,6 +40,51 @@ workflow_breadcrumb(
     ["System Status", "Configure", "LLM Setup", "Test"],
     current=1,
 )
+
+
+def _settings_agent_context() -> str:
+    """Build context summary for LLM configuration review panels."""
+    lines = []
+
+    try:
+        from protein_design_hub.core.config import get_settings
+
+        settings = get_settings()
+        llm = settings.llm.resolve()
+        lines.extend([
+            f"LLM provider: {llm.provider}",
+            f"LLM model: {llm.model}",
+            f"LLM base URL: {llm.base_url}",
+            f"LLM rounds per meeting: {settings.llm.num_rounds}",
+            f"Output base dir: {settings.output.base_dir}",
+        ])
+
+        predictor_rows = []
+        for name in ("colabfold", "chai1", "boltz2", "esmfold"):
+            cfg = getattr(settings.predictors, name, None)
+            if cfg is not None:
+                predictor_rows.append(f"- {name}: {'enabled' if cfg.enabled else 'disabled'}")
+        if predictor_rows:
+            lines.append("Predictor status:")
+            lines.extend(predictor_rows)
+    except Exception as exc:
+        lines.append(f"Settings load warning: {exc}")
+
+    try:
+        from protein_design_hub.web.ui import detect_gpu
+
+        gpu = detect_gpu()
+        if gpu.get("available"):
+            lines.append(
+                f"GPU: {gpu.get('name', 'unknown')} "
+                f"({gpu.get('memory_total_gb', 0.0):.1f} GB, source={gpu.get('source', 'n/a')})"
+            )
+        else:
+            lines.append("GPU: unavailable (CPU mode)")
+    except Exception as exc:
+        lines.append(f"GPU detection warning: {exc}")
+
+    return "\n".join(lines)
 
 # Utility helpers
 def _render_badges(items: Iterable[Tuple[str, str]]) -> None:
@@ -793,3 +842,37 @@ with tabs[5]:
         mime="text/plain",
         use_container_width=True,
     )
+
+
+st.markdown("---")
+section_header(
+    "Agent Integration",
+    "Cross-check settings, backend, and pipeline readiness with scientist agents",
+    "🧠",
+)
+
+settings_context = _settings_agent_context()
+render_agent_advice_panel(
+    page_context=settings_context,
+    default_question=(
+        "Review this configuration and system status. "
+        "What should I change for faster and more reliable end-to-end runs?"
+    ),
+    expert="Computational Biologist",
+    key_prefix="settings_agent",
+)
+
+render_all_experts_panel(
+    "🧠 All-Expert Configuration & Readiness Review",
+    agenda=(
+        "Review the system settings and runtime environment for full pipeline readiness. "
+        "Identify bottlenecks and recommend concrete configuration changes."
+    ),
+    context=settings_context,
+    questions=(
+        "Is the current configuration appropriate for reliable pipeline runs?",
+        "What should be tuned first for speed and stability (LLM/provider, predictors, GPU usage)?",
+        "List a prioritized action plan to improve robustness and result quality.",
+    ),
+    key_prefix="settings_all_experts",
+)

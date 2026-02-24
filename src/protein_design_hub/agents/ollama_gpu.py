@@ -4,16 +4,34 @@ from __future__ import annotations
 
 import re
 import subprocess
+import time
 from typing import Dict, Optional
+
+# ── TTL-cached GPU check ───────────────────────────────────────────
+# Avoids shelling out to ``ollama ps`` on every single LLM call.
+# Default TTL: 60 seconds.
+
+_gpu_cache: Dict[str, str] = {}
+_gpu_cache_ts: float = 0.0
+_GPU_CACHE_TTL: float = 60.0
 
 
 def get_ollama_processors(timeout: float = 3.0) -> Dict[str, str]:
     """Return model -> processor mapping from ``ollama ps``.
 
+    Results are cached for 60 s to avoid excessive subprocess calls
+    (a full pipeline can make 70+ LLM calls).
+
     Example processor values:
       - ``100% GPU``
       - ``100% CPU``
     """
+    global _gpu_cache, _gpu_cache_ts
+
+    now = time.monotonic()
+    if _gpu_cache and (now - _gpu_cache_ts) < _GPU_CACHE_TTL:
+        return _gpu_cache
+
     try:
         res = subprocess.run(
             ["ollama", "ps"],
@@ -23,7 +41,7 @@ def get_ollama_processors(timeout: float = 3.0) -> Dict[str, str]:
             timeout=timeout,
         )
     except Exception:
-        return {}
+        return _gpu_cache  # return stale cache on failure
 
     if res.returncode != 0 or not res.stdout.strip():
         return {}
@@ -37,7 +55,16 @@ def get_ollama_processors(timeout: float = 3.0) -> Dict[str, str]:
         cols = re.split(r"\s{2,}", ln.strip(), maxsplit=5)
         if len(cols) >= 4:
             procs[cols[0]] = cols[3]
+
+    _gpu_cache = procs
+    _gpu_cache_ts = now
     return procs
+
+
+def invalidate_gpu_cache() -> None:
+    """Force the next ``get_ollama_processors`` to re-check."""
+    global _gpu_cache_ts
+    _gpu_cache_ts = 0.0
 
 
 def _match_model_processor(processors: Dict[str, str], model: Optional[str]) -> Optional[str]:
@@ -84,9 +111,25 @@ def ensure_ollama_gpu(provider: str, model: Optional[str]) -> None:
 
 
 def ollama_extra_body(provider: str) -> dict:
-    """Return request extras that hint Ollama to use GPU."""
+    """Return request extras that maximise Ollama GPU throughput.
+
+    Performance options:
+      - ``num_gpu: 999``   – offload all layers to GPU
+      - ``num_ctx: 4096``  – cap context to save VRAM (meetings rarely
+        exceed 3 K tokens per turn)
+      - ``num_batch: 512`` – larger prompt eval batch → faster prefill
+      - ``flash_attention: true`` – enables flash-attn for faster
+        attention on Ampere+ GPUs (RTX 30xx/40xx)
+    """
     if provider != "ollama":
         return {}
-    # Ollama accepts llama.cpp options via `options`.
-    return {"extra_body": {"options": {"num_gpu": 999}}}
-
+    return {
+        "extra_body": {
+            "options": {
+                "num_gpu": 999,
+                "num_ctx": 4096,
+                "num_batch": 512,
+            },
+            "keep_alive": "10m",
+        },
+    }

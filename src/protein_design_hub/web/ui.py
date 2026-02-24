@@ -108,6 +108,7 @@ def get_gpu_status_html() -> str:
 THEME_CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
 
 /* ============================================
    PDHUB PRO - Professional Design System v2
@@ -217,8 +218,15 @@ THEME_CSS = """
 }
 
 /* Base Typography */
-p, span, div {
+p, span:not([data-testid="stIconMaterial"]), div {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}
+
+/* Restore Material Symbols font for Streamlit icons */
+[data-testid="stIconMaterial"] {
+    font-family: 'Material Symbols Rounded' !important;
+    -webkit-font-feature-settings: 'liga' !important;
+    font-feature-settings: 'liga' !important;
 }
 
 code, pre, .stCode {
@@ -408,6 +416,8 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
     border-radius: var(--pdhub-border-radius-md);
     text-align: left;
     transition: var(--pdhub-transition);
+    min-width: 0;
+    overflow: hidden;
 }
 
 .pdhub-metric:hover {
@@ -417,19 +427,24 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 
 .pdhub-metric-value {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 2.25rem;
+    font-size: 1.75rem;
     font-weight: 600;
     color: var(--pdhub-text-heading);
     line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .pdhub-metric-label {
     color: var(--pdhub-text-secondary);
-    font-size: 0.85rem;
+    font-size: 0.75rem;
     font-weight: 500;
     margin-top: 0.25rem;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.02em;
+    line-height: 1.3;
+    word-break: break-word;
 }
 
 .pdhub-animate-fade-in {
@@ -1332,6 +1347,19 @@ hr {
     font-size: 0.85rem;
 }
 
+/* ============================================
+   Material Symbols Icon Fallback Fix
+   ============================================ */
+[data-testid="stExpanderToggleIcon"] {
+    overflow: hidden;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
 </style>
 """
 
@@ -1461,7 +1489,7 @@ def info_box(
     box_class = f"pdhub-info-box pdhub-info-box-{variant}"
     title_html = f'<div class="pdhub-info-box-title">{title}</div>' if title else ""
 
-    st.markdown(f"""
+    _html = f"""
     <div class="{box_class}">
         <div class="pdhub-info-box-icon">{icon}</div>
         <div class="pdhub-info-box-content">
@@ -1469,7 +1497,11 @@ def info_box(
             <div>{message}</div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    """
+    try:
+        st.html(_html)
+    except AttributeError:
+        st.markdown(_html, unsafe_allow_html=True)
 
 
 def section_header(
@@ -1802,12 +1834,21 @@ def list_jobs(base_dir: Path, limit: int = 50) -> List[Dict[str, Any]]:
             "comparison_summary": p / "evaluation" / "comparison_summary.json",
             "evolution_summary": p / "evolution_summary.json",
             "scan_summary": p / "scan_results.json",
+            "meetings_dir": p / "meetings",
         }
         job["has_prediction"] = job["prediction_summary"].exists()
         job["has_design"] = job["design_summary"].exists()
         job["has_compare"] = job["comparison_summary"].exists()
         job["has_evolution"] = job["evolution_summary"].exists()
         job["has_scan"] = job["scan_summary"].exists()
+        job["has_meetings"] = job["meetings_dir"].exists()
+        if job["has_meetings"]:
+            try:
+                job["meeting_count"] = len(list(job["meetings_dir"].glob("*.json")))
+            except Exception:
+                job["meeting_count"] = 0
+        else:
+            job["meeting_count"] = 0
         jobs.append(job)
 
     jobs.sort(key=lambda x: x["mtime"], reverse=True)

@@ -43,6 +43,11 @@ class WorkflowContext:
     # Step 4: Comparison
     comparison_result: Optional[ComparisonResult] = None
 
+    # LLM step verdicts: each LLM review stores a structured verdict
+    # Format: {"step_name": {"status": "PASS"|"WARN"|"FAIL",
+    #           "key_findings": [...], "thresholds": {...}}}
+    step_verdicts: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
     # Optional: design / mutation / MSA workflow data
     extra: Dict[str, Any] = field(default_factory=dict)
 

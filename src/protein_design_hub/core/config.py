@@ -276,6 +276,27 @@ LLM_PROVIDER_PRESETS: dict[str, tuple[str, str, str]] = {
     "openrouter": ("https://openrouter.ai/api/v1",        "meta-llama/llama-3.3-70b-instruct", ""),
 }
 
+_OLLAMA_DEFAULT_MODEL = "qwen2.5:14b"
+_OLLAMA_DEEPSEEK_MODEL = "deepseek-r1:14b"
+_LEGACY_OLLAMA_DEFAULT_MODELS = {"llama3.2", "llama3.2:latest"}
+
+# Recommended local models for Ollama (fits 12 GB VRAM)
+OLLAMA_RECOMMENDED_MODELS: list[tuple[str, str]] = [
+    ("qwen2.5:14b", "Fast general-purpose (default, ~30-50 tok/s)"),
+    ("deepseek-r1:14b", "Deep reasoning with chain-of-thought (~20-35 tok/s)"),
+]
+
+
+def normalize_ollama_model_name(model: str) -> str:
+    """Map legacy Ollama default model identifiers to current default.
+
+    Keeps explicit non-legacy user model choices untouched.
+    """
+    raw = str(model or "")
+    if raw.strip().lower() in _LEGACY_OLLAMA_DEFAULT_MODELS:
+        return _OLLAMA_DEFAULT_MODEL
+    return raw
+
 
 class LLMConfig(BaseModel):
     """LLM configuration for agent meetings.
@@ -343,11 +364,11 @@ class LLMConfig(BaseModel):
         preset_url, preset_model, preset_key = preset
 
         base_url = self.base_url or preset_url or "http://localhost:11434/v1"
-        model = self.model or preset_model or "qwen2.5:14b"
+        model = self.model or preset_model or _OLLAMA_DEFAULT_MODEL
         # Auto-migrate legacy Ollama defaults to the current project default.
         # This keeps older user configs from silently sticking to llama3.2.
-        if self.provider == "ollama" and model in {"llama3.2", "llama3.2:latest"}:
-            model = "qwen2.5:14b"
+        if self.provider == "ollama":
+            model = normalize_ollama_model_name(model)
 
         # API key: explicit > env var > preset
         api_key = self.api_key
@@ -447,10 +468,16 @@ def get_settings() -> Settings:
     global _settings
     if _settings is None:
         _settings = Settings.load()
+        # One-time migration for in-memory settings so UI pages that read
+        # raw ``settings.llm.model`` do not keep showing legacy llama3.2.
+        if _settings.llm.provider == "ollama":
+            _settings.llm.model = normalize_ollama_model_name(_settings.llm.model)
     return _settings
 
 
 def set_settings(settings: Settings) -> None:
     """Set the global settings instance."""
     global _settings
+    if settings.llm.provider == "ollama":
+        settings.llm.model = normalize_ollama_model_name(settings.llm.model)
     _settings = settings

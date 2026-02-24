@@ -19,11 +19,13 @@ class ReportAgent(BaseAgent):
 
     # Keys in context.extra that hold LLM meeting summaries
     _MEETING_KEYS = [
+        ("input_review", "Input Review"),
         ("plan", "Planning Meeting"),
         ("prediction_review", "Prediction Review"),
         ("evaluation_review", "Evaluation Review"),
         ("refinement_review", "Refinement Review"),
         ("mutagenesis_plan", "Mutagenesis & Design Planning"),
+        ("executive_summary", "Executive Summary"),
     ]
 
     def __init__(self, settings: Settings | None = None, **kwargs):
@@ -78,6 +80,12 @@ class ReportAgent(BaseAgent):
             # Save LLM meeting summaries alongside the report
             self._save_meeting_summaries(context)
 
+            # Save step verdicts if any LLM reviews produced them
+            self._save_step_verdicts(context)
+
+            # Save policy enforcement log (e.g. FAIL-gating and overrides)
+            self._save_policy_log(context)
+
             return AgentResult.ok(context, "Reports generated")
         except Exception as e:
             return AgentResult.fail(f"Report step failed: {e}", error=e)
@@ -97,3 +105,23 @@ class ReportAgent(BaseAgent):
         report_dir.mkdir(exist_ok=True)
         with open(report_dir / "agent_summaries.json", "w") as f:
             json.dump(summaries, f, indent=2)
+
+    def _save_step_verdicts(self, context: WorkflowContext) -> None:
+        """Persist structured step verdicts as a JSON file in the report dir."""
+        if not context.step_verdicts:
+            return
+
+        report_dir = context.job_dir / "report"
+        report_dir.mkdir(exist_ok=True)
+        with open(report_dir / "step_verdicts.json", "w") as f:
+            json.dump(context.step_verdicts, f, indent=2)
+
+    def _save_policy_log(self, context: WorkflowContext) -> None:
+        """Persist policy enforcement events to report dir."""
+        policy_log = context.extra.get("policy_log")
+        if not policy_log:
+            return
+        report_dir = context.job_dir / "report"
+        report_dir.mkdir(exist_ok=True)
+        with open(report_dir / "policy_log.json", "w") as f:
+            json.dump(policy_log, f, indent=2)

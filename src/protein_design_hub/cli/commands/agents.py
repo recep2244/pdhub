@@ -52,7 +52,7 @@ def agents_status():
         console.print(f"  [red]FAILED[/red] – {e}")
         if cfg.provider == "ollama":
             console.print("  [dim]Make sure Ollama is running: ollama serve[/dim]")
-        elif cfg.provider in ("deepseek", "openai", "gemini", "kimi"):
+        elif cfg.provider in ("deepseek", "openai", "gemini", "kimi", "groq", "cerebras", "sambanova", "openrouter"):
             console.print(f"  [dim]Check your API key for {cfg.provider}[/dim]")
 
     # Show available providers
@@ -63,8 +63,15 @@ def agents_status():
     preset_table.add_column("Default Model")
     preset_table.add_column("Base URL")
 
+    local_providers = {"ollama", "lmstudio", "vllm", "llamacpp"}
+    fast_providers = {"groq", "cerebras", "sambanova"}
     for name, (url, model, _) in LLM_PROVIDER_PRESETS.items():
-        ptype = "[green]local[/green]" if name in ("ollama", "lmstudio", "vllm", "llamacpp") else "[yellow]cloud[/yellow]"
+        if name in local_providers:
+            ptype = "[green]local[/green]"
+        elif name in fast_providers:
+            ptype = "[bold cyan]fast[/bold cyan]"
+        else:
+            ptype = "[yellow]cloud[/yellow]"
         current = " [bold green]← active[/bold green]" if name == cfg.provider else ""
         preset_table.add_row(f"{name}{current}", ptype, model, url)
 
@@ -120,13 +127,18 @@ def agents_run(
     ),
     provider: Optional[str] = typer.Option(
         None, "--provider",
-        help="Override LLM provider (ollama, deepseek, openai, gemini, kimi, ...)"
+        help="Override LLM provider (ollama, groq, cerebras, sambanova, gemini, deepseek, openai, ...)"
     ),
     model: Optional[str] = typer.Option(
         None, "--model", help="Override LLM model name"
     ),
     rounds: Optional[int] = typer.Option(
         None, "--rounds", help="Discussion rounds per meeting"
+    ),
+    allow_fail_verdicts: bool = typer.Option(
+        False,
+        "--allow-fail-verdicts",
+        help="Continue even when an LLM review verdict is FAIL (logged as override).",
     ),
 ):
     """Run the full LLM-guided pipeline (shortcut for 'pdhub pipeline run --llm').
@@ -147,6 +159,7 @@ def agents_run(
         provider=provider,
         model=model,
         rounds=rounds,
+        allow_fail_verdicts=allow_fail_verdicts,
     )
 
 
