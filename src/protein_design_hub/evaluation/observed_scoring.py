@@ -400,10 +400,11 @@ class ObservedScoringRunner:
 
         setpaths = str(self.molprobity_root / "build" / "setpaths.sh")
         mol_root = str(self.molprobity_root)
+        abs_model = str(model_path.resolve())  # absolute so cd doesn't break relative paths
 
         for out_file, cmd_part in [
-            (mp_txt, f"phenix.molprobity '{model_path}' nqh=False outliers_only=True"),
-            (cl_txt, f"phenix.clashscore '{model_path}'"),
+            (mp_txt, f"phenix.molprobity '{abs_model}' nqh=False outliers_only=True"),
+            (cl_txt, f"phenix.clashscore '{abs_model}'"),
         ]:
             try:
                 with out_file.open("w") as fh:
