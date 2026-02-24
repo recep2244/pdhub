@@ -903,16 +903,38 @@ def create_structure_comparison_3d(
 
 
 
+def _preload_system_libstdcxx() -> None:
+    """Preload the system libstdc++ to fix GLIBCXX version mismatch.
+
+    PyMOL pip-wheels are often compiled against a newer GLIBCXX than
+    Anaconda's bundled libstdc++.  Loading the system copy via ctypes
+    before importing pymol2 resolves the 'GLIBCXX_3.4.30 not found' error.
+    """
+    import ctypes, glob
+    candidates = [
+        "/lib/x86_64-linux-gnu/libstdc++.so.6",
+        "/usr/lib/x86_64-linux-gnu/libstdc++.so.6",
+        "/usr/lib64/libstdc++.so.6",
+    ] + glob.glob("/usr/lib/gcc/x86_64-linux-gnu/*/libstdc++.so.6")
+    for path in candidates:
+        try:
+            ctypes.CDLL(path)
+            return
+        except OSError:
+            continue
+
+
 def is_pymol_available() -> bool:
     """Check if pymol2 (headless PyMOL API) is importable."""
+    _preload_system_libstdcxx()
     try:
         import pymol2  # noqa: F401
         return True
-    except ImportError:
+    except (ImportError, OSError):
         try:
             import pymol  # noqa: F401
             return True
-        except ImportError:
+        except (ImportError, OSError):
             return False
 
 
@@ -941,9 +963,10 @@ def render_pymol_headless(
     Returns:
         True if rendering succeeded, False otherwise.
     """
+    _preload_system_libstdcxx()
     try:
         import pymol2
-    except ImportError:
+    except (ImportError, OSError):
         return False
 
     output_image = Path(output_image)
