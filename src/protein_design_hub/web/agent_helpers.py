@@ -676,6 +676,11 @@ def render_contextual_insight(
                 if expert in _bio_agents:
                     # Gather (name, sequence) tuples from common session state keys
                     seqs: list = []
+                    # Handle plain-string current_sequence (0_design.py)
+                    _cur_seq = st.session_state.get("current_sequence")
+                    if isinstance(_cur_seq, str) and len(_cur_seq) >= 10:
+                        _seq_name = str(st.session_state.get("sequence_name", "current"))
+                        seqs.append((_seq_name, _cur_seq))
                     for _sk in ["design_sequences", "mpnn_sequences", "evolved_sequences",
                                 "mutation_sequences", "msa_sequences"]:
                         _v = st.session_state.get(_sk)
