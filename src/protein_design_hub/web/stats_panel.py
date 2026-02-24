@@ -57,7 +57,7 @@ def render_stats_panel(
     num_df = df[numeric_cols].dropna(how="all")
 
     with st.expander(f"📈 {title}", expanded=expanded):
-        tabs = st.tabs(["📊 Descriptive", "🔗 Correlation", "🎯 Feature Importance", "📉 Distributions"])
+        tabs = st.tabs(["📊 Descriptive", "🔗 Correlation", "🎯 Feature Importance", "📉 Distributions", "🔬 Regression"])
 
         # ── Tab 1: Descriptive statistics ──────────────────────────────────
         with tabs[0]:
@@ -314,6 +314,302 @@ def render_stats_panel(
 
                 except ImportError:
                     st.bar_chart(s.value_counts(bins=20).sort_index())
+
+        # ── Tab 5: Regression analysis ─────────────────────────────────────
+        with tabs[4]:
+            if len(numeric_cols) < 2:
+                st.info("Need ≥ 2 numeric columns for regression analysis.")
+            else:
+                if target_col and target_col in numeric_cols:
+                    reg_target = target_col
+                else:
+                    reg_target = st.selectbox(
+                        "Regression target (Y)",
+                        numeric_cols,
+                        key=f"{key_prefix}_reg_target",
+                    )
+
+                feature_cols = [c for c in numeric_cols if c != reg_target]
+                y_vals = num_df[reg_target].dropna()
+
+                # Feature engineering options
+                with st.expander("⚙️ Feature Engineering", expanded=False):
+                    fe_cols = st.multiselect(
+                        "Apply log1p transform to:",
+                        feature_cols,
+                        key=f"{key_prefix}_fe_log",
+                        help="log1p(x) stabilises right-skewed distributions (use for positive metrics)",
+                    )
+                    fe_sq_cols = st.multiselect(
+                        "Add squared terms (x²):",
+                        feature_cols,
+                        key=f"{key_prefix}_fe_sq",
+                        help="Captures non-linear quadratic effects",
+                    )
+                    fe_interact = st.checkbox(
+                        "Add pairwise interaction terms (x·y)",
+                        key=f"{key_prefix}_fe_interact",
+                        value=False,
+                        help="Adds products of all feature pairs — useful for synergistic effects",
+                    )
+
+                # Build feature matrix with engineering
+                import numpy as np
+                import pandas as pd
+
+                eng_df = num_df[feature_cols].copy()
+                eng_feature_names = list(feature_cols)
+
+                for col in fe_cols:
+                    if col in eng_df.columns:
+                        eng_df[f"log1p_{col}"] = np.log1p(eng_df[col].clip(lower=0))
+                        eng_feature_names.append(f"log1p_{col}")
+
+                for col in fe_sq_cols:
+                    if col in eng_df.columns:
+                        eng_df[f"{col}²"] = eng_df[col] ** 2
+                        eng_feature_names.append(f"{col}²")
+
+                if fe_interact and len(feature_cols) >= 2:
+                    for i, c1 in enumerate(feature_cols):
+                        for c2 in feature_cols[i + 1:]:
+                            if c1 in eng_df.columns and c2 in eng_df.columns:
+                                iname = f"{c1}×{c2}"
+                                eng_df[iname] = eng_df[c1] * eng_df[c2]
+                                eng_feature_names.append(iname)
+
+                # Align X and y
+                common_idx = eng_df.dropna().index.intersection(y_vals.index)
+                if len(common_idx) < 4:
+                    st.warning("Not enough complete rows for regression (need ≥ 4).")
+                else:
+                    X = eng_df.loc[common_idx, [c for c in eng_feature_names if c in eng_df.columns]].fillna(0).values
+                    y = y_vals.loc[common_idx].values
+                    feat_names = [c for c in eng_feature_names if c in eng_df.columns]
+
+                    reg_method = st.radio(
+                        "Regression method",
+                        ["Linear (OLS)", "Lasso (L1)", "Ridge (L2)", "Elastic Net"],
+                        horizontal=True,
+                        key=f"{key_prefix}_reg_method",
+                    )
+
+                    try:
+                        from sklearn.preprocessing import StandardScaler
+                        from sklearn.linear_model import LinearRegression, Lasso, Ridge, ElasticNet, LassoCV, RidgeCV
+                        from sklearn.model_selection import cross_val_score
+                        from sklearn.metrics import r2_score
+                        import numpy as _np
+
+                        scaler = StandardScaler()
+                        X_sc = scaler.fit_transform(X)
+                        n, p = X_sc.shape
+
+                        if reg_method == "Linear (OLS)":
+                            model = LinearRegression()
+                            model.fit(X_sc, y)
+                            y_pred = model.predict(X_sc)
+                            r2 = r2_score(y, y_pred)
+                            adj_r2 = 1 - (1 - r2) * (n - 1) / max(n - p - 1, 1)
+                            coefs = model.coef_
+                            intercept = model.intercept_
+                            cv_scores = cross_val_score(model, X_sc, y, cv=min(5, n), scoring="r2")
+
+                            m1, m2, m3, m4 = st.columns(4)
+                            m1.metric("R²", f"{r2:.4f}")
+                            m2.metric("Adj. R²", f"{adj_r2:.4f}")
+                            m3.metric("CV R² (mean)", f"{cv_scores.mean():.4f}")
+                            m4.metric("CV R² (std)", f"±{cv_scores.std():.4f}")
+
+                            # Try OLS p-values via statsmodels
+                            try:
+                                import statsmodels.api as sm
+                                X_sm = sm.add_constant(X_sc)
+                                ols = sm.OLS(y, X_sm).fit()
+                                pvals = ols.pvalues[1:]
+                                coef_df = pd.DataFrame({
+                                    "Feature": feat_names,
+                                    "Coefficient": [f"{c:+.4f}" for c in coefs],
+                                    "Std Error": [f"{se:.4f}" for se in ols.bse[1:]],
+                                    "t-statistic": [f"{t:+.3f}" for t in ols.tvalues[1:]],
+                                    "p-value": [f"{p:.4f}" for p in pvals],
+                                    "Significant": ["✅" if p < 0.05 else "—" for p in pvals],
+                                })
+                                st.markdown(f"**OLS Coefficients** (intercept = {intercept:.4f})")
+                                st.dataframe(coef_df.sort_values("Coefficient", key=lambda s: s.str.replace("+","").astype(float).abs(), ascending=False),
+                                             use_container_width=True, hide_index=True)
+                                st.caption(f"F-statistic: {ols.fvalue:.2f}, p(F): {ols.f_pvalue:.4f} | AIC: {ols.aic:.1f}")
+                            except ImportError:
+                                coef_df = pd.DataFrame({
+                                    "Feature": feat_names,
+                                    "Coefficient": [f"{c:+.4f}" for c in coefs],
+                                    "|Coefficient|": [abs(c) for c in coefs],
+                                })
+                                st.markdown(f"**OLS Coefficients** (intercept = {intercept:.4f})")
+                                st.dataframe(coef_df.drop(columns=["|Coefficient|"]).sort_values(
+                                    "Coefficient", key=lambda s: s.str.replace("+","").astype(float).abs(), ascending=False
+                                ), use_container_width=True, hide_index=True)
+
+                        elif reg_method == "Lasso (L1)":
+                            try:
+                                lasso_cv = LassoCV(cv=min(5, n), max_iter=5000, random_state=42)
+                                lasso_cv.fit(X_sc, y)
+                                best_alpha = lasso_cv.alpha_
+                            except Exception:
+                                best_alpha = 0.01
+                            model = Lasso(alpha=best_alpha, max_iter=5000, random_state=42)
+                            model.fit(X_sc, y)
+                            y_pred = model.predict(X_sc)
+                            r2 = r2_score(y, y_pred)
+                            coefs = model.coef_
+                            nonzero = _np.sum(coefs != 0)
+
+                            m1, m2, m3, m4 = st.columns(4)
+                            m1.metric("R²", f"{r2:.4f}")
+                            m2.metric("Best α", f"{best_alpha:.4f}")
+                            m3.metric("Non-zero features", str(nonzero))
+                            m4.metric("Sparsity", f"{100*(1-nonzero/max(len(coefs),1)):.0f}%")
+
+                            coef_df = pd.DataFrame({
+                                "Feature": feat_names,
+                                "Lasso Coefficient": [f"{c:+.4f}" for c in coefs],
+                                "Selected": ["✅" if c != 0 else "—" for c in coefs],
+                            }).sort_values("Lasso Coefficient", key=lambda s: s.str.replace("+","").astype(float).abs(), ascending=False)
+                            st.markdown(f"**Lasso Coefficients** (α = {best_alpha:.4f}, {nonzero}/{len(coefs)} features selected)")
+                            st.dataframe(coef_df, use_container_width=True, hide_index=True)
+
+                        elif reg_method == "Ridge (L2)":
+                            try:
+                                ridge_cv = RidgeCV(alphas=_np.logspace(-3, 3, 30), cv=min(5, n))
+                                ridge_cv.fit(X_sc, y)
+                                best_alpha = ridge_cv.alpha_
+                            except Exception:
+                                best_alpha = 1.0
+                            model = Ridge(alpha=best_alpha)
+                            model.fit(X_sc, y)
+                            y_pred = model.predict(X_sc)
+                            r2 = r2_score(y, y_pred)
+                            coefs = model.coef_
+
+                            m1, m2, m3 = st.columns(3)
+                            m1.metric("R²", f"{r2:.4f}")
+                            m2.metric("Best α (CV)", f"{best_alpha:.4f}")
+                            m3.metric("Features used", str(len(feat_names)))
+
+                            coef_df = pd.DataFrame({
+                                "Feature": feat_names,
+                                "Ridge Coefficient": [f"{c:+.4f}" for c in coefs],
+                            }).sort_values("Ridge Coefficient", key=lambda s: s.str.replace("+","").astype(float).abs(), ascending=False)
+                            st.markdown(f"**Ridge Coefficients** (α = {best_alpha:.4f})")
+                            st.dataframe(coef_df, use_container_width=True, hide_index=True)
+
+                        elif reg_method == "Elastic Net":
+                            from sklearn.linear_model import ElasticNetCV
+                            try:
+                                en_cv = ElasticNetCV(cv=min(5, n), max_iter=5000, random_state=42)
+                                en_cv.fit(X_sc, y)
+                                best_alpha = en_cv.alpha_
+                                best_l1 = en_cv.l1_ratio_
+                            except Exception:
+                                best_alpha, best_l1 = 0.01, 0.5
+                            model = ElasticNet(alpha=best_alpha, l1_ratio=best_l1, max_iter=5000)
+                            model.fit(X_sc, y)
+                            y_pred = model.predict(X_sc)
+                            r2 = r2_score(y, y_pred)
+                            coefs = model.coef_
+                            nonzero = _np.sum(coefs != 0)
+
+                            m1, m2, m3, m4 = st.columns(4)
+                            m1.metric("R²", f"{r2:.4f}")
+                            m2.metric("Best α", f"{best_alpha:.4f}")
+                            m3.metric("L1 ratio", f"{best_l1:.2f}")
+                            m4.metric("Non-zero", str(nonzero))
+
+                            coef_df = pd.DataFrame({
+                                "Feature": feat_names,
+                                "EN Coefficient": [f"{c:+.4f}" for c in coefs],
+                                "Selected": ["✅" if c != 0 else "—" for c in coefs],
+                            }).sort_values("EN Coefficient", key=lambda s: s.str.replace("+","").astype(float).abs(), ascending=False)
+                            st.dataframe(coef_df, use_container_width=True, hide_index=True)
+
+                        # Coefficient bar chart (shared for all methods)
+                        try:
+                            import plotly.express as px
+                            chart_df = pd.DataFrame({"Feature": feat_names, "Coefficient": coefs})
+                            chart_df["abs"] = chart_df["Coefficient"].abs()
+                            chart_df = chart_df[chart_df["abs"] > 1e-8].sort_values("abs", ascending=True)
+                            if not chart_df.empty:
+                                fig = px.bar(
+                                    chart_df, x="Coefficient", y="Feature",
+                                    orientation="h",
+                                    color="Coefficient",
+                                    color_continuous_scale="RdBu_r",
+                                    color_continuous_midpoint=0,
+                                    title=f"Standardised coefficients → {reg_target}",
+                                    template="plotly_dark",
+                                )
+                                fig.update_layout(
+                                    paper_bgcolor="rgba(0,0,0,0)",
+                                    plot_bgcolor="rgba(0,0,0,0)",
+                                    height=max(250, 28 * len(chart_df) + 60),
+                                    margin=dict(l=10, r=10, t=40, b=10),
+                                    coloraxis_showscale=False,
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                        except Exception:
+                            pass
+
+                        # Actual vs Predicted scatter
+                        try:
+                            import plotly.graph_objects as go
+                            fig2 = go.Figure()
+                            fig2.add_trace(go.Scatter(
+                                x=y, y=y_pred, mode="markers",
+                                marker=dict(color="#6366f1", size=8, opacity=0.7),
+                                name="Samples",
+                            ))
+                            mn, mx = min(y.min(), y_pred.min()), max(y.max(), y_pred.max())
+                            fig2.add_trace(go.Scatter(
+                                x=[mn, mx], y=[mn, mx], mode="lines",
+                                line=dict(color="#f59e0b", dash="dash"), name="Perfect fit",
+                            ))
+                            fig2.update_layout(
+                                title=f"Actual vs Predicted — {reg_target}",
+                                xaxis_title="Actual", yaxis_title="Predicted",
+                                template="plotly_dark",
+                                paper_bgcolor="rgba(0,0,0,0)",
+                                plot_bgcolor="rgba(0,0,0,0)",
+                                height=300, margin=dict(l=10, r=10, t=40, b=10),
+                            )
+                            st.plotly_chart(fig2, use_container_width=True)
+                        except Exception:
+                            pass
+
+                        # Residuals
+                        residuals = y - y_pred
+                        try:
+                            fig3 = go.Figure()
+                            fig3.add_trace(go.Scatter(
+                                x=y_pred, y=residuals, mode="markers",
+                                marker=dict(color="#22c55e", size=7, opacity=0.6), name="Residuals",
+                            ))
+                            fig3.add_hline(y=0, line_dash="dash", line_color="#ef4444")
+                            fig3.update_layout(
+                                title="Residuals vs Fitted",
+                                xaxis_title="Fitted values", yaxis_title="Residual",
+                                template="plotly_dark",
+                                paper_bgcolor="rgba(0,0,0,0)",
+                                plot_bgcolor="rgba(0,0,0,0)",
+                                height=280, margin=dict(l=10, r=10, t=40, b=10),
+                            )
+                            st.plotly_chart(fig3, use_container_width=True)
+                        except Exception:
+                            pass
+
+                    except ImportError:
+                        st.warning("scikit-learn is required for regression analysis. Install with: `pip install scikit-learn`")
+                    except Exception as e:
+                        st.error(f"Regression failed: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

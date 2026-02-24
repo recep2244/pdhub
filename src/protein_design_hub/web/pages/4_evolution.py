@@ -135,6 +135,21 @@ main_tabs = st.tabs(["🎯 Setup", "🔬 Run Evolution", "📊 Results", "📚 L
 with main_tabs[0]:
     st.markdown("### 📥 Input Sequence")
 
+    # Quick-load example sequences
+    _EVO_EXAMPLES = {
+        "Ubiquitin (76 aa)": ("Ubiquitin", "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"),
+        "T1024 (52 aa)": ("T1024", "MAAHKGAEHVVKASLDAGVKTVAGGLVVKAKALGGKDATMHLVAATLKKGYM"),
+        "Hemoglobin α (51 aa)": ("HbA_fragment", "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSH"),
+        "Insulin B (30 aa)": ("Insulin_B", "FVNQHLCGSHLVEALYLVCGERGFFYTPKT"),
+    }
+    st.markdown("**⚡ Quick Load — Example Sequences:**")
+    _evo_ex_cols = st.columns(len(_EVO_EXAMPLES))
+    for _ei, (_elabel, (_ename, _eseq)) in enumerate(_EVO_EXAMPLES.items()):
+        with _evo_ex_cols[_ei]:
+            if st.button(_elabel, key=f"evo_ex_{_ei}", use_container_width=True, type="secondary"):
+                st.session_state.evolution_sequence = _eseq
+                st.rerun()
+
     col_input, col_info = st.columns([2, 1])
 
     with col_input:

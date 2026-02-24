@@ -1876,6 +1876,33 @@ if run_comprehensive:
                     use_container_width=True,
                 )
 
+            # Save cross-page results
+            _comp_global = results.get("global", {})
+            set_page_results("Evaluate", {
+                "lddt": str(round(_comp_global.get("lddt", 0), 4)),
+                "tm_score": str(round(_comp_global.get("tm_score", 0), 4)),
+                "rmsd_ca": str(round(_comp_global.get("rmsd_ca", _comp_global.get("rmsd", 0)), 4)),
+                "dockq": str(round(_comp_global.get("dockq", 0), 4)) if _comp_global.get("dockq") else "N/A",
+                "mode": "Comprehensive",
+            })
+            _comp_records = [{"metric": k, "value": round(float(v), 4)} for k, v in _comp_global.items() if isinstance(v, (int, float))]
+            if _comp_records:
+                render_ml_stats_panel(
+                    _comp_records,
+                    numeric_keys=["value"],
+                    page_name="Comprehensive Evaluation",
+                    key_prefix="eval_comp_stats",
+                )
+
+            # Cross-page navigation
+            st.markdown("---")
+            section_header("Next Steps", "Continue your workflow", "➡️")
+            cross_page_actions([
+                {"label": "Compare Predictors", "page": "pages/3_compare.py", "icon": "⚖️"},
+                {"label": "Scan Mutations", "page": "pages/10_mutation_scanner.py", "icon": "🧬"},
+                {"label": "MPNN Design", "page": "pages/8_mpnn.py", "icon": "🎯"},
+            ])
+
         except Exception as e:
             st.error(f"❌ Evaluation failed: {e}")
             import traceback

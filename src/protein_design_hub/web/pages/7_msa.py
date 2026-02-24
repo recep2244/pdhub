@@ -82,6 +82,56 @@ main_tabs = st.tabs(["📥 Input", "📊 Conservation", "🔗 Coevolution", "�
 with main_tabs[0]:
     section_header("Load MSA", "Upload or paste a multiple sequence alignment", "📥")
 
+    # Example MSA quick-load
+    _MSA_EXAMPLE_UBI = """>Ubiquitin_HUMAN
+MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
+>Ubiquitin_MOUSE
+MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
+>Ubiquitin_YEAST
+MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
+>Ubiquitin_DROME
+MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
+>Ubiquitin_CAEEL
+MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"""
+
+    _MSA_EXAMPLE_HBA = """>HbA_HUMAN
+MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSH
+>HbA_BOVIN
+MVLSAADKGNVKAAWGKVGGHAAEYGAEALERMFLSFPTTKTYFPHFDLSH
+>HbA_MOUSE
+MVLSGEDKSNIKAAWGKIGGHGAEYGAEALERMFASFPTTKTYFPHFDVSH
+>HbA_RABIT
+MVLSAEDKKNIKAAWGKIGSHGAEYGAEALERMFLGFPTTKTYFPHFDLSH
+>HbA_CHICK
+MVLSAADKNNVKGIFTKIAGHAEEYGAETLERMFTTYPSTKTYFPHFDLSH"""
+
+    st.markdown("**⚡ Quick Load — Example MSA:**")
+    _msa_ex_col1, _msa_ex_col2, _msa_ex_spacer = st.columns([1, 1, 2])
+    with _msa_ex_col1:
+        if st.button("🧬 Ubiquitin family (5 seq)", key="msa_ex_ubi", use_container_width=True, type="secondary"):
+            _seqs, _names = [], []
+            for _line in _MSA_EXAMPLE_UBI.strip().split('\n'):
+                if _line.startswith('>'):
+                    _names.append(_line[1:].strip())
+                    _seqs.append('')
+                elif _seqs:
+                    _seqs[-1] += _line.strip()
+            st.session_state.msa_alignment = _seqs
+            st.session_state.msa_names = _names
+            st.rerun()
+    with _msa_ex_col2:
+        if st.button("🩸 Hemoglobin α (5 seq)", key="msa_ex_hba", use_container_width=True, type="secondary"):
+            _seqs, _names = [], []
+            for _line in _MSA_EXAMPLE_HBA.strip().split('\n'):
+                if _line.startswith('>'):
+                    _names.append(_line[1:].strip())
+                    _seqs.append('')
+                elif _seqs:
+                    _seqs[-1] += _line.strip()
+            st.session_state.msa_alignment = _seqs
+            st.session_state.msa_names = _names
+            st.rerun()
+
     col_method, col_info = st.columns([3, 1])
     with col_method:
         input_method = st.radio(

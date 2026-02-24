@@ -1175,6 +1175,18 @@ if seq:
             st.session_state.predict_ligands = st.session_state.ligands if include_ligands else []
             st.info(f"Go to the Predict page to run {predictor}")
 
+    if st.session_state.get("current_sequence"):
+        set_page_results("Design", {
+            "sequence": st.session_state.current_sequence,
+            "length": len(st.session_state.current_sequence),
+            "name": st.session_state.sequence_name or "Unnamed",
+        })
+    cross_page_actions([
+            {"label": "Predict Structure", "page": "pages/1_predict.py", "icon": "🔮"},
+            {"label": "Run Evolution", "page": "pages/4_evolution.py", "icon": "🧬"},
+            {"label": "MSA Analysis", "page": "pages/7_msa.py", "icon": "🌿"},
+    ])
+
 else:
     # No sequence - show welcome message
     st.markdown("""

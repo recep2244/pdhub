@@ -317,38 +317,55 @@ def render_agent_advice_panel(
     expert: str = "Structural Biologist",
     key_prefix: str = "agent",
 ) -> None:
-    """Collapsible 'Ask AI Agent' panel. Stores responses in session state."""
-    # Session state key for persisting the reply across reruns
+    """Professional 'Consult Expert' panel with styled agent response cards."""
     reply_key = f"_agent_reply_{key_prefix}"
+    icon = AGENT_ICONS.get(expert, "🧬")
+    color = AGENT_COLORS.get(expert, "#6366f1")
 
-    with st.expander("🤖 Ask AI Agent for Advice", expanded=False):
+    with st.expander(f"{icon} Consult Domain Expert", expanded=False):
         col_q, col_e = st.columns([3, 1])
         with col_q:
             question = st.text_area(
                 "Your question",
                 value=default_question,
                 height=80,
-                placeholder="e.g. How can I improve the pLDDT score?",
+                placeholder="e.g. How can I improve the pLDDT score? What mutations should I prioritize?",
                 key=f"{key_prefix}_q",
+                label_visibility="collapsed",
             )
         with col_e:
             agent_choice = st.selectbox(
-                "Ask expert",
+                "Expert",
                 AGENT_OPTIONS,
                 index=AGENT_OPTIONS.index(expert) if expert in AGENT_OPTIONS else 0,
                 key=f"{key_prefix}_expert",
+                label_visibility="collapsed",
+            )
+            _acolor = AGENT_COLORS.get(agent_choice, "#6366f1")
+            _arole = AGENT_ROLES.get(agent_choice, "")
+            st.markdown(
+                f'<div style="font-size:.7rem;color:{_acolor};padding:2px 0">'
+                f'{AGENT_ICONS.get(agent_choice,"🧬")} {_html.escape(_arole)}</div>',
+                unsafe_allow_html=True,
             )
 
-        col_btn, col_clear = st.columns([2, 1])
+        deep_mode = st.checkbox(
+            "🔍 Deep analysis (longer, step-by-step reasoning)",
+            value=False,
+            key=f"{key_prefix}_deep",
+            help="Extends response length and enables chain-of-thought reasoning. ~2× slower.",
+        )
+
+        col_btn, col_clear = st.columns([3, 1])
         with col_btn:
             clicked = st.button(
-                "💬 Get Advice",
+                f"💬 Consult {agent_choice}",
                 key=f"{key_prefix}_btn",
                 use_container_width=True,
                 type="primary",
             )
         with col_clear:
-            if st.button("Clear", key=f"{key_prefix}_clr", use_container_width=True):
+            if st.button("↺ Clear", key=f"{key_prefix}_clr", use_container_width=True):
                 st.session_state.pop(reply_key, None)
                 st.rerun()
 
@@ -356,25 +373,31 @@ def render_agent_advice_panel(
             if not question or not question.strip():
                 st.warning("Please type a question first.")
             else:
-                with st.spinner(f"Asking {agent_choice}..."):
+                max_tok = 1200 if deep_mode else 600
+                q = question.strip()
+                if deep_mode:
+                    q = (
+                        "Think step by step. Provide a thorough, structured analysis. "
+                        "Use numbered sections where appropriate.\n\n" + q
+                    )
+                with st.spinner(f"Consulting {agent_choice}…"):
                     reply = ask_agent_advice(
-                        question=question.strip(),
+                        question=q,
                         agent_name=agent_choice,
                         context=page_context,
+                        max_tokens=max_tok,
                     )
                 st.session_state[reply_key] = {"agent": agent_choice, "text": reply}
 
-        # Show stored reply (persists across reruns)
         stored = st.session_state.get(reply_key)
         if stored:
             if stored["text"].startswith("[Error]"):
                 st.error(stored["text"])
-                st.info("Make sure Ollama is running (`ollama serve`) or check LLM config on the Agents page.")
+                st.info("Make sure Ollama is running (`ollama serve`) or configure LLM on the Agents page.")
             else:
-                st.markdown(f"**{stored['agent']}** says:")
-                st.markdown(stored["text"])
+                _render_agent_response_card(stored["agent"], stored["text"])
 
-        st.caption("Powered by the Agent Pipeline. Configure LLM on the Agents page.")
+        st.caption("🔌 Configure LLM backend · Agents page")
 
 
 def render_contextual_insight(
@@ -544,8 +567,15 @@ def render_contextual_insight(
             expert = exp
             break
 
-    with st.expander(f"🔬 AI Scientific Analysis ({expert})", expanded=False):
-        col_btn, col_clr = st.columns([3, 1])
+    _exp_icon = AGENT_ICONS.get(expert, "🔬")
+    _exp_color = AGENT_COLORS.get(expert, "#6366f1")
+    with st.expander(f"{_exp_icon} Scientific Analysis — {expert}", expanded=False):
+        st.markdown(
+            f'<div style="font-size:.78rem;color:{_exp_color};margin-bottom:8px">'
+            f'{_html.escape(AGENT_ROLES.get(expert, ""))}</div>',
+            unsafe_allow_html=True,
+        )
+        col_btn, col_deep, col_clr = st.columns([2, 2, 1])
         with col_btn:
             clicked = st.button(
                 f"🧠 Analyze with {expert}",
@@ -553,18 +583,28 @@ def render_contextual_insight(
                 use_container_width=True,
                 type="primary",
             )
+        with col_deep:
+            deep_mode = st.checkbox(
+                "🔍 Deep analysis",
+                key=f"{key_prefix}_deep",
+                help="Step-by-step reasoning, ~2× longer output",
+            )
         with col_clr:
-            if st.button("Clear", key=f"{key_prefix}_clr", use_container_width=True):
+            if st.button("↺", key=f"{key_prefix}_clr", use_container_width=True, help="Clear result"):
                 st.session_state.pop(reply_key, None)
                 st.rerun()
 
         if clicked:
-            with st.spinner(f"Consulting {expert}..."):
+            max_tok = 1000 if deep_mode else 600
+            q = auto_q
+            if deep_mode:
+                q = "Think step by step. Structure your response with numbered sections.\n\n" + q
+            with st.spinner(f"Consulting {expert}…"):
                 reply = ask_agent_advice(
-                    question=auto_q,
+                    question=q,
                     agent_name=expert,
                     context=context,
-                    max_tokens=600,
+                    max_tokens=max_tok,
                 )
             st.session_state[reply_key] = {"agent": expert, "text": reply}
 
@@ -573,8 +613,7 @@ def render_contextual_insight(
             if stored["text"].startswith("[Error]"):
                 st.error(stored["text"])
             else:
-                st.markdown(f"**{stored['agent']}:**")
-                st.markdown(stored["text"])
+                _render_agent_response_card(stored["agent"], stored["text"])
 
 
 def render_ml_stats_panel(
@@ -612,12 +651,14 @@ def render_ml_stats_panel(
 
     # ── ML expert analysis button ─────────────────────────────────────
     reply_key = f"_ml_stats_reply_{key_prefix}"
-    with st.expander(f"🤖 ML Specialist Interpretation — {page_name}", expanded=False):
-        st.caption(
-            "The Machine Learning Specialist will interpret correlations, "
-            "feature importance, and distribution patterns in context of your workflow."
+    _ml_color = AGENT_COLORS["Machine Learning Specialist"]
+    with st.expander(f"🤖 ML Specialist — {page_name}", expanded=False):
+        st.markdown(
+            f'<div style="font-size:.78rem;color:{_ml_color};margin-bottom:8px">'
+            f'Feature engineering · regression · statistical patterns · anomaly detection</div>',
+            unsafe_allow_html=True,
         )
-        col_btn, col_clr = st.columns([3, 1])
+        col_btn, col_deep, col_clr = st.columns([2, 2, 1])
         with col_btn:
             clicked = st.button(
                 "🧠 Run ML Analysis",
@@ -625,8 +666,14 @@ def render_ml_stats_panel(
                 use_container_width=True,
                 type="primary",
             )
+        with col_deep:
+            deep_mode = st.checkbox(
+                "🔍 Deep analysis",
+                key=f"{key_prefix}_ml_deep",
+                help="Extended reasoning with Lasso/Ridge feature selection context",
+            )
         with col_clr:
-            if st.button("Clear", key=f"{key_prefix}_ml_clr", use_container_width=True):
+            if st.button("↺", key=f"{key_prefix}_ml_clr", use_container_width=True, help="Clear"):
                 st.session_state.pop(reply_key, None)
                 st.rerun()
 
@@ -636,16 +683,23 @@ def render_ml_stats_panel(
             try:
                 df = pd.DataFrame(records)
                 num_cols = numeric_keys or [c for c in df.select_dtypes(include=[np.number]).columns]
-                # Build a rich context with descriptive stats
+
+                # Build rich statistical context
                 stat_lines = [f"Dataset: {len(records)} samples, {len(num_cols)} numeric features"]
-                for col in num_cols[:12]:
+                for col in num_cols[:14]:
                     s = df[col].dropna()
                     if not s.empty:
+                        try:
+                            from scipy.stats import skew as _skew, kurtosis as _kurt
+                            sk, ku = float(_skew(s)), float(_kurt(s))
+                        except Exception:
+                            sk, ku = float(s.skew()), 0.0
                         stat_lines.append(
-                            f"  {col}: mean={s.mean():.4g}, std={s.std():.4g}, "
+                            f"  {col}: n={len(s)}, mean={s.mean():.4g}, std={s.std():.4g}, "
                             f"min={s.min():.4g}, max={s.max():.4g}, "
-                            f"skew={float(s.skew()):.3f}"
+                            f"skew={sk:+.3f}, kurt={ku:+.3f}"
                         )
+
                 if len(num_cols) >= 2:
                     corr = df[num_cols].corr()
                     pairs = []
@@ -655,11 +709,26 @@ def render_ml_stats_panel(
                                 continue
                             pairs.append((c1, c2, corr.loc[c1, c2]))
                     pairs.sort(key=lambda x: abs(x[2]), reverse=True)
-                    stat_lines.append("Top correlations:")
-                    for c1, c2, r in pairs[:5]:
-                        stat_lines.append(f"  {c1} ↔ {c2}: r={r:.3f}")
+                    stat_lines.append("Top correlations (Pearson r):")
+                    for c1, c2, r in pairs[:8]:
+                        direction = "↑" if r > 0 else "↓"
+                        stat_lines.append(f"  {c1} ↔ {c2}: r={r:+.3f} {direction}")
+
                 if target_key and target_key in num_cols:
-                    stat_lines.append(f"Target: {target_key}")
+                    stat_lines.append(f"Regression target: {target_key}")
+                    # Add sklearn feature importance if available
+                    try:
+                        from sklearn.feature_selection import mutual_info_regression
+                        feat_cols = [c for c in num_cols if c != target_key]
+                        X = df[feat_cols].fillna(0).values
+                        y = df[target_key].fillna(0).values
+                        mi = mutual_info_regression(X, y, random_state=42)
+                        mi_pairs = sorted(zip(feat_cols, mi), key=lambda x: x[1], reverse=True)
+                        stat_lines.append("Mutual information with target:")
+                        for feat, score in mi_pairs[:6]:
+                            stat_lines.append(f"  {feat}: MI={score:.4f}")
+                    except Exception:
+                        pass
 
                 stats_context = "\n".join(stat_lines)
                 cross_ctx = _get_cross_page_context()
@@ -667,21 +736,28 @@ def render_ml_stats_panel(
                 if cross_ctx and "No cross-page" not in cross_ctx:
                     full_context += "\n\n" + cross_ctx
 
+                max_tok = 1100 if deep_mode else 750
                 question = (
-                    f"Analyze the statistical patterns in these {page_name} results. "
-                    "Identify: (1) any strongly correlated pairs that suggest redundancy "
-                    "or mechanistic linkage, (2) highly skewed distributions that suggest "
-                    "outliers or non-normal processes, (3) feature importances (highest |r| "
-                    "with the target) and what they imply biologically, (4) any anomalies "
-                    "or quality concerns flagged by the statistics. "
-                    "Conclude with 2-3 concrete recommendations for next steps."
+                    f"You are analyzing {page_name} results from a protein design workflow. "
+                    f"The dataset has {len(records)} samples and {len(num_cols)} numeric features.\n\n"
+                    "Provide a structured ML analysis covering:\n"
+                    "1. **Distributional patterns** — flag high skew (|skew|>1) or heavy tails (|kurt|>2)\n"
+                    "2. **Correlation structure** — identify strongly correlated pairs (|r|>0.7) that suggest "
+                    "mechanistic linkage or redundancy; flag multicollinearity risks\n"
+                    "3. **Feature relevance** — rank features by relevance to the target; interpret what "
+                    "high/low importance means biologically or structurally\n"
+                    "4. **Anomalies and outliers** — flag metrics with extreme values or inconsistent patterns\n"
+                    "5. **Recommendations** — 2-3 concrete next steps for analysis or experimental follow-up"
                 )
-                with st.spinner("Running ML analysis..."):
+                if deep_mode:
+                    question = "Think step by step. Use numbered headers for each section.\n\n" + question
+
+                with st.spinner("Running ML analysis…"):
                     reply = ask_agent_advice(
                         question=question,
                         agent_name="Machine Learning Specialist",
                         context=full_context,
-                        max_tokens=700,
+                        max_tokens=max_tok,
                     )
                 st.session_state[reply_key] = reply
             except Exception as e:
@@ -692,11 +768,10 @@ def render_ml_stats_panel(
             if str(stored).startswith("[Error]"):
                 st.error(stored)
             else:
-                st.markdown("**Machine Learning Specialist:**")
-                st.markdown(stored)
+                _render_agent_response_card("Machine Learning Specialist", stored)
 
 
-# ── Agent icon lookup ─────────────────────────────────────────────────
+# ── Agent identity map ────────────────────────────────────────────────
 
 AGENT_ICONS: Dict[str, str] = {
     "Principal Investigator": "👑",
@@ -710,6 +785,64 @@ AGENT_ICONS: Dict[str, str] = {
     "Immunologist": "🧬",
     "Scientific Critic": "🎯",
 }
+
+AGENT_COLORS: Dict[str, str] = {
+    "Principal Investigator": "#fbbf24",
+    "Structural Biologist": "#60a5fa",
+    "Computational Biologist": "#34d399",
+    "Machine Learning Specialist": "#818cf8",
+    "Protein Engineer": "#fb923c",
+    "Biophysicist": "#f472b6",
+    "Digital Recep": "#a78bfa",
+    "Liam": "#22c55e",
+    "Immunologist": "#67e8f9",
+    "Scientific Critic": "#f87171",
+}
+
+AGENT_ROLES: Dict[str, str] = {
+    "Principal Investigator": "Strategic oversight · Experimental design",
+    "Structural Biologist": "Structure quality · pLDDT · fold assessment",
+    "Computational Biologist": "Sequence analysis · MSA · evolution",
+    "Machine Learning Specialist": "Feature analysis · regression · statistics",
+    "Protein Engineer": "Stability · mutations · biophysics",
+    "Biophysicist": "Energy · thermodynamics · dynamics",
+    "Digital Recep": "Refinement · OST · quality metrics",
+    "Liam": "Evaluation metrics · scoring · benchmarks",
+    "Immunologist": "Epitopes · immunogenicity · antibodies",
+    "Scientific Critic": "Critical review · limitations · rigour",
+}
+
+
+def _render_agent_response_card(agent_name: str, text: str) -> None:
+    """Render a professional styled response card with agent identity header."""
+    icon = AGENT_ICONS.get(agent_name, "🧬")
+    color = AGENT_COLORS.get(agent_name, "#6366f1")
+    role = AGENT_ROLES.get(agent_name, "Domain Expert")
+    esc_name = _html.escape(agent_name)
+    esc_role = _html.escape(role)
+
+    st.markdown(
+        f"""
+<div style="
+    border-left: 4px solid {color};
+    background: linear-gradient(135deg, rgba(30,36,51,0.95), rgba(20,24,40,0.98));
+    border-radius: 0 12px 12px 0;
+    padding: 16px 20px 14px 18px;
+    margin: 12px 0 8px 0;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.35);
+">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+    <span style="font-size:1.4rem;line-height:1">{icon}</span>
+    <div>
+      <div style="font-weight:700;color:{color};font-size:0.95rem;letter-spacing:.01em">{esc_name}</div>
+      <div style="font-size:0.72rem;color:#6b7280;margin-top:1px">{esc_role}</div>
+    </div>
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+    st.markdown(text)
 
 
 @contextmanager
@@ -786,9 +919,18 @@ def render_all_experts_panel(
     running_key = f"{key_prefix}_running"
 
     with st.expander(title, expanded=expanded):
-        st.caption(
-            "All-expert panel: PI + Structural, Computational, ML, Immunology, "
-            "Engineering, Biophysics, Refinement, QA, and Critic."
+        st.markdown(
+            '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">'
+            + "".join(
+                f'<span style="background:rgba(30,36,51,0.9);border:1px solid {AGENT_COLORS.get(a,"#6366f1")}33;'
+                f'color:{AGENT_COLORS.get(a,"#6366f1")};border-radius:20px;padding:2px 10px;font-size:.7rem">'
+                f'{AGENT_ICONS.get(a,"🧬")} {_html.escape(a)}</span>'
+                for a in ["Principal Investigator", "Structural Biologist", "Computational Biologist",
+                          "Machine Learning Specialist", "Protein Engineer", "Biophysicist",
+                          "Digital Recep", "Immunologist", "Scientific Critic"]
+            )
+            + "</div>",
+            unsafe_allow_html=True,
         )
         effective_provider = provider_override
         effective_model = model_override
