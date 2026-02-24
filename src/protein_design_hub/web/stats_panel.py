@@ -355,7 +355,6 @@ def render_stats_panel(
 
                 # Build feature matrix with engineering
                 import numpy as np
-                import pandas as pd
 
                 eng_df = num_df[feature_cols].copy()
                 eng_feature_names = list(feature_cols)
