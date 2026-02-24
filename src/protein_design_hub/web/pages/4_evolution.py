@@ -199,18 +199,19 @@ with main_tabs[0]:
 
             # Quick biophysical analysis
             try:
-                from protein_design_hub.biophysics import calculate_all_properties
-
-                props = calculate_all_properties(seq)
+                from protein_design_hub.biophysics import (
+                    calculate_pi, calculate_gravy,
+                    calculate_instability_index, calculate_aliphatic_index,
+                )
                 st.markdown("**Properties:**")
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.metric("pI", f"{props.isoelectric_point:.2f}")
-                    st.metric("GRAVY", f"{props.gravy:.2f}")
+                    st.metric("pI", f"{calculate_pi(seq):.2f}")
+                    st.metric("GRAVY", f"{calculate_gravy(seq):.2f}")
                 with col2:
-                    st.metric("Instability", f"{props.instability_index:.1f}")
-                    st.metric("Aliphatic", f"{props.aliphatic_index:.1f}")
-            except ImportError:
+                    st.metric("Instability", f"{calculate_instability_index(seq):.1f}")
+                    st.metric("Aliphatic", f"{calculate_aliphatic_index(seq):.1f}")
+            except Exception:
                 pass
 
     st.markdown("---")

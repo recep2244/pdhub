@@ -437,25 +437,28 @@ with main_tabs[2]:
 
                         elif config['type'] == 'biophysics':
                             try:
-                                from protein_design_hub.biophysics import calculate_all_properties
+                                from protein_design_hub.biophysics import (
+                                    calculate_mw, calculate_pi, calculate_gravy,
+                                    calculate_instability_index,
+                                )
                                 from protein_design_hub.biophysics.solubility import SolubilityPredictor
 
-                                props = calculate_all_properties(job['sequence'])
+                                seq = job['sequence']
                                 sol_pred = SolubilityPredictor()
-                                sol = sol_pred.predict(job['sequence'])
+                                sol = sol_pred.predict(seq)
 
                                 job['result'] = {
-                                    'mw': props.molecular_weight,
-                                    'pi': props.isoelectric_point,
-                                    'gravy': props.gravy,
-                                    'instability': props.instability_index,
+                                    'mw': calculate_mw(seq),
+                                    'pi': calculate_pi(seq),
+                                    'gravy': calculate_gravy(seq),
+                                    'instability': calculate_instability_index(seq),
                                     'solubility_score': sol['solubility_score'],
                                 }
                                 job['status'] = 'complete'
 
-                            except ImportError:
+                            except Exception as _e:
                                 job['status'] = 'failed'
-                                job['error'] = "Biophysics module not available"
+                                job['error'] = f"Biophysics error: {_e}"
 
                         else:
                             job['status'] = 'failed'
