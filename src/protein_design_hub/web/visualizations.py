@@ -434,6 +434,9 @@ def create_structure_viewer(
     show_surface: bool = False,
     surface_opacity: float = 0.7,
     title: str = "",
+    highlight_residues: "Optional[List[int]]" = None,
+    mutation_label: str = "",
+    score_overlay: "Optional[Dict[str, str]]" = None,
 ) -> str:
     """
     Create an enhanced 3D structure viewer using 3Dmol.js.
@@ -452,6 +455,54 @@ def create_structure_viewer(
 
     # Escape for JS template literal
     model_data_js = model_data.replace("\\", "\\\\").replace("`", "\\`")
+
+    # Build score overlay HTML
+    _score_overlay_html = ""
+    if score_overlay or mutation_label:
+        _lines = []
+        if mutation_label:
+            _lines.append(
+                f'<div style="color:#f59e0b;font-weight:700;font-size:12px;margin-bottom:4px;'
+                f'letter-spacing:0.06em;">🔬 {mutation_label}</div>'
+            )
+        for _k, _v in (score_overlay or {}).items():
+            _lines.append(
+                f'<div><span style="color:#94a3b8;">{_k}:</span>'
+                f' <span style="color:#e2e8f0;font-weight:600;">{_v}</span></div>'
+            )
+        _score_overlay_html = (
+            '<div style="position:absolute;top:46px;right:14px;'
+            'background:rgba(5,5,8,0.88);color:#e2e8f0;padding:8px 12px;'
+            'border-radius:8px;font-size:11px;font-family:\'JetBrains Mono\',monospace;'
+            'z-index:100;line-height:1.75;border:1px solid rgba(255,255,255,0.1);'
+            'pointer-events:none;">'
+            + "".join(_lines)
+            + "</div>"
+        )
+
+    # Build JS for highlighting specific residues
+    _highlight_js = ""
+    if highlight_residues:
+        _resi_js = "[" + ",".join(str(r) for r in highlight_residues) + "]"
+        _label_js = ""
+        if mutation_label:
+            _escaped_label = mutation_label.replace("'", "\\'")
+            _label_js = (
+                f"viewer.addLabel('{_escaped_label}', {{"
+                f"resi: {highlight_residues[0]}, "
+                f"backgroundOpacity: 0.85, backgroundColor: '#f59e0b', "
+                f"fontColor: '#000', fontSize: 11, fontStyle: 'bold'"
+                f"}});"
+            )
+        _highlight_js = f"""
+        // Highlight mutant residues
+        var hlResi = {_resi_js};
+        if (hlResi.length > 0) {{{{
+            viewer.addStyle({{{{resi: hlResi}}}}, {{{{stick: {{{{color: '#f59e0b', radius: 0.28}}}}}}}});
+            viewer.addStyle({{{{resi: hlResi}}}}, {{{{sphere: {{{{color: '#f59e0b', radius: 0.45}}}}}}}});
+            {_label_js}
+        }}}}
+        viewer.render();"""
 
     toolbar_html = ""
     if show_toolbar:
@@ -524,6 +575,7 @@ def create_structure_viewer(
             font-family: 'JetBrains Mono', monospace; font-size: 0.58rem;
             color: #334155; letter-spacing: 0.08em; pointer-events: none;
         ">{display_name[:32].upper()}</div>
+        {_score_overlay_html}
         """
 
     html = f"""
@@ -655,6 +707,7 @@ def create_structure_viewer(
         viewer.zoomTo();
         viewer.render();
         if (spinning) viewer.spin('y', 0.5);
+        {_highlight_js}
     }})();
     </script>
     """
@@ -1913,21 +1966,29 @@ def show_structure_with_pymol_fallback(
     superimpose: bool = True,
     ray: bool = False,
     key: str = "struct",
+    highlight_residues: "Optional[List[int]]" = None,
+    mutation_label: str = "",
+    score_overlay: "Optional[Dict[str, str]]" = None,
 ) -> None:
-    """Display structure(s) using PyMOL (high-quality PNG) with 3Dmol.js fallback.
+    """Display structure(s) using interactive 3Dmol.js viewer (primary) with optional
+    PyMOL HD-render button.
 
     Args:
         structure_paths: One of:
             - A single ``Path``/``str``
             - A list of ``Path``/``str``
             - A list of ``(Path, name)`` tuples
-        title: Caption shown above the image.
-        height: Height for 3Dmol.js viewer (pixels).
-        superimpose: Align structures to the first when using PyMOL.
-        ray: Enable PyMOL ray-tracing (slower, higher quality).
+        title: Caption shown above the viewer.
+        height: Viewer height in pixels.
+        superimpose: Align structures to first when using PyMOL.
+        ray: Enable PyMOL ray-tracing (slower but higher quality).
         key: Unique Streamlit widget key prefix.
+        highlight_residues: Residue numbers (1-indexed) to highlight in yellow.
+        mutation_label: Label shown on the highlighted residue and overlay.
+        score_overlay: Dict of score_name -> value_str displayed as an overlay panel.
     """
     import streamlit as st
+    import streamlit.components.v1 as components
     import tempfile
 
     # ---------- normalise input ----------
@@ -1948,43 +2009,49 @@ def show_structure_with_pymol_fallback(
         st.warning("No structure files found.")
         return
 
-    # ---------- try PyMOL ----------
+    if title:
+        st.caption(f"🔬 **{title}**")
+
+    # ---------- Primary: interactive 3Dmol.js ----------
+    if len(structs) == 1:
+        html_str = create_structure_viewer(
+            structs[0][0],
+            title=structs[0][1],
+            height=height,
+            highlight_residues=highlight_residues,
+            mutation_label=mutation_label,
+            score_overlay=score_overlay,
+        )
+    else:
+        html_str = create_structure_comparison_3d(
+            model_path=structs[0][0],
+            reference_path=structs[1][0],
+            title=title,
+            height=height,
+        )
+    components.html(html_str, height=height + 20, scrolling=False)
+
+    # ---------- Optional: PyMOL HD render button ----------
     pymol_ok = is_pymol_available()
-    rendered = False
-
     if pymol_ok:
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            out_img = Path(tmp.name)
-        try:
-            success = render_pymol_headless(structs, out_img, superimpose=superimpose, ray=ray)
-            if success and out_img.exists() and out_img.stat().st_size > 1000:
-                if title:
-                    st.caption(f"🔬 **{title}** — PyMOL render")
-                st.image(str(out_img), use_container_width=True)
-                with st.expander("🔄 Interactive 3D view"):
-                    if len(structs) == 1:
-                        create_structure_viewer(structs[0][0], title=structs[0][1], height=height)
+        _pymol_key = f"_pymol_hd_{key}"
+        if st.button(
+            "📸 PyMOL HD Render",
+            key=f"{_pymol_key}_btn",
+            help="Render high-quality static PNG using PyMOL",
+        ):
+            st.session_state[_pymol_key] = True
+        if st.session_state.get(_pymol_key):
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                out_img = Path(tmp.name)
+            with st.spinner("Rendering with PyMOL…"):
+                try:
+                    success = render_pymol_headless(
+                        structs, out_img, superimpose=superimpose, ray=ray
+                    )
+                    if success and out_img.exists() and out_img.stat().st_size > 1000:
+                        st.image(str(out_img), use_container_width=True, caption="PyMOL HD render")
                     else:
-                        create_structure_comparison_3d(
-                            model_path=structs[0][0],
-                            reference_path=structs[1][0],
-                            title=title,
-                            height=height,
-                        )
-                rendered = True
-        except Exception:
-            pass
-
-    # ---------- 3Dmol.js fallback ----------
-    if not rendered:
-        if title:
-            st.caption(f"🔬 **{title}**")
-        if len(structs) == 1:
-            create_structure_viewer(structs[0][0], title=structs[0][1], height=height)
-        else:
-            create_structure_comparison_3d(
-                model_path=structs[0][0],
-                reference_path=structs[1][0],
-                title=title,
-                height=height,
-            )
+                        st.warning("PyMOL render produced no output.")
+                except Exception as _e:
+                    st.warning(f"PyMOL render error: {_e}")

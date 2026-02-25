@@ -55,6 +55,7 @@ from protein_design_hub.web.agent_helpers import (
     agent_sidebar_status,
     render_all_experts_panel,
     observed_scoring_section,
+    score_mutant_with_ost_molprobity,
 )
 from protein_design_hub.web.visualizations import show_structure_with_pymol_fallback
 from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
@@ -3200,7 +3201,18 @@ with tab_manual:
                     try:
                         vpath = Path(variant.structure_path)
                         if vpath.exists():
-                            show_structure_with_pymol_fallback(vpath, height=320, title=variant.mutation_code)
+                            _v_positions = getattr(variant, "positions", None)
+                            show_structure_with_pymol_fallback(
+                                vpath,
+                                height=320,
+                                title=variant.mutation_code,
+                                key=f"variant_view_{variant.mutation_code}",
+                                highlight_residues=_v_positions,
+                                mutation_label=variant.mutation_code,
+                                score_overlay={
+                                    "Δ pLDDT": f"{variant.delta_mean_plddt:+.2f}"
+                                } if hasattr(variant, "delta_mean_plddt") else None,
+                            )
                         else:
                             st.info("Variant structure not found.")
                     except Exception:
@@ -3415,9 +3427,65 @@ with tab_manual:
                                 _mpath = Path(_mpath) if not isinstance(_mpath, Path) else _mpath
                                 if _mpath.exists():
                                     with st.expander(f"🔬 View {mut.mutation_code}"):
+                                        # Build initial score overlay from mutation metrics
+                                        _init_overlay: Dict[str, str] = {
+                                            "Δ pLDDT": f"{mut.delta_mean_plddt:+.2f}",
+                                        }
+                                        _rmsd_v = getattr(mut, "rmsd_to_base", None)
+                                        if _rmsd_v:
+                                            _init_overlay["RMSD"] = f"{_rmsd_v:.2f} Å"
+                                        _clash_v = getattr(mut, "clash_score", None)
+                                        if _clash_v is not None:
+                                            _init_overlay["Clash"] = f"{_clash_v:.1f}"
+                                        # Interactive 3Dmol.js viewer with mutation highlight
+                                        _mut_pos = getattr(mut, "position", None)
                                         show_structure_with_pymol_fallback(
-                                            _mpath, height=240, title=mut.mutation_code
+                                            _mpath,
+                                            height=280,
+                                            title=mut.mutation_code,
+                                            key=f"mut_view_{mut.mutation_code}",
+                                            highlight_residues=[_mut_pos] if _mut_pos else None,
+                                            mutation_label=mut.mutation_code,
+                                            score_overlay=_init_overlay,
                                         )
+                                        # OST + MolProbity scoring button
+                                        _wt_path = st.session_state.get("base_structure_path")
+                                        if _wt_path and Path(_wt_path).exists():
+                                            _score_ck = f"_mutscr_{mut.mutation_code}"
+                                            _existing = st.session_state.get(_score_ck)
+                                            if _existing is None:
+                                                if st.button(
+                                                    "🔬 Score vs WT (OST + MolProbity)",
+                                                    key=f"btn_score_{mut.mutation_code}",
+                                                    help="Run OST compare-structures and MolProbity on this mutant vs WT",
+                                                ):
+                                                    with st.spinner(f"Scoring {mut.mutation_code} vs WT…"):
+                                                        _score_data = score_mutant_with_ost_molprobity(
+                                                            mutant_path=_mpath,
+                                                            wt_path=Path(_wt_path),
+                                                            position=_mut_pos or 1,
+                                                            mutation_code=mut.mutation_code,
+                                                            chain="A",
+                                                            cache_key=_score_ck,
+                                                        )
+                                                    st.rerun()
+                                            if _existing:
+                                                if "error" in _existing:
+                                                    st.warning(f"Scoring error: {_existing['error']}")
+                                                else:
+                                                    _ov = _existing.get("overlay", {})
+                                                    _ls = _existing.get("local_scores", {})
+                                                    if _ov:
+                                                        st.markdown("**OST + MolProbity scores:**")
+                                                        _score_cols = st.columns(3)
+                                                        for _i, (_k, _v) in enumerate(_ov.items()):
+                                                            _score_cols[_i % 3].metric(_k, _v)
+                                                    if any(v is not None for v in _ls.values()):
+                                                        st.caption(f"**Local scores at position {_mut_pos}:**  " +
+                                                            "  ·  ".join(
+                                                                f"{k.split('.')[-2]}: {v:.3f}"
+                                                                for k, v in _ls.items() if v is not None
+                                                            ))
                             except Exception:
                                 pass
 
@@ -3495,8 +3563,21 @@ with tab_manual:
                     with tempfile.NamedTemporaryFile(suffix=".pdb", mode="w", delete=False) as f:
                         f.write(mut.structure_path.read_text())
                         p2 = f.name
+                    _cmp_delta = getattr(mut, "delta_mean_plddt", None)
+                    _cmp_rmsd = getattr(mut, "rmsd_to_base", None)
+                    _cmp_overlay: Dict[str, str] = {}
+                    if _cmp_delta is not None:
+                        _cmp_overlay["Δ pLDDT"] = f"{_cmp_delta:+.2f}"
+                    if _cmp_rmsd:
+                        _cmp_overlay["RMSD"] = f"{_cmp_rmsd:.2f} Å"
                     show_structure_with_pymol_fallback(
-                        Path(p2), height=320, title=mut.mutation_code
+                        Path(p2),
+                        height=320,
+                        title=mut.mutation_code,
+                        key=f"cmp_mut_{mut.mutation_code}",
+                        highlight_residues=[mut.position],
+                        mutation_label=mut.mutation_code,
+                        score_overlay=_cmp_overlay or None,
                     )
                     # Inline agent interpretation of the comparison
                     _delta = getattr(mut, "delta_mean_plddt", None)

@@ -1797,3 +1797,127 @@ def observed_scoring_section(
                     mime="text/tab-separated-values",
                     key=f"{section_key}_dl",
                 )
+
+
+# =============================================================================
+# Mutant vs WT scoring (OST + MolProbity)
+# =============================================================================
+
+def score_mutant_with_ost_molprobity(
+    mutant_path: Path,
+    wt_path: Path,
+    position: int,
+    mutation_code: str = "",
+    chain: str = "A",
+    cache_key: str = "",
+) -> Optional[Dict]:
+    """Score a mutant structure against WT using OST compare-structures + MolProbity.
+
+    Returns a dict with keys:
+        - ``result``:       ScoringResult object
+        - ``overlay``:      Dict[str, str] — score label → formatted value, suitable
+                            for the ``score_overlay`` param of ``create_structure_viewer``
+        - ``local_scores``: Dict[str, float | None] — per-residue OST scores at
+                            the mutation position
+        - ``error``:        str (only present on failure)
+
+    The result is cached in ``st.session_state[cache_key]`` when *cache_key* is given.
+    """
+    if cache_key and st.session_state.get(cache_key) is not None:
+        return st.session_state[cache_key]
+
+    def _fmt(v, fmt: str = ".3f") -> str:
+        if v is None:
+            return "—"
+        try:
+            return format(float(v), fmt)
+        except Exception:
+            return str(v)
+
+    try:
+        import tempfile
+        from protein_design_hub.evaluation.observed_scoring import (
+            ModelEntry,
+            get_observed_scorer,
+        )
+
+        scorer = get_observed_scorer()
+        entry = ModelEntry(
+            tool="mutant",
+            model=mutation_code or Path(mutant_path).stem,
+            model_path=Path(mutant_path),
+            model_stage="mutant",
+        )
+
+        # Run in a temp dir so we don't pollute the workspace
+        with tempfile.TemporaryDirectory(prefix="mutant_score_") as _tmpdir:
+            results, _ = scorer.score(
+                [entry], reference=Path(wt_path), output_dir=Path(_tmpdir)
+            )
+
+        if not results:
+            return {"error": "scorer returned no results", "overlay": {}, "local_scores": {}}
+
+        sr = results[0]
+        m = sr.ost_metrics
+        mp = sr.molprobity_metrics
+
+        # ── global OST scores ──
+        lddt = m.get("ost.lddt")
+        bb_lddt = m.get("ost.bb_lddt")
+        tm = m.get("ost.tm_score")
+        rmsd = m.get("ost.rmsd")
+        aa_mean = m.get("ost.aa_local_lddt.mean")
+
+        # ── per-residue scores at mutation site ──
+        pos_pfx = f"{chain}.{position}."
+        local_lddt = m.get(f"ost.local_lddt.{pos_pfx}")
+        bb_local = m.get(f"ost.bb_local_lddt.{pos_pfx}")
+        cad_local = m.get(f"ost.local_cad_score.{pos_pfx}")
+
+        # ── MolProbity ──
+        mp_score = mp.get("molprobity_score")
+        clashscore = mp.get("molprobity_clashscore") or mp.get("phenix_clashscore")
+        rama = mp.get("molprobity_rama_favored_pct")
+
+        # Build display overlay (most informative metrics first)
+        overlay: Dict[str, str] = {}
+        if lddt is not None:
+            overlay["lDDT"] = _fmt(lddt)
+        if bb_lddt is not None:
+            overlay["BB-lDDT"] = _fmt(bb_lddt)
+        if aa_mean is not None:
+            overlay["AA-lDDT (mean)"] = _fmt(aa_mean)
+        if tm is not None:
+            overlay["TM-score"] = _fmt(tm)
+        if rmsd is not None:
+            overlay["RMSD"] = f"{_fmt(rmsd, '.2f')} Å"
+        if local_lddt is not None:
+            overlay[f"Local lDDT [{position}]"] = _fmt(local_lddt)
+        if bb_local is not None:
+            overlay[f"BB lDDT [{position}]"] = _fmt(bb_local)
+        if cad_local is not None:
+            overlay[f"CAD score [{position}]"] = _fmt(cad_local)
+        if mp_score is not None:
+            overlay["MolProbity"] = _fmt(mp_score, ".2f")
+        if clashscore is not None:
+            overlay["Clashscore"] = _fmt(clashscore, ".1f")
+        if rama is not None:
+            overlay["Rama favored"] = f"{_fmt(rama, '.1f')}%"
+
+        local_scores: Dict[str, Optional[float]] = {
+            f"ost.local_lddt.{pos_pfx}": local_lddt,
+            f"ost.bb_local_lddt.{pos_pfx}": bb_local,
+            f"ost.local_cad_score.{pos_pfx}": cad_local,
+        }
+
+        out: Dict = {"result": sr, "overlay": overlay, "local_scores": local_scores}
+        if cache_key:
+            st.session_state[cache_key] = out
+        return out
+
+    except Exception as _e:
+        err = {"error": str(_e), "overlay": {}, "local_scores": {}}
+        if cache_key:
+            st.session_state[cache_key] = err
+        return err
