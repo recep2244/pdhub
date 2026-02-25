@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Performance & Reliability** - Cap OST scoring, surface silent fallbacks, fix fragile scanner init (completed 2026-02-21)
 - [x] **Phase 4: Test Coverage** - Integration test Phase 1-2 flow, unit tests for parsing and failure modes (completed 2026-02-22)
 - [x] **Phase 5: Reporting** - Mutation ranking charts, per-residue pLDDT visualization, OST metric table, PDF/HTML export (completed 2026-02-23)
-- [ ] **Phase 6: New Agent Workflows** - Antibody design pipeline, binding affinity analysis workflow
+- [x] **Phase 6: New Agent Workflows** - Antibody design pipeline, binding affinity analysis workflow (completed 2026-02-25)
 - [ ] **Phase 7: Async Job Queue** - Background job submission, sequential multi-protein execution, live status in UI
 - [ ] **Phase 8: New Predictors** - AlphaFold3 API integration, OpenFold local GPU integration
 
@@ -144,6 +144,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 3. Performance & Reliability | 2/2 | Complete    | 2026-02-21 |
 | 4. Test Coverage | 2/2 | Complete    | 2026-02-22 |
 | 5. Reporting | 2/2 | Complete    | 2026-02-23 |
-| 6. New Agent Workflows | 1/2 | In Progress|  |
+| 6. New Agent Workflows | 2/2 | Complete   | 2026-02-25 |
 | 7. Async Job Queue | 0/TBD | Not started | - |
 | 8. New Predictors | 0/TBD | Not started | - |

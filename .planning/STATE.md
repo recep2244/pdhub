@@ -89,6 +89,7 @@ Recent decisions affecting current work:
 - [Phase 06-new-agent-workflows]: [06-01] nanobody_llm uses direct assignment for team_members (NANOBODY_TEAM_MEMBERS mandatory, caller overrides ignored by design)
 - [Phase 06-new-agent-workflows]: [06-01] binding_affinity uses setdefault for team_lead and team_members (callers may override with custom expert selection)
 - [Phase 06-new-agent-workflows]: [06-01] Specialised pipeline mode pattern: builder function at module level + elif branch in __init__ + updated docstring
+- [Phase 06-new-agent-workflows]: _PIPELINE_MODES defined inside with tabs[1] block; mode_str derived from session_state before widget then re-bound after widget render; use_llm = mode_str \!= 'step' works for all four modes
 
 ### Pending Todos
 
