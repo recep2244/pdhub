@@ -32,6 +32,9 @@ from protein_design_hub.web.agent_helpers import (
     agent_sidebar_status,
     render_all_experts_panel,
     observed_scoring_section,
+    render_pymolai_section,
+    render_pymolai_chatbot,
+    render_pymolai_viewer,
 )
 from protein_design_hub.web.visualizations import show_structure_with_pymol_fallback
 from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
@@ -218,6 +221,20 @@ with col_a:
         
         if preview_path:
              show_structure_with_pymol_fallback(preview_path, title="Backbone Preview", height=320)
+
+             _mpnn_port = 0
+             try:
+                 from protein_design_hub.web.pymol_server import get_pymol_server as _gps_mpnn
+                 _srv_mpnn = _gps_mpnn()
+                 if _srv_mpnn is not None:
+                     _mpnn_port = _srv_mpnn.server_address[1]
+             except Exception:
+                 pass
+             render_pymolai_section(
+                 key_prefix="mpnn_viewer",
+                 pymol_port=_mpnn_port,
+                 label="💬 Ask PyMolAI — Analyse backbone structure",
+             )
 
              # Backbone quality check (MolProbity — no reference needed)
              observed_scoring_section(
@@ -440,6 +457,11 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=
                     title="Design Failed"
                 )
             else:
+                # Persist result so it survives page reruns
+                st.session_state["mpnn_last_result"] = result
+                st.session_state["mpnn_last_backbone"] = backbone_path
+                st.session_state["mpnn_last_job_id"] = job_id
+
                 # Success!
                 progress_steps(["Initialize", "Design", "Analyze", "Complete"], current_step=3)
 
@@ -539,9 +561,12 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=
                 with col_d2:
                     st.markdown("**Validation**")
                     if st.button("🔮 Fold Top Sequence (ESMFold)", use_container_width=True):
-                         st.session_state.predict_sequence = result.sequences[0].sequence
-                         st.session_state.predict_name = f"{result.sequences[0].id}_check"
-                         st.switch_page("pages/1_predict.py")
+                        if result.sequences:
+                            st.session_state.predict_sequence = result.sequences[0].sequence
+                            st.session_state.predict_name = f"{result.sequences[0].id}_check"
+                            st.switch_page("pages/1_predict.py")
+                        else:
+                            st.warning("No sequences available to fold.")
 
                 st.caption(f"Results saved to: `{job_dir}`")
 
@@ -616,21 +641,45 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=
                     key_prefix="mpnn_agent",
                 )
 
+                # Enrich context with diversity and biophysics distribution
+                _instability_vals = [r["Instability"] for r in _mpnn_records if "Instability" in r]
+                _gravy_vals = [r["GRAVY"] for r in _mpnn_records if "GRAVY" in r]
+                _unstable_count = sum(1 for v in _instability_vals if v > 40)
+                _hydrophobic_count = sum(1 for v in _gravy_vals if v > 0)
+                _enriched_mpnn_ctx = "\n".join([
+                    f"Designed sequences: {len(result.sequences)}",
+                    f"Backbone: {backbone_path.name}",
+                    f"Sampling temperature: {temperature} "
+                    f"({'conservative/high-recovery' if temperature <= 0.15 else 'balanced' if temperature <= 0.35 else 'diverse/novel'})",
+                    f"Instability index: {_unstable_count}/{len(_instability_vals)} sequences > 40 (potentially unstable)",
+                    f"Hydrophobic sequences (GRAVY > 0): {_hydrophobic_count}/{len(_gravy_vals)} (expression risk)",
+                    "",
+                    "Top 5 sequence biophysics:",
+                    "\n".join(seq_summaries),
+                ])
                 render_all_experts_panel(
                     "All-Expert Review (MPNN design job)",
                     agenda=(
-                        "Review ProteinMPNN design outputs and recommend which sequences "
-                        "to prioritize for folding validation and experimental follow-up."
+                        "Review ProteinMPNN design outputs from structural biology, "
+                        "immunology, wet lab, and plant biology perspectives."
                     ),
-                    context=(
-                        f"Designed sequences: {len(result.sequences)}\n"
-                        f"Backbone: {backbone_path.name}\n"
-                        f"Top sequence summaries:\n" + "\n".join(seq_summaries)
-                    ),
+                    context=_enriched_mpnn_ctx,
                     questions=(
-                        "Which designed sequences should be prioritized first and why?",
-                        "Any sequence-level red flags for expression/solubility/stability?",
-                        "What validation stack should run next before experiments?",
+                        f"At temperature={temperature} we get "
+                        f"{'high-recovery/low-diversity' if temperature <= 0.15 else 'balanced diversity' if temperature <= 0.35 else 'high-diversity/lower-recovery'} sequences; "
+                        f"{_unstable_count}/{len(_instability_vals)} exceed instability threshold 40 — "
+                        "which top 5 sequences should be prioritized? "
+                        "For antibody scaffolds: does MPNN preserve paratope-critical CDR residues "
+                        "or redesign antigen-contact positions?",
+                        f"{_hydrophobic_count}/{len(_gravy_vals)} sequences have positive GRAVY — "
+                        "which sequence features best predict expression in the target system: "
+                        "E. coli periplasm (scFv/nanobody), CHO/HEK293 (mAb), or "
+                        "Agrobacterium agroinfiltration in N. benthamiana (plant-produced biologics or plant enzymes)?",
+                        "From a plant biology perspective: for plant enzyme redesign (RuBisCO, CYP450s, "
+                        "NLR immune receptors), which designed sequences preserve catalytic residues and "
+                        "active site geometry — and what is the minimal wet lab validation stack "
+                        "before Agrobacterium-mediated transient expression (fold prediction, "
+                        "docking with substrate/effector, dsRed co-transformation as expression control)?",
                     ),
                     key_prefix="mpnn_all",
                 )
@@ -645,6 +694,88 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=
             with st.expander("Show traceback"):
                 st.code(traceback.format_exc())
 
+# ── Show previously-run MPNN result (persists across reruns) ──────────────────
+_mpnn_prev = st.session_state.get("mpnn_last_result")
+_mpnn_prev_bb = st.session_state.get("mpnn_last_backbone")
+_mpnn_prev_jid = st.session_state.get("mpnn_last_job_id", "previous")
+if _mpnn_prev and _mpnn_prev.success and _mpnn_prev.sequences:
+    st.markdown("---")
+    with st.expander(
+        f"📋 Previous MPNN Result — {len(_mpnn_prev.sequences)} sequences "
+        f"(backbone: {Path(_mpnn_prev_bb).name if _mpnn_prev_bb else '?'})",
+        expanded=False,
+    ):
+        st.caption(f"Job: `{_mpnn_prev_jid}` — click to re-inspect without re-running design")
+        _prev_fasta = "\n".join(f">{s.id}\n{s.sequence}" for s in _mpnn_prev.sequences)
+        st.download_button(
+            "📥 Download (FASTA)",
+            data=_prev_fasta,
+            file_name=f"{_mpnn_prev_jid}_designed.fasta",
+            mime="text/plain",
+            key="mpnn_prev_dl",
+        )
+        import pandas as pd
+        _prev_rows = []
+        for _ps in _mpnn_prev.sequences:
+            try:
+                _pm = compute_sequence_metrics(_ps.sequence)
+                _prev_rows.append({
+                    "ID": _ps.id,
+                    "Length": len(_ps.sequence),
+                    "pI": f"{_pm.isoelectric_point:.2f}",
+                    "GRAVY": f"{_pm.gravy:.3f}",
+                    "Instability": f"{_pm.instability_index:.1f}",
+                    "Stable": "✅" if _pm.instability_index < 40 else "⚠️",
+                })
+            except Exception:
+                _prev_rows.append({"ID": _ps.id, "Length": len(_ps.sequence)})
+        if _prev_rows:
+            st.dataframe(pd.DataFrame(_prev_rows), use_container_width=True, hide_index=True)
+        if st.button("Send top sequence → Predict page", key="mpnn_prev_predict", type="secondary"):
+            st.session_state.predict_sequence = _mpnn_prev.sequences[0].sequence
+            st.session_state.predict_name = f"{_mpnn_prev.sequences[0].id}_check"
+            st.switch_page("pages/1_predict.py")
+
+        # ── Wheat Codon Optimization ──────────────────────────────────────
+        with st.expander("🌾 Wheat Codon Optimization for designed sequences", expanded=False):
+            _species_choice = st.selectbox(
+                "Target species",
+                ["wheat", "rice", "maize"],
+                key="mpnn_codon_species",
+            )
+            if st.button("Optimize all sequences for expression", key="mpnn_codon_btn"):
+                try:
+                    from protein_design_hub.analysis.codon_optimization import optimize_for_wheat
+                    _opt_fastas = []
+                    _opt_rows = []
+                    for _seq_obj in _mpnn_prev.sequences:
+                        _res = optimize_for_wheat(
+                            _seq_obj.sequence,
+                            species=_species_choice,
+                            gene_name=_seq_obj.id,
+                        )
+                        _opt_fastas.append(_res.fasta)
+                        import pandas as pd
+                    _opt_rows.append({
+                            "ID": _seq_obj.id,
+                            "CAI": f"{_res.cai:.3f}",
+                            "GC%": f"{_res.gc_content*100:.1f}",
+                            "Cryptic splice (high)": sum(1 for s in _res.cryptic_splice_sites if s["risk"] == "high"),
+                            "Poly-A signals": sum(1 for p in _res.poly_a_signals if p["risk"] == "high"),
+                            "Warnings": len(_res.warnings),
+                        })
+                    st.dataframe(pd.DataFrame(_opt_rows), use_container_width=True, hide_index=True)
+                    _all_fasta = "\n".join(_opt_fastas)
+                    st.download_button(
+                        f"📥 Download all {_species_choice}-optimized DNA sequences",
+                        data=_all_fasta,
+                        file_name=f"mpnn_designed_{_species_choice}_optimized.fasta",
+                        mime="text/plain",
+                        key="mpnn_codon_dl",
+                    )
+                except Exception as _codon_err:
+                    st.error(f"Codon optimization failed: {_codon_err}")
+
 # Tips section
 st.markdown("---")
 with st.expander("💡 Tips for using ProteinMPNN"):
@@ -658,3 +789,28 @@ with st.expander("💡 Tips for using ProteinMPNN"):
 - Use 16-32 sequences initially, then filter by metrics
 - Lower temperature for stability, higher for novelty
 - Consider running multiple rounds with different temperatures""")
+
+st.divider()
+_mpnn_pymol_port = 0
+try:
+    from protein_design_hub.web.pymol_server import get_pymol_server as _gps_mpnn2
+    _srv_mpnn2 = _gps_mpnn2()
+    if _srv_mpnn2 is not None:
+        _mpnn_pymol_port = _srv_mpnn2.server_address[1]
+except Exception:
+    pass
+if _mpnn_pymol_port:
+    import time as _mpt
+    _mpts = int(_mpt.time())
+    _mph = "localhost"
+    try:
+        _mph = st.context.headers.get("host", "localhost").split(":")[0]
+    except Exception:
+        pass
+    from protein_design_hub.web.ui import section_header as _mpnn_sh
+    _mpnn_sh("PyMolAI Chat", "Molecular-visualization AI with live PyMOL access", "🔬")
+    _mc1, _mv1 = st.columns([55, 45], gap="medium")
+    with _mc1:
+        render_pymolai_chatbot(key_prefix="mpnn_pymolai", pymol_port=_mpnn_pymol_port)
+    with _mv1:
+        render_pymolai_viewer(_mpnn_pymol_port, "pdh-pymol-mpnn", height=700)

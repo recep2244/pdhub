@@ -281,24 +281,55 @@ class ESMIFDesigner(BaseDesigner):
         return sequence, total_log_prob / len(sampled_tokens)
 
     def _tokens_to_sequence(self, tokens: List[int]) -> str:
-        """Convert token indices to amino acid sequence."""
+        """Convert token indices to amino acid sequence using the loaded alphabet."""
         if self._alphabet is None:
             return ""
 
-        # Standard amino acid mapping
-        aa_map = "ACDEFGHIKLMNPQRSTVWY"
+        # Use the alphabet's get_tok method if available (ESM standard interface).
+        # This avoids hardcoding token positions that can differ between ESM versions.
+        get_tok = getattr(self._alphabet, "get_tok", None)
+        if get_tok is not None:
+            _special = {
+                getattr(self._alphabet, attr, None)
+                for attr in ("padding_idx", "mask_idx", "cls_idx", "eos_idx", "unk_idx")
+            }
+            sequence = []
+            for token in tokens:
+                try:
+                    aa = get_tok(token)
+                    if aa and len(aa) == 1 and aa.isalpha() and token not in _special:
+                        sequence.append(aa.upper())
+                    else:
+                        sequence.append("X")
+                except Exception:
+                    sequence.append("X")
+            return "".join(sequence)
 
-        sequence = []
-        for token in tokens:
-            if 4 <= token < 24:  # Standard amino acid tokens
-                aa_idx = token - 4
-                if aa_idx < len(aa_map):
-                    sequence.append(aa_map[aa_idx])
+        # Fallback: derive AA→token mapping from the alphabet object directly.
+        # ESM alphabets expose .tok_to_idx (dict str→int); invert it.
+        tok_to_idx = getattr(self._alphabet, "tok_to_idx", None)
+        if tok_to_idx is not None:
+            idx_to_tok = {v: k for k, v in tok_to_idx.items()}
+            _special_tokens = {"<pad>", "<eos>", "<unk>", "<cls>", "<mask>", "-"}
+            sequence = []
+            for token in tokens:
+                aa = idx_to_tok.get(token, "X")
+                if len(aa) == 1 and aa.isalpha() and aa not in _special_tokens:
+                    sequence.append(aa.upper())
                 else:
                     sequence.append("X")
+            return "".join(sequence)
+
+        # Last resort: positional fallback with the ESM-IF1 known token order.
+        # ESM-IF1 (GVP) uses the same alphabet as ESM2:
+        # positions 4-23 = A R N D C Q E G H I L K M F P S T W Y V (alphabetical by name, ESM order)
+        ESM_AA_ORDER = "ARNDCQEGHILKMFPSTWYV"
+        sequence = []
+        for token in tokens:
+            if 4 <= token < 4 + len(ESM_AA_ORDER):
+                sequence.append(ESM_AA_ORDER[token - 4])
             else:
                 sequence.append("X")
-
         return "".join(sequence)
 
     @staticmethod

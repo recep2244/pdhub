@@ -242,7 +242,7 @@ def ask_agent_advice(
             messages=[sys_msg, {"role": "user", "content": user_content}],
             temperature=cfg.temperature,
             max_tokens=max_tokens,
-            **ollama_extra_body(cfg.provider),
+            **ollama_extra_body(cfg.provider, cfg.model),
         )
         ensure_ollama_gpu(cfg.provider, cfg.model)
         return resp.choices[0].message.content or "(empty response)"
@@ -1294,6 +1294,222 @@ def render_all_experts_panel(
                     st.markdown(f"**{an}:** {msg}")
 
 
+# ── PyMOL tool integration ───────────────────────────────────────────
+
+_PYMOL_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "run_pymol_command",
+            "description": (
+                "Execute any PyMOL command on the active molecular structure. "
+                "Use this to rotate, color, show/hide atoms, measure distances, "
+                "highlight residues, or perform any other PyMOL operation. "
+                "Examples: 'color red, chain A', 'show sticks, resi 42', "
+                "'spectrum b, blue_white_red, all, 0, 100'"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "PyMOL command string to execute",
+                    }
+                },
+                "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "capture_viewer_snapshot",
+            "description": "Capture the current PyMOL viewer state as an image to see the structure.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+]
+
+_PYMOL_SYS_ADDENDUM = (
+    "\n\nYou have access to a live PyMOL molecular viewer via tools. "
+    "Use run_pymol_command to visualise and manipulate structures, and "
+    "capture_viewer_snapshot to see the current state. "
+    "Be proactive: when the user asks about a structure, use the tools to show them."
+)
+
+# Common PyMOL command prefixes for regex extraction from plain text
+_PYMOL_CMD_PREFIXES = (
+    "color", "show", "hide", "orient", "zoom", "rotate", "turn", "move",
+    "spectrum", "cartoon", "surface", "sticks", "spheres", "lines",
+    "select", "deselect", "label", "set", "bg_color", "util.cbc",
+    "align", "super", "pair_fit", "center", "reset", "ray", "png",
+    "distance", "angle", "dihedral", "h_add", "remove", "delete",
+)
+
+
+def _pymol_execute(command: str, port: int = 0) -> tuple[str, bytes | None]:
+    if port == 0:
+        from protein_design_hub.web.pymol_server import PYMOL_SERVER_PORT
+        port = PYMOL_SERVER_PORT
+    """POST /api/run_command and return (result_str, frame_bytes_or_None)."""
+    import urllib.request as _ur, json as _j
+    try:
+        body = _j.dumps({"command": command}).encode()
+        req = _ur.Request(
+            f"http://localhost:{port}/api/run_command",
+            data=body,
+            headers={"Content-Type": "application/json"},
+        )
+        resp = _ur.urlopen(req, timeout=15)
+        raw = resp.read()
+        ct = resp.headers.get("Content-Type", "")
+        if "image" in ct:
+            return "OK", raw
+        data = _j.loads(raw)
+        return data.get("result", "Error"), None
+    except Exception as e:
+        return f"Error: {e}", None
+
+
+def _pymol_snapshot(port: int = 0) -> bytes | None:
+    if port == 0:
+        from protein_design_hub.web.pymol_server import PYMOL_SERVER_PORT
+        port = PYMOL_SERVER_PORT
+    """Fetch current PyMOL frame. Returns JPEG bytes or None."""
+    import urllib.request as _ur
+    try:
+        return _ur.urlopen(f"http://localhost:{port}/api/frame", timeout=10).read()
+    except Exception:
+        return None
+
+
+def _extract_pymol_commands(text: str) -> list[str]:
+    """Extract PyMOL commands from agent response (fenced code blocks + bare lines)."""
+    import re
+    cmds: list[str] = []
+    # Fenced blocks: ```pymol / ```pml / ```
+    for block in re.findall(r"```(?:pymol|pml)?\s*\n(.*?)```", text, re.DOTALL | re.IGNORECASE):
+        for line in block.splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                cmds.append(line)
+    # Backtick inline: `color red, all`
+    for inline in re.findall(r"`([^`\n]+)`", text):
+        s = inline.strip()
+        if any(s.lower().startswith(p) for p in _PYMOL_CMD_PREFIXES):
+            cmds.append(s)
+    return list(dict.fromkeys(cmds))  # dedup, preserve order
+
+
+def _chat_llm_call_with_pymol(
+    agent_name: str,
+    messages: List[Dict],
+    pymol_port: int = 0,
+    max_tokens: int = 800,
+) -> tuple[str, list[dict]]:
+    if pymol_port == 0:
+        from protein_design_hub.web.pymol_server import PYMOL_SERVER_PORT
+        pymol_port = PYMOL_SERVER_PORT
+    """Multi-turn LLM call with PyMOL tool use.
+
+    Returns (reply_text, tool_results) where tool_results is a list of
+    {"name", "command"?, "result", "image"?} dicts.
+    """
+    import json as _j
+    cfg = _get_llm_cfg()
+    if cfg is None:
+        return "[Error] LLM not configured.", []
+
+    agents = _resolve_agent_map()
+    agent = agents.get(agent_name)
+    base_sys = agent.system_message["content"] if agent else f"You are an expert {agent_name}."
+    sys_msg = {"role": "system", "content": base_sys + _PYMOL_SYS_ADDENDUM}
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(base_url=cfg.base_url, api_key=cfg.api_key)
+        ensure_ollama_gpu(cfg.provider, cfg.model)
+
+        all_messages = [sys_msg] + list(messages)
+        tool_results: list[dict] = []
+
+        for _round in range(4):  # max 4 tool rounds
+            kwargs: dict = {
+                "model": cfg.model,
+                "messages": all_messages,
+                "temperature": cfg.temperature,
+                "max_tokens": max_tokens,
+                **ollama_extra_body(cfg.provider, cfg.model),
+            }
+            # Try with tools; fall back if backend rejects them
+            try:
+                kwargs["tools"] = _PYMOL_TOOLS
+                kwargs["tool_choice"] = "auto"
+                resp = client.chat.completions.create(**kwargs)
+            except Exception:
+                kwargs.pop("tools", None)
+                kwargs.pop("tool_choice", None)
+                resp = client.chat.completions.create(**kwargs)
+
+            msg = resp.choices[0].message
+
+            if not getattr(msg, "tool_calls", None):
+                ensure_ollama_gpu(cfg.provider, cfg.model)
+                return msg.content or "(empty response)", tool_results
+
+            # Serialize assistant message with tool_calls for next round
+            assist_dict: dict = {
+                "role": "assistant",
+                "content": msg.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in msg.tool_calls
+                ],
+            }
+            all_messages.append(assist_dict)
+
+            for tc in msg.tool_calls:
+                name = tc.function.name
+                try:
+                    args = _j.loads(tc.function.arguments)
+                except Exception:
+                    args = {}
+
+                if name == "run_pymol_command":
+                    cmd = args.get("command", "")
+                    result, img = _pymol_execute(cmd, pymol_port)
+                    if img is None:
+                        img = _pymol_snapshot(pymol_port)
+                    tool_results.append({"name": name, "command": cmd, "result": result, "image": img})
+                    tool_content = result
+                elif name == "capture_viewer_snapshot":
+                    img = _pymol_snapshot(pymol_port)
+                    tool_results.append({"name": name, "result": "snapshot", "image": img})
+                    tool_content = "Snapshot captured. Describe what you see in the structure."
+                else:
+                    tool_content = "Unknown tool"
+                    tool_results.append({"name": name, "result": tool_content, "image": None})
+
+                all_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": tool_content,
+                })
+
+        ensure_ollama_gpu(cfg.provider, cfg.model)
+        return "(Tool execution completed. Ask a follow-up question.)", tool_results
+
+    except Exception as e:
+        return f"[Error] {e}", []
+
+
 # ── Multi-turn chatbot ───────────────────────────────────────────────
 
 def _chat_llm_call(
@@ -1322,7 +1538,7 @@ def _chat_llm_call(
             messages=[sys_msg] + messages,
             temperature=cfg.temperature,
             max_tokens=max_tokens,
-            **ollama_extra_body(cfg.provider),
+            **ollama_extra_body(cfg.provider, cfg.model),
         )
         ensure_ollama_gpu(cfg.provider, cfg.model)
         return resp.choices[0].message.content or "(empty response)"
@@ -1431,15 +1647,409 @@ _CHAT_CSS = """
 """
 
 
-def render_agent_chatbot(key_prefix: str = "chatbot") -> None:
+def render_pymolai_chatbot(key_prefix: str = "pymolai_chat", pymol_port: int = 0) -> None:
+    """PyMolAI-style agent using OpenAI-compatible tool use (no subprocess required).
+
+    Uses the configured LLM backend (Ollama / any OpenAI-compatible provider) with
+    native function-calling to control PyMOL.  Two tools are exposed:
+      • run_pymol_command  — execute any PyMOL command on the loaded structure
+      • capture_viewer_snapshot — grab the current viewport as a JPEG and display it
+    """
+    import base64
+    import html as _html
+    import json
+    import re as _re
+
+    import httpx
+    from openai import OpenAI
+
+    _SYSTEM_PROMPT = (
+        "You are PyMolAI, an expert molecular-visualization AI assistant embedded in "
+        "Protein Design Hub.  You have direct control of an interactive PyMOL session "
+        "via two tools:\n"
+        "  • run_pymol_command(command)  — execute any valid PyMOL command\n"
+        "  • capture_viewer_snapshot()  — capture the current viewport as an image\n\n"
+        "Always use these tools proactively: when the user asks you to colour, rotate, "
+        "highlight, or change the representation of a structure, issue the appropriate "
+        "PyMOL command immediately.  After issuing commands, capture a snapshot to "
+        "confirm the result visually.  If no structure is loaded, inform the user and "
+        "suggest they load one on the Design page.\n\n"
+        "Focus on molecular structures, protein design, structural biology, and related "
+        "computational methods.  Be concise and precise."
+    )
+
+    _TOOLS = [
+        {
+            "type": "function",
+            "function": {
+                "name": "run_pymol_command",
+                "description": (
+                    "Execute an arbitrary PyMOL command on the loaded structure.  "
+                    "Use standard PyMOL syntax, e.g.: color red, chain A | show surface | "
+                    "hide everything | rotate y, 45 | zoom all"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "PyMOL command string to execute",
+                        }
+                    },
+                    "required": ["command"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "capture_viewer_snapshot",
+                "description": (
+                    "Capture the current PyMOL viewport as a JPEG image and display it "
+                    "in the chat.  Call this after issuing commands to show the result."
+                ),
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    ]
+
+    # ── PyMOL tool implementations ─────────────────────────────────────────────
+    def _exec_pymol_cmd(command: str) -> str:
+        if not pymol_port:
+            return "No PyMOL server running. Load a structure on the Design page first."
+        try:
+            r = httpx.post(
+                f"http://localhost:{pymol_port}/api/run_command",
+                json={"command": command},
+                timeout=30,
+            )
+            if r.status_code == 200:
+                ct = r.headers.get("content-type", "")
+                return "OK" if "image" in ct else r.json().get("result", "OK")
+            return f"Error {r.status_code}: {r.text[:200]}"
+        except Exception as exc:
+            return f"Error: {exc}"
+
+    def _exec_snapshot() -> str | None:
+        if not pymol_port:
+            return None
+        try:
+            r = httpx.get(f"http://localhost:{pymol_port}/api/frame", timeout=30)
+            if r.status_code == 200:
+                b64 = base64.b64encode(r.content).decode()
+                return f"data:image/jpeg;base64,{b64}"
+        except Exception:
+            pass
+        return None
+
+    # ── Agent loop ─────────────────────────────────────────────────────────────
+    def _run_agent(messages: list) -> tuple[str, list[str]]:
+        """Run one turn of the agent; returns (reply_text, [snapshot_data_uris])."""
+        cfg = _get_llm_cfg()
+        if cfg is None:
+            return "LLM not configured. Check settings.", []
+
+        client = OpenAI(base_url=cfg.base_url, api_key=cfg.api_key, timeout=120)
+        snapshots: list[str] = []
+        extra = ollama_extra_body(cfg.provider, cfg.model)
+
+        # Insert system as first message if not already there
+        full_msgs = [{"role": "system", "content": _SYSTEM_PROMPT}] + messages
+
+        for _turn in range(10):  # max 10 tool-call rounds
+            response = client.chat.completions.create(
+                model=cfg.model,
+                messages=full_msgs,
+                tools=_TOOLS if pymol_port else [],
+                tool_choice="auto" if pymol_port else "none",
+                extra_body=extra if extra else None,
+            )
+            choice = response.choices[0]
+            msg = choice.message
+
+            if choice.finish_reason == "tool_calls" and msg.tool_calls:
+                # Add assistant turn to history
+                full_msgs.append({
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            },
+                        }
+                        for tc in msg.tool_calls
+                    ],
+                })
+                # Execute each tool and collect results
+                for tc in msg.tool_calls:
+                    try:
+                        args = json.loads(tc.function.arguments or "{}")
+                    except Exception:
+                        args = {}
+
+                    if tc.function.name == "run_pymol_command":
+                        result = _exec_pymol_cmd(args.get("command", ""))
+                    elif tc.function.name == "capture_viewer_snapshot":
+                        snap = _exec_snapshot()
+                        if snap:
+                            snapshots.append(snap)
+                            result = "Snapshot captured and shown in the viewer panel."
+                        else:
+                            result = "Could not capture snapshot — no structure loaded."
+                    else:
+                        result = f"Unknown tool: {tc.function.name}"
+
+                    full_msgs.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result,
+                    })
+                continue  # fetch next response
+
+            # Final text response
+            return (msg.content or "Done."), snapshots
+
+        return "Agent reached maximum tool-call depth.", snapshots
+
+    # ── Session state ──────────────────────────────────────────────────────────
+    hist_key = f"_pymolai_history_{key_prefix}"
+    snap_key = f"_pymolai_snaps_{key_prefix}"
+    if hist_key not in st.session_state:
+        st.session_state[hist_key] = []
+    if snap_key not in st.session_state:
+        st.session_state[snap_key] = []
+
+    history: list = st.session_state[hist_key]
+
+    # ── CSS ────────────────────────────────────────────────────────────────────
+    st.markdown(_CHAT_CSS, unsafe_allow_html=True)
+
+    # ── Header ─────────────────────────────────────────────────────────────────
+    cfg = _get_llm_cfg()
+    model_label = f"{cfg.provider} / {cfg.model}" if cfg else "LLM not configured"
+    hcol, clr_col = st.columns([5, 1])
+    with hcol:
+        st.markdown(
+            '<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;'
+            'background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.22);'
+            'border-radius:10px;margin-bottom:10px">'
+            '<span style="font-size:1.4rem">🔬</span>'
+            '<div>'
+            '<div style="font-weight:700;font-size:.9rem;color:#60a5fa">PyMolAI Agent</div>'
+            f'<div style="font-size:.75rem;color:#94a3b8">'
+            f'Molecular-visualization AI with live PyMOL tool access · {_html.escape(model_label)}'
+            '</div></div></div>',
+            unsafe_allow_html=True,
+        )
+    with clr_col:
+        if st.button("🗑 New Chat", key=f"{key_prefix}_clr", use_container_width=True):
+            st.session_state[hist_key] = []
+            st.session_state[snap_key] = []
+            st.rerun()
+
+    # ── Chat history display ───────────────────────────────────────────────────
+    snaps: list[str] = st.session_state.get(snap_key, [])
+
+    if not history:
+        st.markdown(
+            '<div style="text-align:center;padding:30px 10px;color:#64748b">'
+            '<div style="font-size:2.5rem;margin-bottom:8px">🔬</div>'
+            '<div style="font-size:.95rem;font-weight:600;margin-bottom:4px">'
+            'PyMolAI — Molecular Visualization Agent</div>'
+            '<div style="font-size:.82rem">Ask me to colour residues, show surfaces, '
+            'highlight mutations, rotate the structure, or explain what you see.</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        st.caption("💡 Try:")
+        _chips = [
+            "Color chain A blue and chain B red",
+            "Show surface with 50% transparency",
+            "Highlight hydrophobic residues",
+            "Rotate 45° and capture a snapshot",
+        ]
+        c1, c2 = st.columns(2)
+        for i, chip in enumerate(_chips):
+            col = c1 if i % 2 == 0 else c2
+            with col:
+                if st.button(chip, key=f"{key_prefix}_chip_{i}", use_container_width=True):
+                    history.append({"role": "user", "content": chip})
+                    st.session_state[hist_key] = history
+                    st.rerun()
+    else:
+        parts = ['<div class="chat-container">']
+        for msg in history:
+            role = msg.get("role", "")
+            if role not in ("user", "assistant"):
+                continue
+            is_user = role == "user"
+            raw = msg.get("content", "")
+            icon = "👤" if is_user else "🔬"
+            name = "You" if is_user else "PyMolAI"
+            cls = "chat-msg-user" if is_user else ""
+            av_cls = "chat-avatar-user" if is_user else "chat-avatar-agent"
+            bub_cls = "chat-bubble-user" if is_user else "chat-bubble-agent"
+            if is_user:
+                text = _html.escape(raw)
+            else:
+                text = _html.escape(raw)
+                text = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+                text = _re.sub(
+                    r'`([^`]+)`',
+                    r'<code style="background:rgba(99,102,241,0.15);padding:1px 5px;'
+                    r'border-radius:4px;font-size:.82em">\1</code>',
+                    text,
+                )
+                text = _re.sub(r'^[\-\*]\s+', '• ', text, flags=_re.MULTILINE)
+                text = text.replace('\n', '<br>')
+            parts.append(
+                f'<div class="chat-msg {cls}">'
+                f'<div class="chat-avatar {av_cls}">{icon}</div>'
+                f'<div class="chat-bubble {bub_cls}">'
+                f'<div class="chat-name">{name}</div>{text}'
+                f'</div></div>'
+            )
+        parts.append('</div>')
+        st.markdown("".join(parts), unsafe_allow_html=True)
+
+        # Show all captured snapshots
+        for i, snap in enumerate(snaps):
+            st.image(snap, caption=f"PyMOL snapshot #{i + 1}", use_container_width=True)
+
+    # ── Input ──────────────────────────────────────────────────────────────────
+    with st.form(key=f"{key_prefix}_form", clear_on_submit=True):
+        user_msg = st.text_input(
+            "Message",
+            placeholder="Ask PyMolAI to visualise, colour, or analyse the structure…",
+            label_visibility="collapsed",
+            key=f"{key_prefix}_input",
+        )
+        submitted = st.form_submit_button("Send ↵", use_container_width=True)
+
+    if submitted and user_msg and user_msg.strip():
+        history.append({"role": "user", "content": user_msg.strip()})
+        st.session_state[hist_key] = history
+
+        # Build OpenAI messages list (user/assistant turns only — system injected in _run_agent)
+        api_messages = [
+            {"role": m["role"], "content": m.get("content", "")}
+            for m in history
+            if m.get("role") in ("user", "assistant")
+        ]
+
+        with st.spinner("PyMolAI is thinking…"):
+            try:
+                reply, new_snaps = _run_agent(api_messages)
+            except Exception as exc:
+                reply = f"⚠️ Agent error: {exc}"
+                new_snaps = []
+
+        history.append({"role": "assistant", "content": reply})
+        st.session_state[hist_key] = history
+        st.session_state[snap_key] = snaps + new_snaps
+
+        st.rerun()
+
+
+def render_pymolai_viewer(
+    pymol_port: int,
+    iframe_id: str,
+    height: int = 700,
+) -> None:
+    """Render the live PyMOL iframe with scroll-lock wrapper and fullscreen button.
+
+    The scroll-lock wrapper uses coordinate-aware ``onmouseleave`` so the page
+    scroll is correctly restored only when the pointer truly leaves the container,
+    not when it merely enters the iframe sub-document.
+
+    Args:
+        pymol_port: Port of the running PyMOL HTTP server.
+        iframe_id:  Unique HTML id for the ``<iframe>`` element.
+        height:     Iframe height in pixels (default 700).
+    """
+    import time as _t
+
+    _ts = int(_t.time())
+    _host = "localhost"
+    try:
+        _host = st.context.headers.get("host", "localhost").split(":")[0]
+    except Exception:
+        pass
+
+    st.markdown(
+        f'<div id="wrap-{iframe_id}" '
+        f'style="position:relative;overflow:hidden;touch-action:none" '
+        f'onmouseenter="document.body.style.overflow=\'hidden\'" '
+        f'onmouseleave="(function(){{'
+        f'var r=document.getElementById(\'wrap-{iframe_id}\').getBoundingClientRect();'
+        f'var ex=event.clientX,ey=event.clientY;'
+        f'if(ex<r.left-2||ex>r.right+2||ey<r.top-2||ey>r.bottom+2)'
+        f'{{document.body.style.overflow=\'\';}}}})()">'
+        f'<div style="display:flex;justify-content:flex-end;margin-bottom:4px">'
+        f'<button onclick="(function(){{'
+        f'var fr=document.getElementById(\'{iframe_id}\');'
+        f'var isFs=!!(document.fullscreenElement||document.webkitFullscreenElement);'
+        f'if(isFs){{(document.exitFullscreen||document.webkitExitFullscreen).call(document);}}'
+        f'else{{var r=fr.requestFullscreen||fr.webkitRequestFullscreen;if(r)r.call(fr);}}'
+        f'}})()" '
+        f'style="background:rgba(255,255,255,0.07);color:#cbd5e1;'
+        f'border:1px solid rgba(255,255,255,0.15);border-radius:6px;'
+        f'padding:4px 12px;font-size:12px;cursor:pointer">⛶ Expand</button>'
+        f'</div>'
+        f'<iframe id="{iframe_id}" src="http://{_host}:{pymol_port}/?t={_ts}" '
+        f'width="100%" height="{height}px" '
+        f'style="border:none;border-radius:10px;background:#0a0a0f;display:block" '
+        f'allow="fullscreen" allowfullscreen></iframe>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_pymolai_section(
+    key_prefix: str,
+    pymol_port: int = 0,
+    label: str = "💬 Ask PyMolAI about this structure",
+    expanded: bool = False,
+    viewer_height: int = 500,
+) -> None:
+    """Compact collapsible PyMolAI panel for embedding in any pipeline step.
+
+    Renders inside a ``st.expander`` so it stays out of the way by default.
+    When expanded, shows chat (55%) + live PyMOL viewer (45%) side by side.
+
+    Args:
+        key_prefix:     Unique prefix for session-state isolation.
+        pymol_port:     PyMOL HTTP server port (0 = no live viewer).
+        label:          Expander label shown in the UI.
+        expanded:       Whether the expander is open on first render.
+        viewer_height:  Height of the embedded iframe in pixels.
+    """
+    with st.expander(label, expanded=expanded):
+        if pymol_port:
+            _c_chat, _c_view = st.columns([55, 45], gap="medium")
+            with _c_chat:
+                render_pymolai_chatbot(key_prefix=key_prefix, pymol_port=pymol_port)
+            with _c_view:
+                render_pymolai_viewer(pymol_port, f"pymolai-inline-{key_prefix}", viewer_height)
+        else:
+            render_pymolai_chatbot(key_prefix=key_prefix, pymol_port=0)
+
+
+def render_agent_chatbot(key_prefix: str = "chatbot", pymol_port: int = 0) -> None:
     """Full chatbot-style interface for conversing with any scientist agent.
 
     Maintains conversation history in ``st.session_state`` so the chat
     persists across Streamlit reruns.
 
     Args:
-        key_prefix: Unique prefix to avoid widget key collisions when
-            the chatbot is rendered on multiple pages.
+        key_prefix:  Unique prefix to avoid widget key collisions.
+        pymol_port:  If non-zero, enables PyMOL tool use (run_pymol_command,
+                     capture_viewer_snapshot) and shows command-run buttons
+                     extracted from agent responses.
     """
     # Inject chat CSS once
     st.markdown(_CHAT_CSS, unsafe_allow_html=True)
@@ -1530,14 +2140,22 @@ def render_agent_chatbot(key_prefix: str = "chatbot") -> None:
                     # Add user message and get response
                     history.append({"role": "user", "content": sug})
                     with st.spinner(f"{agent_name} is thinking..."):
-                        reply = _chat_llm_call(agent_name, history)
+                        if pymol_port:
+                            reply, tools_used = _chat_llm_call_with_pymol(agent_name, history, pymol_port)
+                            if tools_used:
+                                st.session_state[f"_chat_tools_{key_prefix}"] = tools_used
+                        else:
+                            reply = _chat_llm_call(agent_name, history)
                     history.append({"role": "assistant", "content": reply})
                     st.session_state[hist_key] = history
                     st.rerun()
     else:
         # Build full chat HTML
+        import re as _re
         chat_html_parts = ['<div class="chat-container">']
         for msg in history:
+            if msg["role"] not in ("user", "assistant"):
+                continue
             is_user = msg["role"] == "user"
             cls = "chat-msg-user" if is_user else ""
             av_cls = "chat-avatar-user" if is_user else "chat-avatar-agent"
@@ -1548,19 +2166,11 @@ def render_agent_chatbot(key_prefix: str = "chatbot") -> None:
             if is_user:
                 text = _html.escape(raw)
             else:
-                # Convert basic markdown to HTML for agent responses
                 text = _html.escape(raw)
-                # Bold: **text** → <b>text</b>
-                import re as _re
                 text = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
-                # Italic: *text* → <i>text</i> (but not inside bold)
                 text = _re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<i>\1</i>', text)
-                # Inline code: `text` → <code>text</code>
                 text = _re.sub(r'`([^`]+)`', r'<code style="background:rgba(99,102,241,0.15);padding:1px 5px;border-radius:4px;font-size:.82em">\1</code>', text)
-                # Bullet lists: lines starting with - or *
                 text = _re.sub(r'^[\-\*]\s+', '• ', text, flags=_re.MULTILINE)
-                # Numbered lists: preserve
-                # Line breaks
                 text = text.replace('\n', '<br>')
             chat_html_parts.append(
                 f'<div class="chat-msg {cls}">'
@@ -1573,13 +2183,65 @@ def render_agent_chatbot(key_prefix: str = "chatbot") -> None:
         chat_html_parts.append('</div>')
         st.markdown("".join(chat_html_parts), unsafe_allow_html=True)
 
+        # Show tool results (images from run_pymol_command / capture_viewer_snapshot)
+        tools_used = st.session_state.get(f"_chat_tools_{key_prefix}", [])
+        if tools_used and pymol_port:
+            for ti, tr in enumerate(tools_used):
+                img = tr.get("image")
+                cmd = tr.get("command", "")
+                if img:
+                    label = f"🔬 PyMOL: `{cmd}`" if cmd else "🔬 Viewer snapshot"
+                    st.markdown(
+                        f'<div style="font-size:.75rem;color:#a78bfa;margin:4px 0 2px">{_html.escape(label)}</div>',
+                        unsafe_allow_html=True,
+                    )
+                    st.image(img, use_container_width=True)
+
+        # Show "▶ Run in PyMOL" buttons for commands in the last agent reply
+        if pymol_port and history:
+            last_agent = next(
+                (m for m in reversed(history) if m.get("role") == "assistant"), None
+            )
+            if last_agent:
+                extracted = _extract_pymol_commands(last_agent["content"])
+                if extracted:
+                    st.markdown(
+                        '<div style="font-size:.78rem;color:#64748b;margin:6px 0 3px">'
+                        '🧬 Commands suggested by agent:</div>',
+                        unsafe_allow_html=True,
+                    )
+                    for ci, cmd in enumerate(extracted[:6]):
+                        col_cmd, col_run = st.columns([4, 1])
+                        with col_cmd:
+                            st.code(cmd, language="text")
+                        with col_run:
+                            st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+                            if st.button("▶ Run", key=f"{key_prefix}_runcmd_{ci}", use_container_width=True):
+                                result, _ = _pymol_execute(cmd, pymol_port)
+                                st.session_state[f"_chat_cmd_result_{key_prefix}"] = (cmd, result)
+                                st.rerun()
+                    cmd_result = st.session_state.get(f"_chat_cmd_result_{key_prefix}")
+                    if cmd_result:
+                        c, r = cmd_result
+                        color = "#22c55e" if r == "OK" else "#ef4444"
+                        st.markdown(
+                            f'<div style="font-size:.75rem;color:{color};margin:2px 0">'
+                            f'`{_html.escape(c)}` → {_html.escape(r)}</div>',
+                            unsafe_allow_html=True,
+                        )
+
     # ── input area ────────────────────────────────────────────────────
+    placeholder_txt = (
+        f"Ask {agent_name} to visualise, colour, or analyse the structure..."
+        if pymol_port
+        else f"Ask {agent_name} anything about protein design..."
+    )
     with st.form(key=f"{key_prefix}_form", clear_on_submit=True):
         col_inp, col_send = st.columns([5, 1])
         with col_inp:
             user_input = st.text_input(
                 "Message",
-                placeholder=f"Ask {agent_name} anything about protein design...",
+                placeholder=placeholder_txt,
                 label_visibility="collapsed",
                 key=f"{key_prefix}_inp",
             )
@@ -1593,18 +2255,27 @@ def render_agent_chatbot(key_prefix: str = "chatbot") -> None:
     if send and user_input and user_input.strip():
         msg = user_input.strip()
         history.append({"role": "user", "content": msg})
+        st.session_state.pop(f"_chat_tools_{key_prefix}", None)
+        st.session_state.pop(f"_chat_cmd_result_{key_prefix}", None)
         with st.spinner(f"{agent_name} is thinking..."):
-            reply = _chat_llm_call(agent_name, history)
+            if pymol_port:
+                reply, tools_used = _chat_llm_call_with_pymol(agent_name, history, pymol_port)
+                if tools_used:
+                    st.session_state[f"_chat_tools_{key_prefix}"] = tools_used
+            else:
+                reply = _chat_llm_call(agent_name, history)
         history.append({"role": "assistant", "content": reply})
         st.session_state[hist_key] = history
         st.rerun()
 
     # ── footer info ───────────────────────────────────────────────────
     n_turns = len([m for m in history if m["role"] == "user"])
+    pymol_badge = " | 🔬 PyMOL tools active" if pymol_port else ""
     st.caption(
         f"{n_turns} message{'s' if n_turns != 1 else ''} "
         f"| Chatting with **{agent_name}** "
         f"| Switch agents above to get different perspectives"
+        f"{pymol_badge}"
     )
 
 
@@ -1642,7 +2313,7 @@ def observed_scoring_section(
         return
 
     runner = ObservedScoringRunner()
-    avail = runner.availability_summary()
+    avail = {"ost": runner.is_ost_available(), "molprobity": runner.is_molprobity_available()}
 
     with st.expander("🏆 Observed Scoring (OST + MolProbity)", expanded=expanded):
         # ── Availability ─────────────────────────────────────────────────────

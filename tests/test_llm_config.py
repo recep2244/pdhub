@@ -1,11 +1,11 @@
-from protein_design_hub.core.config import LLMConfig
+from protein_design_hub.core.config import LLMConfig, _OLLAMA_DEFAULT_MODEL
 
 
 def test_llm_config_resolve_ollama_defaults():
     cfg = LLMConfig(provider="ollama", base_url="", model="", api_key="")
     resolved = cfg.resolve()
     assert resolved.base_url == "http://localhost:11434/v1"
-    assert resolved.model == "qwen2.5:14b"
+    assert resolved.model == _OLLAMA_DEFAULT_MODEL
     assert resolved.api_key == "ollama"
 
 
@@ -17,7 +17,8 @@ def test_llm_config_migrates_legacy_ollama_model():
         api_key="ollama",
     )
     resolved = cfg.resolve()
-    assert resolved.model == "qwen2.5:14b"
+    # Legacy tiny-model defaults migrate to the current installed default.
+    assert resolved.model == _OLLAMA_DEFAULT_MODEL
 
 
 def test_llm_config_resolve_env_key(monkeypatch):

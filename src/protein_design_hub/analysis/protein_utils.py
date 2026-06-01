@@ -36,6 +36,44 @@ HYDROPHOBICITY = {
     'S': -0.8, 'T': -0.7, 'V': 4.2, 'W': -0.9, 'Y': -1.3,
 }
 
+# One-letter -> three-letter amino acid code, derived from AA_PROPERTIES.
+ONE_TO_THREE: Dict[str, str] = {aa: props['code'] for aa, props in AA_PROPERTIES.items()}
+
+# Mutation-code grammar: <wt><position><target>, e.g. "A123K" or saturation "A123*".
+_MUTATION_CODE_RE = re.compile(r"^([A-Za-z])(\d+)([A-Za-z*])$")
+
+
+def three_letter(aa: str) -> str:
+    """Return the three-letter code for a one-letter amino acid.
+
+    Non-standard tokens are passed through unchanged so wildcards/placeholders
+    stay readable: ``*`` (saturation target) -> ``*``, ``X``/``?`` -> as-is.
+    """
+    if not aa:
+        return aa
+    return ONE_TO_THREE.get(aa.upper(), aa)
+
+
+def format_residue_three_letter(aa: str, position: int) -> str:
+    """Format a residue as ``<Three><pos>``, e.g. ('A', 123) -> 'Ala123'."""
+    return f"{three_letter(aa)}{position}"
+
+
+def format_mutation_three_letter(code: str) -> str:
+    """Convert a single-letter mutation code to three-letter form.
+
+    ``"A123K"`` -> ``"Ala123Lys"``; saturation ``"A123*"`` -> ``"Ala123*"``.
+    Codes that don't match the expected grammar are returned unchanged so the
+    canonical machine identifier is never silently corrupted.
+    """
+    if not code:
+        return code
+    m = _MUTATION_CODE_RE.match(code.strip())
+    if not m:
+        return code
+    wt, pos, target = m.group(1), m.group(2), m.group(3)
+    return f"{three_letter(wt)}{pos}{three_letter(target)}"
+
 
 def parse_multichain_sequence(sequence_input: str) -> List[Dict[str, Any]]:
     """

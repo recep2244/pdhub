@@ -1,0 +1,263 @@
+"""Physics-aware scoring for mutagenesis hits.
+
+Background
+----------
+The original mutagenesis ranking used ``0.6·Δmean_pLDDT + 0.4·Δlocal_pLDDT``.
+pLDDT is the structure predictor's *confidence*, not a stability or fitness
+signal — a mutation that merely makes ESMFold more confident was being labelled
+"beneficial" even when it destabilised the protein. Meanwhile the scanner already
+computes real physics per mutant (OpenMM-GBSA energy, OST lDDT/RMSD vs WT) that
+the ranking ignored.
+
+This module composes those signals into a single, transparent ``improvement``
+score, signed so that **higher = more beneficial**:
+
+    score = w_stab·(−ΔΔG)            stability (heuristic ΔΔG, kcal/mol)
+          + w_fold·fold_agreement    fold preserved (OST lDDT / RMSD vs WT)
+          + w_conf·Δmean_pLDDT       confidence (demoted, small weight)
+          − clash_penalty            new steric clashes vs WT
+          − ptm_penalty              newly-introduced PTM liabilities
+
+pLDDT is kept only as a *confidence gate*: if the mutant fold collapses
+(mean pLDDT below ``MIN_VIABLE_PLDDT``) the candidate is flagged non-viable.
+
+The heuristic ΔΔG is sequence-based and robust; GBSA single-point energies on
+two *different* predicted structures are noisy, so GBSA is reported but given a
+small, sign-only weight. Every call returns a component breakdown so the report
+and LLM agents can show *why* a mutation ranked where it did.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Tuple
+
+# ── Composite-score weights (documented, tunable) ──────────────────────────
+W_STABILITY = 1.0      # per kcal/mol of −ΔΔG  (stabilising → positive)
+W_FOLD = 5.0           # per unit of (lDDT − LDDT_REF)
+W_CONF = 0.02          # per pLDDT point of Δmean_pLDDT (demoted)
+W_CLASH = 0.05         # per clash-score unit introduced vs WT
+W_RMSD = 0.5           # per Å of CA-RMSD beyond RMSD_TOL (fallback when no lDDT)
+PTM_PENALTY = 0.75     # per newly-introduced high-risk PTM liability
+GBSA_PENALTY = 0.2     # sign-only nudge from ΔGBSA (noisy → small)
+
+LDDT_REF = 0.90        # lDDT at/above this = fold preserved
+RMSD_TOL = 1.0         # Å of CA-RMSD tolerated before penalising
+MIN_VIABLE_PLDDT = 50.0  # mutant mean pLDDT below this → fold likely collapsed
+
+# Classification thresholds on the composite score (≈ kcal/mol scale).
+BENEFICIAL_CUTOFF = 0.25
+DETRIMENTAL_CUTOFF = -0.25
+
+# Structurally critical residues whose *removal* is high-risk.
+_CRITICAL_TO_REMOVE = {
+    "C": "possible disulfide partner",
+    "G": "backbone flexibility (turns/hinges)",
+    "P": "backbone rigidity (turn/kink)",
+}
+
+
+def _extract_gbsa(extra_metrics: Dict[str, Any]) -> Optional[float]:
+    """Pull a GBSA / potential energy (kJ/mol) from an extra_metrics dict, if present."""
+    if not isinstance(extra_metrics, dict):
+        return None
+    for key in ("openmm_gbsa_energy_kj_mol", "openmm_potential_energy_kj_mol"):
+        v = extra_metrics.get(key)
+        if isinstance(v, (int, float)):
+            return float(v)
+    return None
+
+
+def substitution_risk(wt_aa: str, mut_aa: str, exposure: str = "unknown") -> Dict[str, Any]:
+    """Per-substitution risk summary used to gate/annotate suggestions.
+
+    Returns ``ddg_kcal`` (heuristic ΔΔG, + = destabilising), an ``effect`` string,
+    a 0–1 ``risk`` score (higher = riskier to make), and human-readable ``flags``.
+    """
+    from protein_design_hub.biophysics.stability import estimate_ddg_mutation
+
+    wt_aa = (wt_aa or "").upper()
+    mut_aa = (mut_aa or "").upper()
+    ddg, effect = estimate_ddg_mutation(wt_aa, mut_aa, exposure)
+
+    flags: List[str] = []
+    risk = 0.0
+    # Destabilising substitutions are risky.
+    if ddg > 0:
+        risk += min(ddg / 3.0, 1.0) * 0.6
+    # Removing a structurally critical WT residue.
+    if wt_aa in _CRITICAL_TO_REMOVE and mut_aa != wt_aa:
+        flags.append(f"removes {wt_aa} ({_CRITICAL_TO_REMOVE[wt_aa]})")
+        risk += 0.3
+    # Introducing a free cysteine (mispairing risk).
+    if mut_aa == "C" and wt_aa != "C":
+        flags.append("introduces free Cys (mispairing/oxidation risk)")
+        risk += 0.2
+    # Proline introduction inside (likely) structured regions.
+    if mut_aa == "P" and wt_aa != "P":
+        flags.append("introduces Pro (backbone constraint)")
+        risk += 0.15
+    return {
+        "ddg_kcal": ddg,
+        "effect": effect,
+        "risk": round(min(risk, 1.0), 3),
+        "flags": flags,
+    }
+
+
+def introduces_ptm_liability(
+    wt_sequence: str,
+    mutant_sequence: str,
+    _scanner: Any = None,
+) -> int:
+    """Return (mutant high-risk PTM count − WT high-risk PTM count).
+
+    Positive means the mutation *introduces* developability liabilities
+    (new N-glycosylation sequon, deamidation/isomerisation motif, etc.).
+    Sequence-based and cheap; reuses the validated PTMLiabilityScanner.
+    """
+    try:
+        from protein_design_hub.analysis.ptm_scanner import PTMLiabilityScanner
+        scanner = _scanner or PTMLiabilityScanner()
+        wt_hr = len(scanner.scan(wt_sequence).high_risk())
+        mut_hr = len(scanner.scan(mutant_sequence).high_risk())
+        return int(mut_hr - wt_hr)
+    except Exception:
+        return 0
+
+
+def composite_mutation_score(
+    mutant: Dict[str, Any],
+    wt_metrics: Optional[Dict[str, Any]] = None,
+    sequence: Optional[str] = None,
+) -> Tuple[float, Dict[str, Any]]:
+    """Compute the physics-aware improvement score for one mutant result dict.
+
+    Args:
+        mutant: a mutation result dict (keys: original_aa, mutant_aa, position,
+            delta_mean_plddt, mean_plddt, rmsd_to_base, ost_lddt, ost_rmsd_ca,
+            clash_score, extra_metrics, …).
+        wt_metrics: ``context.extra['mutation_wt_metrics']`` for WT baselines
+            (clash_score, extra_metrics with GBSA).
+        sequence: WT sequence, enabling the PTM-introduction check.
+
+    Returns:
+        (score, components) where ``components`` is a transparent breakdown.
+    """
+    wt_metrics = wt_metrics or {}
+    comp: Dict[str, Any] = {}
+    flags: List[str] = []
+
+    wt_aa = str(mutant.get("original_aa", "") or "")
+    mut_aa = str(mutant.get("mutant_aa", "") or "")
+
+    # ── stability (heuristic ΔΔG) ──────────────────────────────────────────
+    sub = substitution_risk(wt_aa, mut_aa)
+    ddg = sub["ddg_kcal"]
+    comp["ddg_kcal"] = ddg
+    comp["ddg_effect"] = sub["effect"]
+    stability_term = W_STABILITY * (-ddg)
+    flags.extend(sub["flags"])
+
+    # ── fold agreement (OST lDDT preferred, else RMSD) ─────────────────────
+    ost_lddt = mutant.get("ost_lddt")
+    rmsd = mutant.get("ost_rmsd_ca", mutant.get("rmsd_to_base"))
+    if isinstance(ost_lddt, (int, float)):
+        fold_term = W_FOLD * (float(ost_lddt) - LDDT_REF)
+        comp["ost_lddt"] = float(ost_lddt)
+    elif isinstance(rmsd, (int, float)):
+        fold_term = -W_RMSD * max(0.0, float(rmsd) - RMSD_TOL)
+        comp["rmsd_ca"] = float(rmsd)
+    else:
+        fold_term = 0.0
+
+    # ── confidence (demoted) ───────────────────────────────────────────────
+    d_plddt = mutant.get("delta_mean_plddt", 0.0) or 0.0
+    conf_term = W_CONF * float(d_plddt)
+
+    # ── clash penalty (new clashes vs WT) ──────────────────────────────────
+    clash_penalty = 0.0
+    mut_clash = mutant.get("clash_score")
+    wt_clash = wt_metrics.get("clash_score")
+    if isinstance(mut_clash, (int, float)) and isinstance(wt_clash, (int, float)):
+        extra_clash = max(0.0, float(mut_clash) - float(wt_clash))
+        clash_penalty = -W_CLASH * extra_clash
+        if extra_clash > 0:
+            flags.append(f"+{extra_clash:.0f} clash vs WT")
+
+    # ── PTM liability introduction ─────────────────────────────────────────
+    ptm_penalty = 0.0
+    pos = mutant.get("position")
+    if sequence and isinstance(pos, int) and 1 <= pos <= len(sequence) and mut_aa in "ACDEFGHIKLMNPQRSTVWY":
+        mutant_seq = sequence[: pos - 1] + mut_aa + sequence[pos:]
+        new_liab = introduces_ptm_liability(sequence, mutant_seq)
+        if new_liab > 0:
+            ptm_penalty = -PTM_PENALTY * new_liab
+            flags.append(f"introduces {new_liab} PTM liability(ies)")
+        comp["ptm_liability_delta"] = new_liab
+
+    # ── GBSA (noisy → small, sign-only nudge) ──────────────────────────────
+    gbsa_term = 0.0
+    mut_gbsa = _extract_gbsa(mutant.get("extra_metrics", {}))
+    wt_gbsa = _extract_gbsa(wt_metrics.get("extra_metrics", {}))
+    if mut_gbsa is not None and wt_gbsa is not None:
+        d_gbsa = mut_gbsa - wt_gbsa  # lower energy = more stable
+        comp["delta_gbsa_kj_mol"] = round(d_gbsa, 1)
+        if d_gbsa < 0:
+            gbsa_term = GBSA_PENALTY
+        elif d_gbsa > 0:
+            gbsa_term = -GBSA_PENALTY
+
+    # ── confidence gate ────────────────────────────────────────────────────
+    mean_plddt = mutant.get("mean_plddt")
+    gate_ok = True
+    if isinstance(mean_plddt, (int, float)) and float(mean_plddt) < MIN_VIABLE_PLDDT:
+        gate_ok = False
+        flags.append(f"mutant fold low-confidence (pLDDT {float(mean_plddt):.0f}<{MIN_VIABLE_PLDDT:.0f})")
+
+    score = stability_term + fold_term + conf_term + clash_penalty + ptm_penalty + gbsa_term
+    if not gate_ok:
+        score -= 1.0  # heavy demotion — prediction unreliable
+
+    comp.update({
+        "stability_term": round(stability_term, 3),
+        "fold_term": round(fold_term, 3),
+        "confidence_term": round(conf_term, 3),
+        "clash_penalty": round(clash_penalty, 3),
+        "ptm_penalty": round(ptm_penalty, 3),
+        "gbsa_term": round(gbsa_term, 3),
+        "gate_ok": gate_ok,
+        "flags": flags,
+        "score": round(score, 3),
+    })
+    return round(score, 4), comp
+
+
+def classify_score(score: float) -> str:
+    """Map a composite score to beneficial / neutral / detrimental."""
+    if score > BENEFICIAL_CUTOFF:
+        return "beneficial"
+    if score < DETRIMENTAL_CUTOFF:
+        return "detrimental"
+    return "neutral"
+
+
+def position_risk_summary(sequence: str, positions: List[int]) -> Dict[int, Dict[str, Any]]:
+    """Per-position mutability risk for the suggestion agent (data-backed gate).
+
+    For each 1-indexed position, summarise the WT residue's criticality so the
+    LLM's "avoid conserved/critical residues" guidance is backed by an actual
+    signal rather than a single-sequence guess.
+    """
+    out: Dict[int, Dict[str, Any]] = {}
+    for p in positions:
+        if not (isinstance(p, int) and 1 <= p <= len(sequence)):
+            continue
+        wt = sequence[p - 1].upper()
+        notes: List[str] = []
+        risk = 0.0
+        if wt in _CRITICAL_TO_REMOVE:
+            notes.append(_CRITICAL_TO_REMOVE[wt])
+            risk += 0.4
+        # crude local context: Cys may be disulfide-bonded; Gly/Pro in runs = turns
+        out[p] = {"wt_aa": wt, "risk": round(min(risk, 1.0), 3), "notes": notes}
+    return out

@@ -36,11 +36,6 @@ agent_sidebar_status()
 # Custom CSS for shiny, interactive interface
 st.markdown("""
 <style>
-/* Main container styling */
-.main .block-container {
-    padding: 1rem 2rem;
-}
-
 /* Residue grid */
 .residue-grid {
     display: flex;
@@ -513,8 +508,8 @@ if seq:
                     for i in range(max(0, start-1), min(len(seq), end)):
                         st.session_state.selected_positions.add(i)
                     st.rerun()
-            except:
-                pass
+            except (ValueError, TypeError):
+                st.caption("Invalid range — use format: 1-10")
 
     with col_sel_ctrl4:
         select_aa = st.selectbox("Select by AA", [""] + list(AMINO_ACIDS.keys()), key="select_by_aa")
@@ -801,7 +796,7 @@ if seq:
                         if mol:
                             img = Draw.MolToImage(mol, size=(200, 150))
                             st.image(img)
-                    except:
+                    except (ImportError, AttributeError, ValueError, Exception):
                         st.code(ligand['smiles'])
 
                     if st.button(f"💊 Attach to {len(st.session_state.selected_positions)} residue(s)", type="primary", use_container_width=True):
@@ -862,7 +857,7 @@ if seq:
     st.markdown("---")
 
     # === TABS FOR ADDITIONAL FEATURES ===
-    main_tabs = st.tabs(["🔬 3D Structure", "💊 Ligands Library", "📜 History", "📤 Export"])
+    main_tabs = st.tabs(["🔬 3D Structure", "💊 Ligands Library", "📜 History", "📤 Export", "🧪 Wet-Lab Advisor"])
 
     # === 3D STRUCTURE TAB ===
     with main_tabs[0]:
@@ -993,17 +988,35 @@ if seq:
                 key_prefix="design_agent",
             )
 
+            _design_domain_ctx = "\n".join([
+                *context_lines,
+                "",
+                "Immunology: new NxS/T motifs = potential N-glycosylation sequons (check if in CDRs). "
+                "New hydrophobic patches → aggregation risk; pI >9 → viscosity risk for mAbs.",
+                "Wet lab: expression system yield order: CHO > HEK293 > E. coli periplasm > yeast. "
+                "Signal peptide needed for mammalian secretion; His/Strep/Fc tag for purification.",
+                "Plant biology: chloroplast targeting (N-terminal transit peptide ~50 aa), "
+                "vacuolar sorting (NPIR motif), ER retention (C-terminal HDEL/KDEL), "
+                "codon optimization critical for Arabidopsis/tobacco/rice expression.",
+            ])
             render_all_experts_panel(
                 "All-Expert Review (design job)",
                 agenda=(
-                    "Review the current designed sequence, residue edits, ligand context, and "
-                    "predicted structure confidence. Recommend next engineering actions."
+                    "Review the designed sequence from immunology, wet lab, and plant biology "
+                    "perspectives and recommend the highest-value next actions."
                 ),
-                context="\n".join(context_lines),
+                context=_design_domain_ctx,
                 questions=(
-                    "Which residue edits or regions should be prioritized for the next design round?",
-                    "Any risky edits that could destabilize the fold or disrupt function?",
-                    "What validation steps should be run next before committing this design?",
+                    "Which residue edits most improve fold stability vs. introduce new liabilities — "
+                    "pay special attention to new N-glycosylation sequons (NxS/T), new hydrophobic "
+                    "surface patches, disrupted disulfides, and edits falling in CDR or active site regions?",
+                    "From a wet lab perspective: which expression system best fits this designed sequence "
+                    "(E. coli periplasm for small domains/nanobodies, CHO/HEK for mAbs, "
+                    "Agrobacterium for plant proteins), and what is the expected yield per liter culture?",
+                    "From an immunology angle: does the design introduce new T-cell epitope-prone "
+                    "hydrophobic stretches, and is humanness ≥85% maintained for therapeutic use? "
+                    "From a plant biology angle: do the edits affect subcellular targeting signals, "
+                    "plant kinase phosphorylation motifs (Ser/Thr-Pro), or pathogen effector interaction surfaces?",
                 ),
                 key_prefix="design_all",
             )
@@ -1096,7 +1109,7 @@ if seq:
                         mol = Chem.MolFromSmiles(lig['smiles'])
                         if mol:
                             st.image(Draw.MolToImage(mol, size=(150, 100)))
-                    except:
+                    except (ImportError, AttributeError, ValueError, Exception):
                         st.code(lig['smiles'][:20] + "...")
 
                     if st.button("🗑️", key=f"del_lig_{i}"):
@@ -1174,6 +1187,95 @@ if seq:
             st.session_state.predict_name = st.session_state.sequence_name
             st.session_state.predict_ligands = st.session_state.ligands if include_ligands else []
             st.info(f"Go to the Predict page to run {predictor}")
+
+    # === WET-LAB ADVISOR TAB ===
+    with main_tabs[4]:
+        st.markdown("### 🧪 Wet-Lab Readiness Advisor")
+        st.markdown(
+            "Get an instant **expression system recommendation**, **purification strategy**, "
+            "**codon risk assessment**, and a **Go/No-Go verdict** for this designed sequence."
+        )
+
+        _des_wl_seq = seq or ""
+        if not _des_wl_seq:
+            st.info("Enter or design a sequence first, then come back here.")
+        else:
+            _des_wl_is_ab = st.checkbox("Antibody / nanobody sequence", value=False, key="des_wl_is_ab")
+            _des_wl_hosts = st.multiselect(
+                "Target expression host(s)",
+                ["E. coli", "HEK293/CHO", "Pichia pastoris", "N. benthamiana / Plant"],
+                default=["E. coli", "HEK293/CHO"],
+                key="des_wl_hosts",
+            )
+            if st.button("Generate Wet-Lab Plan", type="primary", key="des_wl_run"):
+                try:
+                    from protein_design_hub.analysis.wet_lab_advisor import build_wet_lab_report as _build_des_wl
+                    with st.spinner("Analysing…"):
+                        _des_wl_rep = _build_des_wl(
+                            _des_wl_seq,
+                            is_antibody=_des_wl_is_ab,
+                            codon_hosts=_des_wl_hosts or None,
+                        )
+                    st.session_state["_des_wl_report"] = _des_wl_rep
+                except Exception as _de:
+                    st.error(f"Failed: {_de}")
+                    st.session_state["_des_wl_report"] = None
+
+            _des_wl_rep = st.session_state.get("_des_wl_report")
+            if _des_wl_rep:
+                import pandas as pd
+                _vd_col = {"GO": "#22c55e", "CONDITIONAL": "#f59e0b", "NO-GO": "#ef4444"}
+                _vd_ico = {"GO": "✅", "CONDITIONAL": "⚠️", "NO-GO": "❌"}
+                _vc = _vd_col.get(_des_wl_rep.go_nogo, "#6b7280")
+                st.markdown(
+                    f'<div style="background:rgba(0,0,0,0.3);border-left:5px solid {_vc};'
+                    f'padding:14px 18px;border-radius:8px;margin:10px 0;">'
+                    f'<b style="color:{_vc};font-size:1.2rem;">'
+                    f'{_vd_ico.get(_des_wl_rep.go_nogo,"❓")} {_des_wl_rep.go_nogo}</b>'
+                    f'<p style="color:#e2e8f0;margin:4px 0 0 0;">{_des_wl_rep.go_nogo_reason}</p>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                st.info(_des_wl_rep.synopsis)
+
+                # Key metrics
+                _dwc = st.columns(5)
+                _dwc[0].metric("MW", f"{_des_wl_rep.mw_kda:.1f} kDa")
+                _dwc[1].metric("pI", f"{_des_wl_rep.pi:.1f}")
+                _dwc[2].metric("GRAVY", f"{_des_wl_rep.gravy:.3f}")
+                _dwc[3].metric("Instability", f"{_des_wl_rep.instability_index:.1f}")
+                _dwc[4].metric("Disulfide Pairs", f"{_des_wl_rep.disulfide_pairs_predicted}")
+
+                # Top expression system
+                if _des_wl_rep.expression_systems:
+                    _top_des = _des_wl_rep.expression_systems[0]
+                    st.markdown(f"**Recommended system: {_top_des.system}** (score {_top_des.score:.0f}/100)")
+                    st.markdown(
+                        f"Est. yield: **{_top_des.estimated_yield_mgl[0]:.0f}–{_top_des.estimated_yield_mgl[1]:.0f} mg/L** | "
+                        f"Timeline: **{_top_des.timeline_days[0]}–{_top_des.timeline_days[1]} days**"
+                    )
+                    with st.expander("Full expression system table"):
+                        import pandas as pd
+                        _des_es_rows = [
+                            {"System": es.system, "Score": f"{es.score:.0f}/100",
+                             "Yield (mg/L)": f"{es.estimated_yield_mgl[0]:.0f}–{es.estimated_yield_mgl[1]:.0f}",
+                             "Timeline": f"{es.timeline_days[0]}–{es.timeline_days[1]} d",
+                             "Cost/mg": f"${es.cost_per_mg_usd[0]:.0f}–${es.cost_per_mg_usd[1]:.0f}"}
+                            for es in _des_wl_rep.expression_systems
+                        ]
+                        st.dataframe(pd.DataFrame(_des_es_rows), use_container_width=True, hide_index=True)
+
+                # Purification summary
+                st.markdown(
+                    f"**Purification:** {len(_des_wl_rep.purification.steps)}-step strategy "
+                    f"(~{_des_wl_rep.purification.overall_recovery_pct:.0f}% recovery): "
+                    + " → ".join(s.method.split("(")[0].strip() for s in _des_wl_rep.purification.steps)
+                )
+
+                # Codon risks summary
+                for _cr in _des_wl_rep.codon_risks:
+                    _ico = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(_cr.risk_level, "⚪")
+                    st.markdown(f"{_ico} **{_cr.host}** codon risk: {_cr.risk_level}")
 
     if st.session_state.get("current_sequence"):
         set_page_results("Design", {

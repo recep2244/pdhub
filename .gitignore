@@ -178,3 +178,6 @@ colabfold_envdb/
 
 # Streamlit
 .streamlit/
+
+# Claude Code local settings (machine-specific)
+.claude/

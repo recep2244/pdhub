@@ -31,7 +31,20 @@ from typing import Dict, List, Literal, Optional, Sequence, Tuple
 
 from protein_design_hub.agents.llm_agent import LLMAgent
 from protein_design_hub.agents import prompts as P
-from protein_design_hub.agents.ollama_gpu import ensure_ollama_gpu, ollama_extra_body
+from protein_design_hub.agents.ollama_gpu import (
+    ensure_ollama_gpu,
+    invalidate_gpu_cache,
+    ollama_extra_body,
+    resolve_installed_ollama_model,
+)
+
+# Minimum acceptable throughput for Ollama; below this we assume CPU fallback.
+# qwen2.5:14b on RTX 4080 sustains ~25-30 tok/s; CPU is 3-6 tok/s.
+_OLLAMA_MIN_TOK_PER_S = 12.0
+
+# One-time warning latch so a missing-model swap is logged once per process,
+# not on every one of the 70+ calls in a pipeline.
+_warned_swapped_models: set = set()
 
 # Re-export for convenience
 Discussion = List[Dict[str, str]]
@@ -58,11 +71,15 @@ def _get_llm_client() -> Tuple:
     if _cached_client is not None and cache_key == _cached_cfg_key:
         return _cached_client, cfg
 
+    # Local Ollama generation (esp. a 14B with any CPU spill) can need well over
+    # 120 s for a near-max_tokens response: 4096 tok / ~28 tok/s ≈ 146 s, which
+    # silently ReadTimeout'd the pipeline step. Give a generous ceiling for the
+    # local-generation case and allow one retry for a genuinely transient stall.
     client = OpenAI(
         base_url=cfg.base_url,
         api_key=cfg.api_key,
-        timeout=120.0,
-        max_retries=2,
+        timeout=300.0,
+        max_retries=1,
     )
     _cached_client = client
     _cached_cfg_key = cache_key
@@ -74,6 +91,68 @@ def reset_llm_client() -> None:
     global _cached_client, _cached_cfg_key
     _cached_client = None
     _cached_cfg_key = ""
+
+
+def _call_ollama_native(
+    base_url: str,
+    model: str,
+    messages: List[Dict[str, str]],
+    temperature: float,
+    max_tokens: Optional[int],
+) -> Tuple[str, int, float]:
+    """Call Ollama's NATIVE ``/api/chat`` endpoint.
+
+    Returns ``(text, out_tokens, gen_tok_per_s)`` where ``gen_tok_per_s`` is the
+    *pure generation* rate from Ollama's ``eval_count``/``eval_duration`` — it
+    excludes model-load and prompt-prefill time, so it reflects true decode
+    speed even on the first (cold-load) call.
+
+    Unlike the OpenAI-compatible ``/v1`` endpoint (which the OpenAI SDK targets),
+    ``/api/chat`` honours the per-request ``options`` block — so ``num_ctx`` and
+    ``num_gpu`` actually take effect. This is what lets the 8192-token context
+    apply, eliminating the sliding-window K-shift truncation that ``/v1`` caused
+    by pinning every load to the daemon default (4096).
+    """
+    import urllib.error
+    import urllib.request
+
+    root = base_url.rstrip("/")
+    if root.endswith("/v1"):
+        root = root[:-3].rstrip("/")
+    url = root + "/api/chat"
+
+    extra = ollama_extra_body("ollama", model).get("extra_body", {})
+    options = dict(extra.get("options", {}))
+    options["temperature"] = temperature
+    if max_tokens is not None:
+        options["num_predict"] = max_tokens
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "options": options,
+        "keep_alive": extra.get("keep_alive", "10m"),
+    }
+    data = json.dumps(payload).encode("utf-8")
+
+    last_err: Optional[Exception] = None
+    for attempt in range(2):  # one retry, mirroring the OpenAI client's max_retries=1
+        try:
+            req = urllib.request.Request(
+                url, data=data, headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=300.0) as resp:
+                body = json.loads(resp.read().decode("utf-8", errors="replace"))
+            text = (body.get("message") or {}).get("content", "") or ""
+            out_tok = int(body.get("eval_count") or 0)
+            # Pure decode rate (ns → s); excludes load_duration + prompt prefill.
+            eval_ns = body.get("eval_duration") or 0
+            gen_tok_per_s = (out_tok / (eval_ns / 1e9)) if eval_ns and out_tok else 0.0
+            return text, out_tok, gen_tok_per_s
+        except (urllib.error.URLError, TimeoutError, ValueError, OSError) as err:
+            last_err = err
+    raise RuntimeError(f"Ollama /api/chat request failed: {last_err}") from last_err
 
 
 def _call_llm(
@@ -88,38 +167,83 @@ def _call_llm(
     """
     client, cfg = _get_llm_client()
     model = agent.resolved_model
+
+    # If the configured Ollama model isn't actually installed, transparently
+    # swap to an installed one before the request goes out — otherwise every
+    # call 404s with "model 'X' not found". Cached, so this is one cheap
+    # HTTP call per minute, not per LLM call.
+    if cfg.provider == "ollama" and model:
+        swapped = resolve_installed_ollama_model(model, base_url=cfg.base_url)
+        if swapped != model:
+            if model not in _warned_swapped_models:
+                print(
+                    f"  [meeting] Ollama model '{model}' is not installed; "
+                    f"falling back to '{swapped}'. Run `ollama pull {model}` to use it."
+                )
+                _warned_swapped_models.add(model)
+            model = swapped
+
     temp = temperature if temperature is not None else cfg.temperature
     agent_messages = [agent.system_message] + messages
 
     # GPU check (cached with 60 s TTL — NOT every call)
     ensure_ollama_gpu(cfg.provider, model)
 
-    kwargs: dict = dict(
-        model=model,
-        messages=agent_messages,  # type: ignore[arg-type]
-        temperature=temp,
-    )
-    if cfg.max_tokens is not None:
-        kwargs["max_tokens"] = cfg.max_tokens
-    kwargs.update(ollama_extra_body(cfg.provider))
-
     t0 = time.monotonic()
-    response = client.chat.completions.create(**kwargs)
+    gen_tok_per_s = 0.0  # pure decode rate (ollama native); 0 = unknown
+    if cfg.provider == "ollama":
+        # Native /api/chat so num_ctx=8192 is honoured (the OpenAI /v1 path
+        # silently ignores `options` and pins every load to ctx=4096, which
+        # truncated long meeting prompts via K-shift).
+        text, out_tok, gen_tok_per_s = _call_ollama_native(
+            cfg.base_url, model, agent_messages, temp, cfg.max_tokens
+        )
+    else:
+        kwargs: dict = dict(
+            model=model,
+            messages=agent_messages,  # type: ignore[arg-type]
+            temperature=temp,
+        )
+        if cfg.max_tokens is not None:
+            kwargs["max_tokens"] = cfg.max_tokens
+        response = client.chat.completions.create(**kwargs)
+        text = response.choices[0].message.content or ""
+        tok = getattr(response, "usage", None)
+        out_tok = (getattr(tok, "completion_tokens", 0) or 0) if tok else 0
     elapsed = time.monotonic() - t0
-
-    text = response.choices[0].message.content or ""
 
     # Strip <think>…</think> reasoning blocks from deepseek-r1 and similar
     # models.  Keep only the final answer for clean meeting transcripts.
     text = _strip_think_blocks(text)
 
-    tok = getattr(response, "usage", None)
-    tok_info = ""
-    if tok:
-        out_tok = getattr(tok, "completion_tokens", 0) or 0
-        if out_tok and elapsed > 0:
-            tok_info = f", {out_tok} tok, {out_tok / elapsed:.0f} tok/s ({model})"
+    # Prefer the true decode rate (ollama) for reporting; fall back to wall-clock.
+    rate = gen_tok_per_s if gen_tok_per_s else ((out_tok / elapsed) if (out_tok and elapsed > 0) else 0.0)
+    tok_info = f", {out_tok} tok, {rate:.0f} tok/s ({model})" if out_tok else ""
     print(f"  [{agent.title}] {elapsed:.1f}s{tok_info}")
+
+    # GPU enforcement for Ollama. The AUTHORITATIVE check is the processor
+    # readout from ``ollama ps`` (ensure_ollama_gpu) — it directly reports
+    # CPU vs GPU and hard-fails on a real CPU fallback. The throughput figure
+    # is only a soft canary: it uses the pure decode rate (load/prefill
+    # excluded) and merely WARNS, because a cold load or large context can
+    # legitimately read low without meaning CPU.
+    if cfg.provider == "ollama":
+        invalidate_gpu_cache()
+        try:
+            ensure_ollama_gpu(cfg.provider, model)
+        except RuntimeError as gpu_err:
+            raise RuntimeError(
+                f"Ollama fell back to CPU after loading '{model}'. "
+                "Restart the daemon and verify GPU is available "
+                "(see ollama logs for `ggml_cuda_init` errors)."
+            ) from gpu_err
+        if out_tok >= 30 and gen_tok_per_s and gen_tok_per_s < _OLLAMA_MIN_TOK_PER_S:
+            print(
+                f"  [meeting] WARNING: low decode rate {gen_tok_per_s:.1f} tok/s on "
+                f"'{model}' (GPU confirmed via ollama ps; likely cold load or large "
+                f"context). Threshold {_OLLAMA_MIN_TOK_PER_S} tok/s."
+            )
+
     return text
 
 
@@ -248,6 +372,12 @@ def run_meeting(
         messages.append({"role": "user", "content": initial})
         discussion.append({"agent": "User", "message": initial})
 
+        # Identify the Scientific Critic and last non-critic member for cross-exam
+        critics = [m for m in team_members if "critic" in m.title.lower()]
+        non_critics = [m for m in team_members if "critic" not in m.title.lower()]
+        _critic_agent = critics[0] if critics else None
+        _cross_exam_target = non_critics[-1] if non_critics else None
+
         for round_idx in range(num_rounds + 1):
             round_num = round_idx + 1
             for agent in team:
@@ -277,6 +407,39 @@ def run_meeting(
                 # In the final round only the lead speaks
                 if round_idx == num_rounds:
                     break
+
+            # ── Cross-examination after the LAST discussion round ──────
+            # Runs once, after all members have spoken in round `num_rounds - 1`
+            # (the last non-summary round).  The Scientific Critic challenges
+            # the most recent non-critic member; that member then rebuts.
+            # Adds 2 extra LLM calls to deepen scientific debate.
+            if (
+                round_idx == num_rounds - 1  # last discussion round
+                and _critic_agent is not None
+                and _cross_exam_target is not None
+                and _critic_agent != _cross_exam_target
+            ):
+                # Critic challenges target
+                challenge_prompt = P.cross_examination_prompt(
+                    _critic_agent, _cross_exam_target,
+                )
+                messages.append({"role": "user", "content": challenge_prompt})
+                discussion.append({"agent": "User", "message": challenge_prompt})
+                challenge_reply = _call_llm(_critic_agent, messages, temperature)
+                n_calls += 1
+                messages.append({"role": "assistant", "content": challenge_reply})
+                discussion.append({"agent": _critic_agent.title, "message": challenge_reply})
+
+                # Target member rebuts
+                rebuttal_prompt = P.member_rebuttal_prompt(
+                    _cross_exam_target, _critic_agent,
+                )
+                messages.append({"role": "user", "content": rebuttal_prompt})
+                discussion.append({"agent": "User", "message": rebuttal_prompt})
+                rebuttal_reply = _call_llm(_cross_exam_target, messages, temperature)
+                n_calls += 1
+                messages.append({"role": "assistant", "content": rebuttal_reply})
+                discussion.append({"agent": _cross_exam_target.title, "message": rebuttal_reply})
 
     # ── INDIVIDUAL meeting ──────────────────────────────────────────
     else:

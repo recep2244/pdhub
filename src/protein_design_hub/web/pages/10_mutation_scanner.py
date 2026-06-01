@@ -50,6 +50,10 @@ from protein_design_hub.web.ui import (
 )
 from protein_design_hub.web.agent_helpers import (
     render_agent_advice_panel,
+    render_agent_chatbot,
+    render_pymolai_chatbot,
+    render_pymolai_section,
+    render_pymolai_viewer,
     render_contextual_insight,
     render_ml_stats_panel,
     agent_sidebar_status,
@@ -108,34 +112,16 @@ with st.expander("📖 How mutation scanning works", expanded=False):
 # Enhanced CSS for mutation scanner interface
 st.markdown("""
 <style>
-/* Main container */
-.main .block-container {
-    padding: 1rem 2rem;
-    max-width: 100%;
-}
-
 /* Residue grid */
 .residue-button {
     font-weight: bold;
     transition: all 0.2s ease;
 }
 
-/* Metric cards */
-.metric-card {
-    background: var(--pdhub-bg-card);
-    border-radius: 12px;
-    padding: 15px;
-    text-align: center;
-    box-shadow: var(--pdhub-shadow-sm);
-    border: 1px solid var(--pdhub-border);
-    margin-bottom: 10px;
-    color: var(--pdhub-text);
-}
-
+/* Metric card variant overrides for mutation scanner */
 .metric-card-success { border-left: 5px solid var(--pdhub-success); }
 .metric-card-danger { border-left: 5px solid var(--pdhub-error); }
 
-.metric-value { font-size: 1.5rem; font-weight: bold; color: var(--pdhub-text); }
 .metric-delta { font-size: 1rem; font-weight: bold; }
 .delta-positive { color: var(--pdhub-success); }
 .delta-negative { color: var(--pdhub-error); }
@@ -352,8 +338,8 @@ if st.session_state.get("scan_job_to_load"):
                 res = SimpleNamespace(**data)
                 res.variants = [SimpleNamespace(**v) for v in data.get("variants", [])]
                 res.ranked_variants = sorted(
-                    [v for v in res.variants if v.success],
-                    key=lambda v: v.improvement_score if hasattr(v, "improvement_score") else 0,
+                    [v for v in res.variants if getattr(v, "success", False)],
+                    key=lambda v: getattr(v, "improvement_score", 0) or 0,
                     reverse=True,
                 )
                 st.session_state.multi_scan_results = res
@@ -366,8 +352,8 @@ if st.session_state.get("scan_job_to_load"):
                 res = SimpleNamespace(**data)
                 res.mutations = [SimpleNamespace(**m) for m in data.get("mutations", [])]
                 res.ranked_mutations = sorted(
-                    [m for m in res.mutations if m.success],
-                    key=lambda x: x.improvement_score if hasattr(x, 'improvement_score') else 0,
+                    [m for m in res.mutations if getattr(m, "success", False)],
+                    key=lambda x: getattr(x, "improvement_score", 0) or 0,
                     reverse=True
                 )
                 st.session_state.scan_results = res
@@ -514,20 +500,32 @@ with st.sidebar.expander("🔍 AFDB Match", expanded=False):
 
 def run_saturation_mutagenesis(sequence, position):
     """Run saturation mutagenesis using the backend scanner."""
-    with st.status("Running Mutation Scanner...", expanded=True) as status:
+    if "scanner" not in st.session_state:
+        return None, "Scanner not initialized. Ensure a predictor is selected."
+    if not sequence:
+        return None, "Empty sequence."
+    if not (1 <= position <= len(sequence)):
+        return None, f"Position {position} is out of range for sequence length {len(sequence)}."
+
+    with st.status(f"Scanning position {sequence[position-1]}{position} (19 mutations)...", expanded=True) as status:
         try:
-            st.write("Initializing...")
+            progress_bar = st.progress(0.0, text="Starting scan...")
+            done_count = [0]
 
             def progress_callback(current, total, message):
-                st.write(f"Testing {message}...")
+                done_count[0] = current
+                pct = current / max(total, 1)
+                progress_bar.progress(pct, text=f"[{current}/{total}] {message}")
 
             scanner = st.session_state.scanner
             results = scanner.scan_position(
                 sequence,
                 position,
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
             )
-            status.update(label="Scan Complete!", state="complete", expanded=False)
+            progress_bar.progress(1.0, text="Complete")
+            n_ok = sum(1 for m in results.mutations if getattr(m, "success", False))
+            status.update(label=f"Scan complete — {n_ok}/19 mutations succeeded.", state="complete", expanded=False)
             return results, None
         except Exception as exc:
             status.update(label="Scan failed", state="error", expanded=True)
@@ -551,6 +549,47 @@ def parse_positions(text, max_len):
             if 1 <= p <= max_len:
                 positions.add(p)
     return positions
+
+_PARSE_VALID_AAS = set("ACDEFGHIKLMNPQRSTVWY")
+
+
+def _parse_approved_mutations(df: "pd.DataFrame", sequence: str) -> List[Dict[str, Any]]:
+    """Convert the approved-mutations table into the orchestrator's input format.
+
+    The ``mutagenesis_post`` pipeline reads ``context.extra["approved_mutations"]``
+    as a list of ``{"residue": int, "wt_aa": str, "targets": [str]}`` dicts. This
+    helper turns the edited DataFrame (columns ``Position``, ``WT AA``,
+    ``Target AAs``) into that shape.
+
+    - ``Target AAs`` is free text (e.g. ``"A, G"``); only valid single-letter
+      amino acids are kept, anything else is dropped.
+    - ``wt_aa`` prefers the table value, falling back to the residue in
+      ``sequence`` at that 1-indexed position.
+    - A missing ``Position`` column raises ``KeyError`` (the table contract is
+      explicit); an empty table returns ``[]``.
+    """
+    approved: List[Dict[str, Any]] = []
+    if df is None or len(df) == 0:
+        return approved
+
+    for _, row in df.iterrows():
+        position = int(row["Position"])  # KeyError if the column was renamed
+        wt_aa = str(row.get("WT AA", "") or "").strip().upper()
+        if not wt_aa and 1 <= position <= len(sequence):
+            wt_aa = sequence[position - 1].upper()
+
+        raw_targets = str(row.get("Target AAs", "") or "")
+        targets = [
+            t for t in (tok.strip().upper() for tok in raw_targets.replace(",", " ").split())
+            if t in _PARSE_VALID_AAS and t != wt_aa
+        ]
+        # De-duplicate while preserving order.
+        seen: set = set()
+        targets = [t for t in targets if not (t in seen or seen.add(t))]
+
+        approved.append({"residue": position, "wt_aa": wt_aa, "targets": targets})
+    return approved
+
 
 def parse_ab_fasta(text: str) -> Dict[str, str]:
     chains: Dict[str, str] = {}
@@ -741,10 +780,26 @@ def _activate_job_dir(job_dir: Path) -> None:
 
 def run_multi_mutation_pipeline(sequence, positions, top_k, max_variants, only_beneficial=True, max_positions=6):
     """Run multi-position mutation pipeline with ESMFold evaluation."""
-    with st.status("Running Multi-Mutation Pipeline...", expanded=True) as status:
+    if "scanner" not in st.session_state:
+        return None, "Scanner not initialized. Ensure a predictor is selected."
+    if not sequence:
+        return None, "Empty sequence."
+    invalid = [p for p in positions if not (1 <= p <= len(sequence))]
+    if invalid:
+        return None, f"Positions out of range: {invalid}"
+
+    with st.status(
+        f"Multi-mutation pipeline: {len(positions)} positions, up to {max_variants} variants...",
+        expanded=True,
+    ) as status:
         try:
+            progress_bar = st.progress(0.0, text="Initialising...")
+            status_text = st.empty()
+
             def progress_callback(stage, current, total, message):
-                st.write(f"[{stage}] {message} ({current}/{total})")
+                pct = current / max(total, 1)
+                progress_bar.progress(pct, text=f"[{stage}] {message} ({current}/{total})")
+                status_text.caption(f"Stage: **{stage}** — {message}")
 
             scanner = st.session_state.scanner
             results = scanner.scan_positions(
@@ -757,7 +812,9 @@ def run_multi_mutation_pipeline(sequence, positions, top_k, max_variants, only_b
                 progress_callback=progress_callback,
             )
 
-            status.update(label="Multi-scan Complete!", state="complete", expanded=False)
+            progress_bar.progress(1.0, text="Complete")
+            n_ok = len([v for v in getattr(results, "variants", []) if getattr(v, "success", True)])
+            status.update(label=f"Multi-scan complete — {n_ok} variants evaluated.", state="complete", expanded=False)
             return results, None
         except Exception as exc:
             status.update(label="Multi-scan failed", state="error", expanded=True)
@@ -1331,9 +1388,17 @@ def _render_manual_tab_settings():
                 "structure quality is sufficient for mutagenesis-driven decisions."
             )
             eval_questions = (
-                "Are baseline quality metrics acceptable for mutation planning?",
-                "Which structural regions look fragile and should be treated cautiously?",
-                "Should we run additional validation before launching large mutagenesis scans?",
+                "Are baseline quality metrics acceptable for mutation planning? "
+                "Immunology note: CDR-H3 clash scores 5-15 are NORMAL for antibody loops — "
+                "treat elevated CDR clash as expected loop disorder, not a quality problem.",
+                "Which structural regions look fragile (high B-factor equivalent, clash, disorder) "
+                "and should be avoided in mutagenesis? "
+                "Plant biology note: LRR-domain solenoid and NLR NBS-LRR repeats often appear "
+                "geometrically strained in computed models but are functionally correct.",
+                "From a wet lab perspective: given these baseline metrics, is the WT sequence "
+                "sufficient quality to launch a 96-well small-scale expression screen of top mutants "
+                "(E. coli autoinduction, HEK293 transient, or Agrobacterium infiltration), "
+                "or does the baseline need re-prediction/refinement first?",
             )
             render_all_experts_panel(
                 "🧠 All-Expert Baseline Evaluation Review",
@@ -1372,6 +1437,9 @@ def _render_manual_tab_settings():
         st.session_state.scanner = build_scanner(selected_predictor)
         st.session_state.baseline_evaluation = None
         st.session_state.baseline_evaluation_predictor = None
+    # Ensure scanner is always initialized (handles first page load where default predictor matches init_session_state)
+    if "scanner" not in st.session_state:
+        st.session_state.scanner = build_scanner(selected_predictor)
 
     # Mutagenesis evaluation settings
     st.markdown("#### Mutagenesis Evaluation")
@@ -1484,1012 +1552,10 @@ def _render_manual_tab_settings():
     return baseline_predictors, selected_predictor
 
 
-# ── Two-tab layout: Agent Pipeline + Advanced / Manual ─────────
-tab_agent, tab_manual = st.tabs(["Agent Pipeline", "Advanced / Manual"])
+# Agent pipeline removed — only the Advanced / Manual workflow remains.
+tab_manual = st.container()
 
 
-# ══════════════════════════════════════════════════════════════════
-#  TAB 1 — Agent-Governed Mutagenesis Pipeline
-# ══════════════════════════════════════════════════════════════════
-_EXAMPLE_SEQUENCES = {
-    "Ubiquitin (76 aa)": ("Ubiquitin", "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"),
-    "T1024 (52 aa)": ("T1024", "MAAHKGAEHVVKASLDAGVKTVAGGLVVKAKALGGKDATMHLVAATLKKGYM"),
-    "Hemoglobin alpha (51 aa)": ("HbA_fragment", "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSH"),
-    "Insulin B-chain (30 aa)": ("Insulin_B", "FVNQHLCGSHLVEALYLVCGERGFFYTPKT"),
-}
-
-
-def _render_agent_pipeline_tab():
-    """Render the agent-governed mutagenesis pipeline UI."""
-
-    section_header(
-        "Agent-Governed Mutagenesis",
-        "LLM scientists drive the workflow: analyse baseline, suggest mutations, execute, interpret",
-        "🤖",
-    )
-
-    # ── A. Sequence Input ────────────────────────────────────────
-    seq = st.session_state.get("sequence", "")
-    if not seq:
-        st.markdown("#### Load a sequence")
-
-        # Example sequence buttons
-        st.markdown("**Quick Load — Example Sequences:**")
-        ex_cols = st.columns(len(_EXAMPLE_SEQUENCES))
-        for i, (label, (name, sequence)) in enumerate(_EXAMPLE_SEQUENCES.items()):
-            with ex_cols[i]:
-                if st.button(label, key=f"agent_ex_{i}", use_container_width=True):
-                    st.session_state.sequence = sequence
-                    st.session_state.sequence_name = name
-                    st.session_state.sequence_input_raw = sequence
-                    st.session_state.mutagenesis_context = None
-                    st.session_state.mutagenesis_phase2_context = None
-                    st.rerun()
-
-        st.markdown("**Or paste your own sequence:**")
-        agent_seq = st.text_area(
-            "Protein sequence",
-            height=100,
-            placeholder="Paste amino acid sequence (single letter codes)...",
-            key="agent_seq_input",
-        )
-        if agent_seq:
-            cleaned = "".join(c.upper() for c in agent_seq if c.upper() in _VALID_AAS)
-            if cleaned:
-                st.session_state.sequence = cleaned
-                st.session_state.sequence_name = "agent_input"
-                st.session_state.sequence_input_raw = cleaned
-                seq = cleaned
-                st.rerun()
-            else:
-                st.error("No valid amino acid characters found.")
-                return
-        else:
-            return
-
-    # Sequence is loaded — show info and allow changing
-    col_seq_info, col_seq_actions = st.columns([3, 1])
-    with col_seq_info:
-        _mw = len(seq) * 110 / 1000
-        _hydrophobic = sum(1 for aa in seq if aa in "AVILMFYWP")
-        _charged = sum(1 for aa in seq if aa in "DEKRH")
-        _hpct = 100 * _hydrophobic / max(len(seq), 1)
-        _cpct = 100 * _charged / max(len(seq), 1)
-        st.success(
-            f"Sequence loaded: **{st.session_state.get('sequence_name', 'protein')}** "
-            f"· {len(seq)} aa · ~{_mw:.1f} kDa · "
-            f"{_hpct:.0f}% hydrophobic · {_cpct:.0f}% charged"
-        )
-    with col_seq_actions:
-        if st.button("Change Sequence", key="agent_change_seq", use_container_width=True):
-            st.session_state.sequence = ""
-            st.session_state.mutagenesis_context = None
-            st.session_state.mutagenesis_phase2_context = None
-            st.rerun()
-
-    if len(seq) > 400:
-        st.warning(
-            f"Sequence is {len(seq)} residues — ESMFold API limit is 400. "
-            "The pipeline will attempt prediction but may fail. "
-            "Consider using local ESMFold for longer sequences."
-        )
-
-    # ── B. Phase 1: Understanding + Baseline + Suggestion ────────
-    st.markdown("---")
-    st.markdown("### Phase 1: Analyse Baseline & Suggest Mutations")
-
-    # Check LLM availability
-    llm_ok = False
-    try:
-        from protein_design_hub.core.config import get_settings
-        cfg = get_settings().llm.resolve()
-        llm_ok = bool(cfg.base_url and cfg.model)
-    except Exception:
-        pass
-
-    if not llm_ok:
-        st.warning(
-            "LLM is not configured. The agent pipeline requires an LLM provider. "
-            "Configure one in the Settings page or use the **Advanced / Manual** tab."
-        )
-
-    # MUT-04: auto-load Phase 1 results from disk if not already in session state
-    phase1_ctx = st.session_state.get("mutagenesis_context")
-    if phase1_ctx is None:
-        # Try known job dir first (same session, page refresh)
-        _stored_job_dir = st.session_state.get("mutagenesis_job_dir", "")
-        _loaded_ctx = None
-        if _stored_job_dir:
-            _loaded_ctx = _load_phase1_state(Path(_stored_job_dir))
-        # Fall back to searching all session dirs (browser close + reload)
-        if _loaded_ctx is None:
-            _loaded_ctx = _find_latest_phase1_state()
-        if _loaded_ctx is not None:
-            st.session_state.mutagenesis_context = _loaded_ctx
-            phase1_ctx = _loaded_ctx
-            st.caption("Loaded from previous session")
-
-    phase1_done = phase1_ctx is not None and phase1_ctx.extra.get("mutation_suggestions") is not None
-
-    if not phase1_done:
-        if st.button(
-            "Run Agent Analysis",
-            disabled=not llm_ok,
-            use_container_width=True,
-            type="primary",
-            key="run_phase1",
-        ):
-            _run_phase1(seq)
-            st.rerun()
-    else:
-        with st.expander("Phase 1 completed — show agent summaries", expanded=False):
-            _show_phase1_summaries(phase1_ctx)
-
-        # ── C. Human Approval ────────────────────────────────────
-        st.markdown("---")
-        st.markdown("### Review & Approve Mutations")
-
-        approved = phase1_ctx.extra.get("approved_mutations", [])
-        if not approved and not st.session_state.get("_phase2_confirmed", False):
-            # No approval yet — show the approval table
-            _render_approval_step(phase1_ctx)
-        elif not approved and st.session_state.get("_phase2_confirmed", False):
-            # User confirmed bypass via dialog — proceed with Phase 2 (automatic fallback)
-            _run_phase2(phase1_ctx)
-            st.session_state._phase2_confirmed = False  # reset sentinel after use
-            st.rerun()
-        else:
-            _render_approval_step(phase1_ctx)
-
-    # ── D. Phase 2 Results ───────────────────────────────────────
-    phase2_ctx = st.session_state.get("mutagenesis_phase2_context")
-    if phase2_ctx is not None:
-        st.markdown("---")
-        st.markdown("### Phase 2: Results")
-        _render_phase2_results(phase2_ctx)
-
-
-_VALID_AAS_SET = set("ACDEFGHIKLMNPQRSTVWY")
-
-
-def _run_phase1(sequence: str):
-    """Execute Phase 1 mutagenesis pipeline."""
-    import tempfile
-
-    from protein_design_hub.agents.orchestrator import AgentOrchestrator
-    from protein_design_hub.web.agent_helpers import _temporary_llm_override
-
-    provider, model = _expert_review_overrides()
-
-    # Write sequence to temp FASTA
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".fasta", delete=False,
-    ) as f:
-        f.write(f">{st.session_state.get('sequence_name', 'protein')}\n")
-        f.write(sequence + "\n")
-        fasta_path = Path(f.name)
-
-    with st.status("Running Phase 1 — Agent Analysis...", expanded=True) as status:
-        step_container = st.empty()
-        steps_seen: list[str] = []
-
-        def _progress(stage, item, current, total):
-            from protein_design_hub.agents.orchestrator import _AGENT_LABELS
-            label = _AGENT_LABELS.get(item, item)
-            steps_seen.append(label)
-            step_container.markdown(
-                f"**[{current}/{total}]** {label}"
-            )
-
-        orchestrator = AgentOrchestrator(
-            mode="mutagenesis_pre",
-            progress_callback=_progress,
-            allow_failed_llm_steps=True,
-        )
-
-        with _temporary_llm_override(provider, model):
-            result = orchestrator.run(
-                input_path=fasta_path,
-                predictors=["esmfold_api"],
-            )
-
-        if result.success and result.context:
-            st.session_state.mutagenesis_context = result.context
-            # MUT-03: persist Phase 1 results to disk for session resume
-            try:
-                job_dir = _ensure_mutagenesis_job_dir()
-                _save_phase1_state(result.context, job_dir)
-            except Exception as _save_err:
-                logger.warning("Phase 1 state save failed: %s", _save_err)
-            status.update(label="Phase 1 complete!", state="complete")
-        else:
-            status.update(label="Phase 1 failed", state="error")
-            st.error(f"Pipeline failed: {result.message}")
-
-    # Clean up temp file
-    try:
-        fasta_path.unlink(missing_ok=True)
-    except Exception:
-        pass
-
-
-def _show_phase1_summaries(ctx):
-    """Display Phase 1 meeting summaries."""
-    summary_keys = [
-        ("input_review", "Input Review"),
-        ("prediction_review", "Prediction Review"),
-        ("evaluation_review", "Evaluation Review"),
-        ("baseline_review", "Baseline Review"),
-        ("mutation_suggestion_raw", "Mutation Suggestions"),
-    ]
-    for key, label in summary_keys:
-        text = ctx.extra.get(key, "")
-        if text:
-            with st.expander(f"**{label}**"):
-                st.markdown(text[:2000])
-
-    # Show verdicts
-    if ctx.step_verdicts:
-        cols = st.columns(min(len(ctx.step_verdicts), 4))
-        for i, (step, verdict) in enumerate(ctx.step_verdicts.items()):
-            status = verdict.get("status", "?")
-            color = {"PASS": "green", "WARN": "orange", "FAIL": "red"}.get(status, "gray")
-            with cols[i % len(cols)]:
-                st.markdown(
-                    f"<div style='text-align:center; padding:8px; "
-                    f"border-radius:8px; border:2px solid {color};'>"
-                    f"<b>{step.replace('_', ' ').title()}</b><br>"
-                    f"<span style='color:{color}; font-size:1.2em;'>{status}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-
-@st.dialog("Run Phase 2 without approved mutations?")
-def _confirm_phase2_no_approval() -> None:
-    """Confirmation dialog when Phase 2 is triggered without prior approval."""
-    st.warning(
-        "No mutations have been explicitly approved. "
-        "Phase 2 will use the automatic fallback (saturation at low-confidence positions)."
-    )
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Proceed anyway", type="primary"):
-            st.session_state._phase2_confirmed = True
-            st.rerun()
-    with col2:
-        if st.button("Cancel"):
-            st.rerun()
-
-
-def _render_approval_step(ctx):
-    """Render the mutation approval UI with editable dataframe."""
-    suggestions = ctx.extra.get("mutation_suggestions")
-    source = ctx.extra.get("mutation_suggestion_source", "unknown")
-
-    if not suggestions or not suggestions.get("positions"):
-        st.warning("No mutation suggestions were generated. Try re-running Phase 1.")
-        if st.button("Reset Phase 1", key="reset_phase1"):
-            st.session_state.mutagenesis_context = None
-            st.rerun()
-        return
-
-    if source == "fallback":
-        st.info(
-            "LLM mutation plan could not be parsed. Using fallback: "
-            "saturation mutagenesis at low-confidence positions."
-        )
-
-    st.markdown(f"**Strategy:** {suggestions.get('strategy', 'N/A')}")
-    if suggestions.get("rationale"):
-        st.caption(suggestions["rationale"])
-
-    # Build editable dataframe
-    positions = suggestions["positions"]
-    df_data = []
-    for p in positions:
-        targets = p.get("targets", ["*"])
-        targets_str = ", ".join(targets) if targets != ["*"] else "All 19 AAs"
-        df_data.append({
-            "Include": True,
-            "Position": p["residue"],
-            "WT AA": p["wt_aa"],
-            "Target AAs": targets_str,
-            "Rationale": p.get("rationale", ""),
-        })
-
-    df = pd.DataFrame(df_data)
-
-    st.markdown("Edit the table below — uncheck **Include** to skip positions, modify targets as needed.")
-    edited_df = st.data_editor(
-        df,
-        column_config={
-            "Include": st.column_config.CheckboxColumn("Include", default=True),
-            "Position": st.column_config.NumberColumn("Position", disabled=True),
-            "WT AA": st.column_config.TextColumn("WT AA", disabled=True),
-            "Target AAs": st.column_config.TextColumn(
-                "Target AAs",
-                help="Comma-separated target amino acids, or 'All 19 AAs' for saturation",
-            ),
-            "Rationale": st.column_config.TextColumn("Rationale", disabled=True),
-        },
-        use_container_width=True,
-        num_rows="fixed",
-        key="mutation_editor",
-    )
-
-    # Count variants
-    included = edited_df[edited_df["Include"] == True]
-    total_variants = 0
-    for _, row in included.iterrows():
-        targets_str = row["Target AAs"].strip()
-        if targets_str in ("All 19 AAs", "*"):
-            total_variants += 19
-        else:
-            total_variants += len([t.strip() for t in targets_str.split(",") if t.strip()])
-
-    st.caption(f"**{len(included)} positions selected, ~{total_variants} variants to test**")
-
-    try:
-        from protein_design_hub.core.config import get_settings
-        cfg = get_settings().llm
-        _ov_provider, _ov_model = _expert_review_overrides()
-        effective_provider = _ov_provider if _ov_provider and _ov_provider != "current" else cfg.provider
-        effective_model = _ov_model if _ov_model else cfg.model
-        st.caption(f"Using: `{effective_model}` @ `{effective_provider}`")
-    except Exception:
-        pass  # Caption is informational; never block the UI
-
-    # Position count and OST override
-    _n_selected = int(edited_df["Include"].sum()) if "Include" in edited_df.columns else len(edited_df)
-    _distinct_positions = _n_selected  # each row = one position
-    st.caption(f"{_distinct_positions} position(s) selected.")
-    if _distinct_positions > 3:
-        _force_ost = st.checkbox(
-            "Force OST scoring even with >3 positions (slow — may take hours)",
-            value=False,
-            key="force_ost_override",
-            help="OST comprehensive scoring is auto-disabled when >3 positions to prevent multi-hour runs. "
-                 "Enable this to override.",
-        )
-        ctx.extra["ost_force_override"] = _force_ost
-    else:
-        ctx.extra["ost_force_override"] = False
-
-    col1, col2 = st.columns(2)
-    with col1:
-        approve_disabled = len(included) == 0
-        if approve_disabled:
-            st.error("Select at least one mutation to approve.")
-        if st.button(
-            "Approve & Continue",
-            disabled=approve_disabled,
-            use_container_width=True,
-            type="primary",
-            key="approve_mutations",
-        ):
-            # Parse approved mutations
-            approved = _parse_approved_mutations(included, ctx.sequences[0].sequence)
-            ctx.extra["approved_mutations"] = approved
-            st.session_state.mutagenesis_context = ctx
-            st.session_state._phase2_confirmed = False  # reset sentinel
-            _run_phase2(ctx)
-            st.rerun()
-
-    with col2:
-        if st.button("Reset Pipeline", use_container_width=True, key="reset_all"):
-            st.session_state.mutagenesis_context = None
-            st.session_state.mutagenesis_phase2_context = None
-            st.rerun()
-
-
-def _parse_approved_mutations(df, sequence: str) -> list:
-    """Parse the edited approval dataframe into the format expected by MutationExecutionAgent."""
-    approved = []
-    for _, row in df.iterrows():
-        pos = int(row["Position"])
-        wt = row["WT AA"]
-        targets_str = str(row["Target AAs"]).strip()
-        if targets_str in ("All 19 AAs", "*"):
-            targets = ["*"]
-        else:
-            targets = [t.strip().upper() for t in targets_str.split(",") if t.strip()]
-            targets = [t for t in targets if t in _VALID_AAS_SET and t != wt]
-        if targets:
-            approved.append({
-                "residue": pos,
-                "wt_aa": wt,
-                "targets": targets,
-            })
-    return approved
-
-
-def _run_phase2(ctx):
-    """Execute Phase 2 mutagenesis pipeline."""
-    approved = ctx.extra.get("approved_mutations", [])
-    if not approved and not st.session_state.get("_phase2_confirmed", False):
-        st.error(
-            "No approved mutations found. Please use the approval table above "
-            "to review and approve mutations before running Phase 2."
-        )
-        return
-
-    # PERF-02: Surface LLM saturation fallback warning before mutations execute
-    _fallback_warn = ctx.extra.get("mutation_suggestion_warning")
-    if _fallback_warn:
-        st.warning(_fallback_warn)
-
-    # PERF-01: Surface OST auto-disable warning before mutations execute
-    if ctx.extra.get("ost_auto_disabled"):
-        st.warning(ctx.extra.get("ost_auto_disabled_reason", "OST scoring was automatically disabled."))
-
-    from protein_design_hub.agents.orchestrator import AgentOrchestrator
-    from protein_design_hub.web.agent_helpers import _temporary_llm_override
-
-    provider, model = _expert_review_overrides()
-
-    with st.status("Running Phase 2 — Executing Mutations...", expanded=True) as status:
-        step_container = st.empty()
-
-        def _progress(stage, item, current, total):
-            from protein_design_hub.agents.orchestrator import _AGENT_LABELS
-            label = _AGENT_LABELS.get(item, item)
-            step_container.markdown(f"**[{current}/{total}]** {label}")
-
-        orchestrator = AgentOrchestrator(
-            mode="mutagenesis_post",
-            progress_callback=_progress,
-            allow_failed_llm_steps=True,
-        )
-
-        with _temporary_llm_override(provider, model):
-            result = orchestrator.run_with_context(ctx)
-
-        if result.success and result.context:
-            st.session_state.mutagenesis_phase2_context = result.context
-            status.update(label="Phase 2 complete!", state="complete")
-        else:
-            status.update(label="Phase 2 failed", state="error")
-            st.error(f"Phase 2 failed: {result.message}")
-
-
-def _render_phase2_results(ctx):
-    """Render Phase 2 mutation results."""
-    comparison = ctx.extra.get("mutation_comparison", {})
-    if not comparison:
-        st.warning("No comparison results available.")
-        return
-
-    # Summary metrics
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Tested", comparison.get("total_mutations", 0))
-    c2.metric("Successful", comparison.get("successful_count", 0))
-    c3.metric("Beneficial", comparison.get("beneficial_count", 0))
-    c4.metric("Detrimental", comparison.get("detrimental_count", 0))
-
-    # Ranked mutations table
-    ranked = comparison.get("ranked_mutations", [])
-    if ranked:
-        st.markdown("#### Ranked Mutations")
-        table_data = []
-        for i, r in enumerate(ranked, 1):
-            rmsd = r.get("rmsd_to_base")
-            table_data.append({
-                "Rank": i,
-                "Mutation": r.get("mutation_code", "?"),
-                "Score": round(r.get("improvement_score", 0), 3),
-                "Delta pLDDT": round(r.get("delta_mean_plddt", 0), 2),
-                "RMSD": round(rmsd, 2) if rmsd is not None else None,
-                "Clash": round(r.get("clash_score", 0), 1) if r.get("clash_score") is not None else None,
-            })
-        result_df = pd.DataFrame(table_data)
-
-        # Color-code the Score column
-        def _color_score(val):
-            if val is None:
-                return ""
-            if val > 0:
-                return "color: green"
-            elif val < -0.5:
-                return "color: red"
-            return ""
-
-        styled = result_df.style.map(_color_score, subset=["Score", "Delta pLDDT"])
-        st.dataframe(styled, use_container_width=True, hide_index=True)
-
-    # Mutation ranking chart (REP-01)
-    if ranked:
-        st.markdown("#### Mutation Ranking Chart")
-        _render_ranking_chart(ranked)
-
-    # Per-residue pLDDT chart (REP-02)
-    wt_per_res = ctx.extra.get("mutation_wt_plddt_per_residue", [])
-    if wt_per_res:
-        st.markdown("#### Per-Residue pLDDT")
-        _render_plddt_chart(ranked, wt_per_res)
-    elif ranked:
-        st.info("Per-residue pLDDT chart not available (data missing from Phase 2 run).")
-
-    # OST structural metrics table (REP-03)
-    if ranked:
-        _render_ost_table(ranked)
-
-    # Best mutation highlight
-    best = comparison.get("best_overall")
-    if best and best.get("improvement_score", 0) > 0:
-        st.success(
-            f"Best mutation: **{best.get('mutation_code', '?')}** — "
-            f"improvement score {best.get('improvement_score', 0):.3f}, "
-            f"delta pLDDT {best.get('delta_mean_plddt', 0):+.2f}"
-        )
-
-    # LLM interpretation
-    interpretation = ctx.extra.get("mutation_interpretation", "")
-    if interpretation:
-        with st.expander("LLM Interpretation", expanded=True):
-            st.markdown(interpretation[:3000])
-
-    # Heatmap for saturation positions
-    by_position = comparison.get("by_position", {})
-    for pos_str, pos_data in by_position.items():
-        all_muts = pos_data.get("all", [])
-        if len(all_muts) >= 10:  # Likely saturation
-            with st.expander(f"Saturation Heatmap — Position {pos_str}"):
-                _render_saturation_heatmap(all_muts, int(pos_str))
-
-    # Download buttons
-    st.markdown("---")
-    dl_col1, dl_col2 = st.columns(2)
-
-    job_dir = ctx.job_dir
-    if job_dir:
-        json_path = job_dir / "mutagenesis" / "mutagenesis_report.json"
-        md_path = job_dir / "mutagenesis" / "mutagenesis_summary.md"
-
-        if json_path.exists():
-            with dl_col1:
-                st.download_button(
-                    "Download JSON Report",
-                    data=json_path.read_text(),
-                    file_name="mutagenesis_report.json",
-                    mime="application/json",
-                    key="dl_json",
-                )
-        if md_path.exists():
-            with dl_col2:
-                st.download_button(
-                    "Download Markdown Summary",
-                    data=md_path.read_text(),
-                    file_name="mutagenesis_summary.md",
-                    mime="text/markdown",
-                    key="dl_md",
-                )
-
-    # Export buttons (PDF + HTML) — cached in session_state to avoid rebuild per Streamlit re-run
-    if ranked:
-        st.markdown("#### Export Report")
-        exp_col1, exp_col2 = st.columns(2)
-
-        # Cache key tied to current context id — invalidated if page reloads with new context
-        ctx_key = id(ctx)
-        if st.session_state.get("_report_ctx_key") != ctx_key:
-            # Context changed — clear stale cache
-            st.session_state.pop("cached_report_pdf", None)
-            st.session_state.pop("cached_report_html", None)
-            st.session_state["_report_ctx_key"] = ctx_key
-
-        with exp_col1:
-            if "cached_report_pdf" not in st.session_state:
-                with st.spinner("Building PDF..."):
-                    st.session_state["cached_report_pdf"] = _build_report_pdf(ctx, comparison)
-            st.download_button(
-                "Export PDF",
-                data=st.session_state["cached_report_pdf"],
-                file_name="mutagenesis_report.pdf",
-                mime="application/pdf",
-                key="dl_pdf",
-                use_container_width=True,
-            )
-
-        with exp_col2:
-            if "cached_report_html" not in st.session_state:
-                with st.spinner("Building HTML..."):
-                    st.session_state["cached_report_html"] = _build_report_html(ctx, comparison)
-            st.download_button(
-                "Export HTML",
-                data=st.session_state["cached_report_html"],
-                file_name="mutagenesis_report.html",
-                mime="text/html",
-                key="dl_html",
-                use_container_width=True,
-            )
-
-
-def _build_ranking_figure(ranked: list) -> "go.Figure":
-    """Bar chart of improvement score per mutation, colored by category.
-    Used by both _render_ranking_chart (Streamlit display) and _build_report_pdf/_build_report_html (export).
-    Single go.Bar trace with per-bar marker_color — preserves sorted x-axis order.
-    """
-    CATEGORY_COLORS = {"beneficial": "#22c55e", "neutral": "#9ca3af", "detrimental": "#ef4444"}
-
-    def _cat(score: float) -> str:
-        if score > 0:
-            return "beneficial"
-        if score < -0.5:
-            return "detrimental"
-        return "neutral"
-
-    mutations = [r.get("mutation_code", "?") for r in ranked]
-    scores = [r.get("improvement_score", 0) for r in ranked]
-    cats = [_cat(s) for s in scores]
-    colors = [CATEGORY_COLORS[c] for c in cats]
-
-    fig = go.Figure(data=go.Bar(
-        x=mutations,
-        y=scores,
-        marker_color=colors,
-        text=cats,
-        hovertemplate="<b>%{x}</b><br>Score: %{y:.3f}<br>%{text}<extra></extra>",
-    ))
-    fig.update_layout(
-        title="Mutation Ranking by Improvement Score",
-        xaxis_title="Mutation",
-        yaxis_title="Improvement Score",
-        height=400,
-        showlegend=False,
-    )
-    return fig
-
-
-def _build_plddt_figure(ranked: list, wt_per_res: list) -> "go.Figure":
-    """Per-residue pLDDT line chart: Wildtype vs top 3 mutants.
-    Used by both Streamlit display and export functions.
-    Guards against missing plddt_per_residue (saturation failure paths).
-    """
-    MUTANT_COLORS = ["#22c55e", "#f59e0b", "#ef4444"]
-    fig = go.Figure()
-    if wt_per_res:
-        residues = list(range(1, len(wt_per_res) + 1))
-        fig.add_trace(go.Scatter(
-            x=residues,
-            y=wt_per_res,
-            name="Wildtype",
-            line={"color": "#6366f1", "width": 2},
-        ))
-    for mut, color in zip(ranked[:3], MUTANT_COLORS):
-        per_res = mut.get("plddt_per_residue") or []
-        if not per_res:
-            continue
-        residues = list(range(1, len(per_res) + 1))
-        fig.add_trace(go.Scatter(
-            x=residues,
-            y=per_res,
-            name=mut.get("mutation_code", "?"),
-            line={"color": color, "width": 1.5, "dash": "dot"},
-        ))
-    fig.update_layout(
-        title="Per-Residue pLDDT: Wildtype vs Top Mutants",
-        xaxis_title="Residue",
-        yaxis_title="pLDDT",
-        yaxis={"range": [0, 100]},
-        height=400,
-    )
-    return fig
-
-
-def _render_ranking_chart(ranked: list) -> None:
-    """Render mutation ranking bar chart in Streamlit (REP-01)."""
-    fig = _build_ranking_figure(ranked)
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def _render_plddt_chart(ranked: list, wt_per_res: list) -> None:
-    """Render per-residue pLDDT comparison chart in Streamlit (REP-02)."""
-    fig = _build_plddt_figure(ranked, wt_per_res)
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def _render_ost_table(ranked: list) -> None:
-    """OST structural metrics table, shown only when OST was enabled (REP-03).
-    Keys are on each ranked mutation dict: ost_lddt, ost_rmsd_ca, ost_qs_score.
-    Access via ranked[i].get("ost_lddt") NOT via ctx.extra["ost_metrics"] (that key does not exist).
-    """
-    ost_rows = [r for r in ranked if r.get("ost_lddt") is not None]
-    if not ost_rows:
-        return  # OST was disabled — silently skip
-
-    rows = []
-    for r in ost_rows:
-        rows.append({
-            "Mutation": r.get("mutation_code", "?"),
-            "Score": round(r.get("improvement_score", 0), 3),
-            "lDDT": round(r["ost_lddt"], 3),
-            "RMSD (CA)": round(r["ost_rmsd_ca"], 2) if r.get("ost_rmsd_ca") is not None else None,
-            "QS-score": round(r["ost_qs_score"], 3) if r.get("ost_qs_score") is not None else None,
-        })
-
-    st.markdown("#### OST Structural Metrics")
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-
-def _strip_for_pdf(text: str) -> str:
-    """Remove characters fpdf2 Helvetica cannot render (emoji, CJK, high-Unicode).
-    Also strip common markdown markers for cleaner PDF text.
-    """
-    # Remove non-latin-1 characters
-    text = re.sub(r"[^\x00-\xFF]+", "", text)
-    # Strip markdown bold/italic/header markers
-    text = re.sub(r"[*#`]+", "", text)
-    return text.strip()
-
-
-def _embed_fig_in_pdf(pdf: "FPDF", fig: "go.Figure", width_mm: int = 180) -> None:
-    """Export plotly figure to PNG temp file, embed in PDF, delete temp file.
-    try/finally ensures cleanup even on exception (prevents /tmp accumulation).
-    fpdf2 image() requires file path — bytes not accepted.
-    """
-    png_bytes = fig.to_image(format="png", width=700, height=350)
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-        f.write(png_bytes)
-        tmp_path = f.name
-    try:
-        pdf.image(tmp_path, w=width_mm)
-    finally:
-        os.unlink(tmp_path)
-
-
-def _build_report_pdf(ctx, comparison: dict) -> bytes:
-    """Build PDF mutagenesis report as bytes.
-    Returns bytes (not bytearray) — st.download_button requires bytes.
-    Uses _embed_fig_in_pdf for try/finally temp file cleanup.
-    OST table capped at 20 rows to prevent large-count slowness.
-    Narrative stripped of non-latin-1 and markdown via _strip_for_pdf.
-    """
-    ranked = comparison.get("ranked_mutations", [])
-    wt_per_res = ctx.extra.get("mutation_wt_plddt_per_residue", [])
-    interpretation = ctx.extra.get("mutation_interpretation", "")
-
-    ranking_fig = _build_ranking_figure(ranked)
-    plddt_fig = _build_plddt_figure(ranked, wt_per_res) if wt_per_res else None
-
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_left_margin(15)
-    pdf.set_right_margin(15)
-    pdf.add_page()
-
-    # Title
-    pdf.set_font("Helvetica", "B", 18)
-    pdf.cell(0, 12, "Mutagenesis Report", new_x="LMARGIN", new_y="NEXT", align="C")
-    pdf.ln(2)
-
-    # Summary
-    pdf.set_font("Helvetica", size=11)
-    best = comparison.get("best_overall")
-    if best:
-        line = (
-            f"Best mutation: {best.get('mutation_code', '?')} "
-            f"(score {best.get('improvement_score', 0):.3f})"
-        )
-        pdf.cell(0, 8, _strip_for_pdf(line), new_x="LMARGIN", new_y="NEXT")
-    total = comparison.get("total_mutations", 0)
-    beneficial = comparison.get("beneficial_count", 0)
-    detrimental = comparison.get("detrimental_count", 0)
-    pdf.cell(
-        0, 8,
-        f"Total: {total}  |  Beneficial: {beneficial}  |  Detrimental: {detrimental}",
-        new_x="LMARGIN", new_y="NEXT",
-    )
-    pdf.ln(3)
-
-    # Ranking chart
-    if ranked:
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.cell(0, 9, "Mutation Ranking", new_x="LMARGIN", new_y="NEXT")
-        _embed_fig_in_pdf(pdf, ranking_fig)
-        pdf.ln(4)
-
-    # pLDDT chart
-    if plddt_fig is not None:
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.cell(0, 9, "Per-Residue pLDDT", new_x="LMARGIN", new_y="NEXT")
-        _embed_fig_in_pdf(pdf, plddt_fig)
-        pdf.ln(4)
-
-    # OST metric table
-    ost_rows = [r for r in ranked if r.get("ost_lddt") is not None]
-    if ost_rows:
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.cell(0, 9, "OST Structural Metrics", new_x="LMARGIN", new_y="NEXT")
-        col_widths = [40, 30, 30, 35, 35]
-        headers = ["Mutation", "Score", "lDDT", "RMSD (CA)", "QS-score"]
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.set_fill_color(241, 245, 249)
-        for w, h in zip(col_widths, headers):
-            pdf.cell(w, 8, h, border=1, fill=True)
-        pdf.ln()
-        pdf.set_font("Helvetica", size=10)
-        for i, r in enumerate(ost_rows[:20]):
-            fill = i % 2 == 1
-            if fill:
-                pdf.set_fill_color(248, 250, 252)
-            vals = [
-                r.get("mutation_code", "?"),
-                f"{r.get('improvement_score', 0):.3f}",
-                f"{r.get('ost_lddt', 0):.3f}",
-                f"{r['ost_rmsd_ca']:.2f}" if r.get("ost_rmsd_ca") is not None else "-",
-                f"{r['ost_qs_score']:.3f}" if r.get("ost_qs_score") is not None else "-",
-            ]
-            for w, v in zip(col_widths, vals):
-                pdf.cell(w, 7, v, border=1, fill=fill)
-            pdf.ln()
-        pdf.ln(4)
-
-    # Narrative summary
-    if interpretation:
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.cell(0, 9, "Narrative Summary", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", size=10)
-        pdf.multi_cell(0, 6, _strip_for_pdf(interpretation[:3000]))
-
-    return bytes(pdf.output())
-
-
-def _build_report_html(ctx, comparison: dict) -> str:
-    """Build self-contained HTML mutagenesis report.
-    Uses base64-embedded PNG images (no CDN, no internet required).
-    html.escape() applied to LLM narrative to prevent broken HTML from <, >, & in output.
-    Output ~60 KB for 3-chart report.
-    """
-    import html as html_mod
-
-    ranked = comparison.get("ranked_mutations", [])
-    wt_per_res = ctx.extra.get("mutation_wt_plddt_per_residue", [])
-    interpretation = ctx.extra.get("mutation_interpretation", "")
-
-    def _to_b64_png(fig: "go.Figure") -> str:
-        return base64.b64encode(
-            fig.to_image(format="png", width=700, height=350)
-        ).decode("utf-8")
-
-    ranking_b64 = ""
-    if ranked:
-        ranking_b64 = _to_b64_png(_build_ranking_figure(ranked))
-
-    plddt_b64 = ""
-    if wt_per_res:
-        plddt_b64 = _to_b64_png(_build_plddt_figure(ranked, wt_per_res))
-
-    # Summary block
-    best = comparison.get("best_overall")
-    summary_html = ""
-    if best:
-        summary_html = (
-            f"<div class='summary'>"
-            f"<p><strong>Best mutation:</strong> {html_mod.escape(str(best.get('mutation_code', '?')))} "
-            f"(score: {best.get('improvement_score', 0):.3f})</p>"
-            f"<p>Total: {comparison.get('total_mutations', 0)} | "
-            f"Beneficial: {comparison.get('beneficial_count', 0)} | "
-            f"Detrimental: {comparison.get('detrimental_count', 0)}</p></div>"
-        )
-
-    # Charts
-    ranking_section = (
-        f"<h2>Mutation Ranking</h2>"
-        f"<img src='data:image/png;base64,{ranking_b64}' alt='Mutation Ranking Chart'>"
-        if ranking_b64 else ""
-    )
-    plddt_section = (
-        f"<h2>Per-Residue pLDDT</h2>"
-        f"<img src='data:image/png;base64,{plddt_b64}' alt='pLDDT Chart'>"
-        if plddt_b64 else ""
-    )
-
-    # OST table
-    ost_rows = [r for r in ranked if r.get("ost_lddt") is not None]
-    ost_table_html = ""
-    if ost_rows:
-        rows_html = ""
-        for r in ost_rows[:20]:
-            rmsd = f"{r['ost_rmsd_ca']:.2f}" if r.get("ost_rmsd_ca") is not None else "-"
-            qs = f"{r['ost_qs_score']:.3f}" if r.get("ost_qs_score") is not None else "-"
-            rows_html += (
-                f"<tr>"
-                f"<td>{html_mod.escape(str(r.get('mutation_code', '?')))}</td>"
-                f"<td>{r.get('improvement_score', 0):.3f}</td>"
-                f"<td>{r.get('ost_lddt', 0):.3f}</td>"
-                f"<td>{rmsd}</td>"
-                f"<td>{qs}</td>"
-                f"</tr>"
-            )
-        ost_table_html = (
-            f"<h2>OST Structural Metrics</h2>"
-            f"<table><tr><th>Mutation</th><th>Score</th>"
-            f"<th>lDDT</th><th>RMSD (CA)</th><th>QS-score</th></tr>"
-            f"{rows_html}</table>"
-        )
-
-    # Narrative
-    narrative_html = (
-        f"<h2>Narrative Summary</h2><p>{html_mod.escape(interpretation[:3000])}</p>"
-        if interpretation else ""
-    )
-
-    return f"""<!DOCTYPE html>
-<html><head>
-<meta charset="utf-8">
-<title>Mutagenesis Report</title>
-<style>
-body{{font-family:Arial,sans-serif;max-width:900px;margin:0 auto;padding:20px;color:#1e293b}}
-h1{{color:#1e293b}}h2{{color:#334155;border-bottom:2px solid #e2e8f0;padding-bottom:8px}}
-table{{border-collapse:collapse;width:100%;margin:16px 0}}
-th{{background:#f1f5f9;padding:8px 12px;text-align:left;border:1px solid #e2e8f0}}
-td{{padding:7px 12px;border:1px solid #e2e8f0}}
-tr:nth-child(even){{background:#f8fafc}}
-img{{max-width:100%;height:auto;margin:12px 0;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.1)}}
-.summary{{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:16px 0}}
-</style></head>
-<body>
-<h1>Mutagenesis Report</h1>
-{summary_html}
-{ranking_section}
-{plddt_section}
-{ost_table_html}
-{narrative_html}
-</body></html>"""
-
-
-def _render_saturation_heatmap(mutations: list, position: int):
-    """Render a bar chart heatmap for saturation mutagenesis at one position."""
-    aa_order = list("ACDEFGHIKLMNPQRSTVWY")
-    values = []
-    colors = []
-    hover_texts = []
-
-    wt_aa = mutations[0].get("original_aa", "?") if mutations else "?"
-
-    for aa in aa_order:
-        if aa == wt_aa:
-            values.append(0)
-            colors.append("#9ca3af")
-            hover_texts.append(f"{aa} (WT)")
-        else:
-            mut = next(
-                (m for m in mutations if m.get("mutant_aa") == aa and m.get("success")),
-                None,
-            )
-            if mut:
-                delta = mut.get("delta_mean_plddt", 0)
-                values.append(delta)
-                colors.append("#22c55e" if delta > 0 else "#ef4444")
-                hover_texts.append(
-                    f"<b>{mut.get('mutation_code', '?')}</b><br>"
-                    f"Delta pLDDT: {delta:+.2f}"
-                )
-            else:
-                values.append(None)
-                colors.append("#6b7280")
-                hover_texts.append("Failed")
-
-    fig = go.Figure(data=go.Bar(
-        x=aa_order, y=values, marker_color=colors,
-        hovertext=hover_texts, hoverinfo="text",
-    ))
-    fig.update_layout(
-        title=f"Saturation at {wt_aa}{position}",
-        yaxis_title="Delta pLDDT",
-        height=300,
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-
-with tab_agent:
-    _render_agent_pipeline_tab()
-
-
-# ══════════════════════════════════════════════════════════════════
-#  TAB 2 — Advanced / Manual (existing scanner)
-# ══════════════════════════════════════════════════════════════════
 with tab_manual:
 
     # Render all predictor / baseline / evaluation settings first
@@ -2620,6 +1686,30 @@ with tab_manual:
                 f"Base Structure Ready ({metric_name}: {st.session_state.base_plddt:.1f}) · {pred_label}"
             )
 
+            # Inline PyMOL viewer for the base (WT) structure
+            _base_path = st.session_state.get("base_structure_path")
+            if _base_path and Path(_base_path).exists():
+                with st.expander("🔬 View Base Structure (PyMOL)", expanded=False):
+                    show_structure_with_pymol_fallback(
+                        Path(_base_path),
+                        title="Wild-Type Base Structure",
+                        height=480,
+                        key="base_struct_preview",
+                    )
+                _ms_port_base = 0
+                try:
+                    from protein_design_hub.web.pymol_server import get_pymol_server as _gps_base
+                    _srv_base = _gps_base()
+                    if _srv_base is not None:
+                        _ms_port_base = _srv_base.server_address[1]
+                except Exception:
+                    pass
+                render_pymolai_section(
+                    key_prefix="ms_base_struct",
+                    pymol_port=_ms_port_base,
+                    label="💬 Ask PyMolAI — Analyse wild-type baseline structure",
+                )
+
             if st.session_state.get("afdb_enabled"):
                 with st.expander("🔍 Related AlphaFold DB Structure", expanded=False):
                     if not st.session_state.get("afdb_email"):
@@ -2714,10 +1804,25 @@ with tab_manual:
                     st.rerun()
 
             st.caption("Click residues to toggle. Selected positions drive multi-mutation design.")
+            _GRID_PAGE_SIZE = 120
+            _total_res = len(seq)
+            _n_pages = max(1, (_total_res + _GRID_PAGE_SIZE - 1) // _GRID_PAGE_SIZE)
+            if _n_pages > 1:
+                _grid_page = st.number_input(
+                    f"Residue page (1–{_n_pages}, {_GRID_PAGE_SIZE} per page)",
+                    min_value=1, max_value=_n_pages,
+                    value=st.session_state.get("_res_grid_page", 1),
+                    step=1,
+                    key="_res_grid_page_input",
+                )
+                st.session_state["_res_grid_page"] = int(_grid_page)
+            else:
+                st.session_state["_res_grid_page"] = 1
+            _page_start = (_GRID_PAGE_SIZE * (st.session_state["_res_grid_page"] - 1))
+            _page_end = min(_page_start + _GRID_PAGE_SIZE, _total_res)
             cols = st.columns(20)
-            for i, aa in enumerate(seq):
-                if i >= 120:
-                    break
+            for i in range(_page_start, _page_end):
+                aa = seq[i]
                 selected = (i + 1) in st.session_state.selected_positions
                 color = "primary" if selected else "secondary"
                 if cols[i % 20].button(aa, key=f"r_{i}", type=color, help=f"Pos {i+1}"):
@@ -3263,10 +2368,16 @@ with tab_manual:
             )
             questions = (
                 "Which multi-mutation variants look most promising based on ΔpLDDT/Δerror and "
-                "structural similarity?",
-                "Are there red flags (high RMSD, interface disruption, packing issues)?",
-                "What next validation steps would you recommend before experiments?",
-                "Provide a ranked shortlist with rationale and confidence for each variant.",
+                "structural similarity? Immunology: for antibody variants, do the combined mutations "
+                "preserve CDR loop geometry and avoid introducing new T-cell epitope-prone stretches?",
+                "Are there red flags — high RMSD, interface disruption, packing issues? "
+                "Plant biology: do any combinations disrupt conserved Ser/Thr phosphorylation sites, "
+                "NBS P-loop integrity, or LRR solenoid repeat packing in plant immune receptors?",
+                "From a wet lab perspective: which top 3 variants should be ordered for synthesis "
+                "and expression screening this week — prioritizing highest ΔpLDDT improvement "
+                "combined with lowest RMSD from WT and acceptable instability index (<40)?",
+                "Provide a ranked shortlist of 3-5 variants with rationale, immunology/plant biology "
+                "risk flags, expected wet lab expression behavior, and validation assay recommendation.",
             )
             review_provider, review_model = _expert_review_overrides()
             render_all_experts_panel(
@@ -3649,11 +2760,22 @@ with tab_manual:
                 "Evaluate the top mutations and identify any risks or trade-offs. "
                 "Generate a detailed recommendation report."
             )
+            _mut_is_cdr_pos = res.position in range(24, 103)  # rough VH/VL CDR range
             questions = (
-                "Which mutations are most promising for stability or function?",
-                "Are there any substitutions that should be avoided and why?",
-                "Recommend the next 3-5 mutants to validate with high-accuracy predictors.",
-                "Provide a ranked list with confidence, risks, and follow-up checks per mutant.",
+                "Which mutations are most promising for stability or function? "
+                "Immunology note: if this position is in a CDR region (~24-103), paratope-critical "
+                "residues should only receive conservative substitutions — flag any mutation "
+                "that could disrupt antigen contact or CDR loop canonical conformation.",
+                "Are there substitutions that should be avoided and why? "
+                "Plant biology note: if this is a plant kinase or NLR protein, avoid mutations at "
+                "conserved Ser/Thr (phosphorylation sites), Lys in activation loop, "
+                "or Leu residues in LRR-repeat backbone positions.",
+                "From a wet lab perspective: which top 3-5 mutants should be ordered for gene synthesis "
+                "and expression screening (E. coli 96-well autoinduction, or HEK293/Agrobacterium for "
+                "more complex proteins) — and what assay gives fastest hit confirmation "
+                "(DSF Tm shift, ELISA, SPR, plant infiltration phenotype)?",
+                "Provide a ranked shortlist of 3-5 mutants with confidence, immunology/plant biology "
+                "risk flags, predicted expression behavior, and recommended validation priority.",
             )
             review_provider, review_model = _expert_review_overrides()
             render_all_experts_panel(
@@ -3666,3 +2788,38 @@ with tab_manual:
                 model_override=review_model,
                 save_dir=_meeting_save_dir(),
             )
+
+# ── PyMolAI Chat + Scientist Agents — bottom ──────────────────────────────
+st.divider()
+_ms_pymol_port = 0
+try:
+    from protein_design_hub.web.pymol_server import get_pymol_server as _get_ms_srv
+    _ms_srv = _get_ms_srv()
+    if _ms_srv is not None:
+        _ms_pymol_port = _ms_srv.server_address[1]
+except Exception:
+    pass
+
+# ── PyMolAI (primary, with viewer) ───────────────────────────────────────
+section_header(
+    "PyMolAI Chat",
+    "Molecular-visualization AI with live PyMOL tool access",
+    "🔬",
+)
+if _ms_pymol_port:
+    _ms_chat_col, _ms_viewer_col = st.columns([55, 45], gap="medium")
+    with _ms_chat_col:
+        render_pymolai_chatbot(key_prefix="ms_pymolai_main", pymol_port=_ms_pymol_port)
+    with _ms_viewer_col:
+        render_pymolai_viewer(_ms_pymol_port, "pdh-pymol-scanner", height=700)
+else:
+    render_pymolai_chatbot(key_prefix="ms_pymolai_main", pymol_port=0)
+
+# ── Scientist Agents (separate, below) ───────────────────────────────────
+st.divider()
+section_header(
+    "Scientist Agents",
+    "10 specialist scientists — structural biology, protein engineering, MD simulation and more",
+    "🧬",
+)
+render_agent_chatbot(key_prefix="mut_scanner_chat", pymol_port=_ms_pymol_port)

@@ -857,13 +857,16 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
     line-height: 1.6;
 }
 
-/* Generic metric card (used by evaluate/settings) */
+/* Generic metric card (used by evaluate/settings/mutation scanner) */
 .metric-card {
     background: var(--pdhub-bg-card);
     border-radius: var(--pdhub-border-radius-md);
     padding: 16px;
     text-align: center;
     border: 1px solid var(--pdhub-border);
+    color: var(--pdhub-text);
+    margin-bottom: 10px;
+    box-shadow: var(--pdhub-shadow-sm);
 }
 .metric-card-success { border-color: rgba(16,185,129,0.6); box-shadow: 0 0 0 1px rgba(16,185,129,0.2); }
 .metric-card-warning { border-color: rgba(245,158,11,0.6); box-shadow: 0 0 0 1px rgba(245,158,11,0.2); }
@@ -891,14 +894,6 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
     font-size: 1.1rem;
 }
 
-/* Jobs selection banner */
-.selection-banner {
-    background: var(--pdhub-bg-card);
-    border: 1px solid var(--pdhub-border);
-    border-radius: var(--pdhub-border-radius-md);
-    padding: 12px 16px;
-    margin: 1rem 0;
-}
 .selection-info {
     color: var(--pdhub-text-secondary);
     font-size: 0.9rem;
@@ -1424,14 +1419,12 @@ def metric_card(
     icon_html = f'<div style="font-size: 1.25rem; margin-bottom: 0.5rem; opacity: 0.8;">{icon}</div>' if icon else ""
     delta_html = f'<div style="font-size: 0.8rem; font-weight: 600; margin-top: 0.5rem; color: var(--pdhub-text-secondary);">{delta}</div>' if delta else ""
 
-    st.markdown(f"""
-    <div class="pdhub-metric pdhub-animate-fade-in" style="{border_style} {bg_style}">
-        {icon_html}
-        <div class="pdhub-metric-value">{value}</div>
-        <div class="pdhub-metric-label">{label}</div>
-        {delta_html}
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="pdhub-metric pdhub-animate-fade-in" style="{border_style} {bg_style}">'
+        f'{icon_html}<div class="pdhub-metric-value">{value}</div>'
+        f'<div class="pdhub-metric-label">{label}</div>{delta_html}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def status_badge(text: str, status: str = "ok") -> str:
@@ -1520,15 +1513,11 @@ def section_header(
     icon_html = f'<span class="pdhub-section-icon">{icon}</span>' if icon else ""
     subtitle_html = f'<div class="pdhub-section-subtitle">{subtitle}</div>' if subtitle else ""
 
-    st.markdown(f"""
-    <div class="pdhub-section-header">
-        {icon_html}
-        <div>
-            <div class="pdhub-section-title">{title}</div>
-            {subtitle_html}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="pdhub-section-header">{icon_html}'
+        f'<div><div class="pdhub-section-title">{title}</div>{subtitle_html}</div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def progress_steps(
@@ -1556,29 +1545,25 @@ def progress_steps(
 
         line_html = '<div class="pdhub-step-line"></div>' if i < len(steps) - 1 else ""
 
-        steps_html.append(f"""
-        <div class="{state_class}">
-            <div class="pdhub-step-circle">{circle_content}</div>
-            <div class="pdhub-step-label">{step}</div>
-            {line_html}
-        </div>
-        """)
+        steps_html.append(
+            f'<div class="{state_class}">'
+            f'<div class="pdhub-step-circle">{circle_content}</div>'
+            f'<div class="pdhub-step-label">{step}</div>{line_html}</div>'
+        )
 
-    st.markdown(f"""
-    <div class="pdhub-steps">
-        {"".join(steps_html)}
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="pdhub-steps">{"".join(steps_html)}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def show_loading(message: str = "Loading...") -> None:
     """Display a loading spinner with message."""
-    st.markdown(f"""
-    <div class="pdhub-loading">
-        <div class="pdhub-spinner"></div>
-        <div class="pdhub-loading-text">{message}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="pdhub-loading"><div class="pdhub-spinner"></div>'
+        f'<div class="pdhub-loading-text">{message}</div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def empty_state(
@@ -1596,23 +1581,20 @@ def empty_state(
     """
     message_html = f'<div class="pdhub-empty-message">{message}</div>' if message else ""
 
-    st.markdown(f"""
-    <div class="pdhub-empty-state">
-        <div class="pdhub-empty-icon">{icon}</div>
-        <div class="pdhub-empty-title">{title}</div>
-        {message_html}
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="pdhub-empty-state"><div class="pdhub-empty-icon">{icon}</div>'
+        f'<div class="pdhub-empty-title">{title}</div>{message_html}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def data_row(label: str, value: str) -> None:
     """Display a label-value data row."""
-    st.markdown(f"""
-    <div class="pdhub-data-row">
-        <span class="pdhub-data-label">{label}</span>
-        <span class="pdhub-data-value">{value}</span>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="pdhub-data-row"><span class="pdhub-data-label">{label}</span>'
+        f'<span class="pdhub-data-value">{value}</span></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def card_start(title: str = "") -> None:
@@ -1733,6 +1715,7 @@ def sidebar_nav(current: str | None = None) -> None:
         ],
         "Design": [
             ("Editor", "pages/0_design.py", "✏️"),
+            ("Antibody", "pages/12_antibody.py", "🧫"),
             ("Mutagenesis", "pages/10_mutation_scanner.py", "🧬"),
             ("Evolution", "pages/4_evolution.py", "📈"),
             ("MPNN Lab", "pages/8_mpnn.py", "🎯"),
@@ -1742,6 +1725,7 @@ def sidebar_nav(current: str | None = None) -> None:
             ("MSA", "pages/7_msa.py", "🧬"),
             ("Jobs", "pages/9_jobs.py", "📁"),
             ("Settings", "pages/6_settings.py", "⚙️"),
+            ("Guide", "pages/13_guide.py", "📖"),
         ],
     }
 
@@ -1783,12 +1767,12 @@ def sidebar_system_status() -> None:
         try:
             from protein_design_hub.predictors.registry import PredictorRegistry
             preds = PredictorRegistry.list_available()
-            st.markdown(f"""
-            <div style="font-size: 0.8rem; color: #a1a9b8; display: flex; align-items: center; gap: 8px;">
-                <span style="width: 8px; height: 8px; background: #6366f1; border-radius: 50%;"></span>
-                Predictors: {len(preds)} available
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(
+                f'<div style="font-size:0.8rem;color:#a1a9b8;display:flex;align-items:center;gap:8px;">'
+                f'<span style="width:8px;height:8px;background:#6366f1;border-radius:50%;"></span>'
+                f'Predictors: {len(preds)} available</div>',
+                unsafe_allow_html=True,
+            )
         except Exception:
             pass
 

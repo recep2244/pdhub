@@ -23,7 +23,7 @@ class OpenMMGBSAMetric(BaseMetric):
     description = "OpenMM implicit-solvent energy (OBC2) and GBSA term"
     requires_reference = False
 
-    def __init__(self, minimize: bool = True, max_iters: int = 200):
+    def __init__(self, minimize: bool = False, max_iters: int = 200):
         self.minimize = bool(minimize)
         self.max_iters = int(max_iters)
 

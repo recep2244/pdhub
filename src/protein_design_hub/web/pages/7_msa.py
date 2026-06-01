@@ -83,16 +83,30 @@ with main_tabs[0]:
     section_header("Load MSA", "Upload or paste a multiple sequence alignment", "📥")
 
     # Example MSA quick-load
+    # UBL (ubiquitin-like) superfamily — pre-aligned at 77 columns, showing real conservation
+    # Gaps (-) at positions unique to shorter members. Diverse enough to reveal:
+    #  - Invariant: G10, I13, E16, V17, K29 (active-site Lys), R42, F45, G47, G75-G76
+    #  - Variable: surface-exposed loops, hydrophobic core packing positions
     _MSA_EXAMPLE_UBI = """>Ubiquitin_HUMAN
-MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
->Ubiquitin_MOUSE
-MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
->Ubiquitin_YEAST
-MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
->Ubiquitin_DROME
-MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
+MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG-
+>NEDD8_HUMAN
+MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEEGRTLSDYNIQKESTLHLVLRRGG--
+>Ubiquitin_K48R_chain
+MQIFVKTLTGKTITLEVEPSDTIENVKARIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG-
+>Ubiquitin_I44A_mutant
+MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGAPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG-
+>Ubiquitin_T9V_stabilised
+MQIFVKVLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG-
 >Ubiquitin_CAEEL
-MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"""
+MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG-
+>RUB1_ARATH
+MQIFVKTLNGLRIMSLEPSDTIENVAAKIQDKEGIPPDQQRLIFAGKQLEDGRTFSDYNIQKESTLHLVLRRGG---
+>Ubiquitin_G47A_mutant
+MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAAKQLEDGRTLSDYNIQKESTLHLVLRLRGG-
+>Ubiquitin_L8V_L71V
+MQIFVKTVTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRVLRGG
+>UBQ_thermophile_sim
+MQIFVKTLTGKTITLEVEPSDTIENVKAKIEDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLELVLRLRGG--"""
 
     _MSA_EXAMPLE_HBA = """>HbA_HUMAN
 MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSH
@@ -317,7 +331,7 @@ with main_tabs[1]:
     st.markdown("### 📊 Conservation Analysis")
 
     if not st.session_state.msa_alignment:
-        st.warning("Please load an MSA first")
+        st.info("👆 Load or paste an alignment in the **Input** tab first.")
     else:
         alignment = st.session_state.msa_alignment
 
@@ -328,23 +342,19 @@ with main_tabs[1]:
             help="Shannon entropy: raw per-position variability. JSD: accounts for background frequencies — preferred. Composite: blends both."
         )
 
-        if st.button("🔬 Calculate Conservation"):
+        # Auto-calculate when MSA changes; re-run manually to change method
+        _cons_key = f"cons_{id(alignment)}_{method}"
+        if st.button("🔬 Calculate Conservation") or _cons_key not in st.session_state:
             try:
-                from protein_design_hub.msa.conservation import (
-                    ConservationCalculator,
-                    calculate_conservation,
-                )
+                from protein_design_hub.msa.conservation import ConservationCalculator
 
                 calculator = ConservationCalculator()
                 results = calculator.analyze_alignment(alignment)
-
-                # Store results
                 st.session_state.conservation_results = results
-
+                st.session_state[_cons_key] = True
                 st.success("Conservation analysis complete!")
-
             except ImportError:
-                st.error("MSA module not available")
+                st.error("MSA conservation module not available — check installation.")
             except Exception as e:
                 st.error(f"Error: {e}")
 
@@ -358,6 +368,7 @@ with main_tabs[1]:
             st.markdown("#### Conservation Profile")
 
             import pandas as pd
+            import plotly.graph_objects as go
 
             df = pd.DataFrame([
                 {
@@ -365,52 +376,74 @@ with main_tabs[1]:
                     'Conservation': r.conservation_score,
                     'Entropy': r.shannon_entropy,
                     'Consensus': r.consensus_residue,
+                    'Consensus %': r.consensus_frequency * 100,
                     'Gap %': r.gap_frequency * 100,
                 }
                 for r in results
             ])
 
-            st.line_chart(df.set_index('Position')['Conservation'])
-
             # Summary stats
-            col1, col2, col3 = st.columns(3)
-
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
                 highly_conserved = sum(1 for r in results if r.conservation_score > 0.8)
-                st.metric("Highly conserved positions", highly_conserved)
-
+                st.metric("Highly conserved (>80%)", highly_conserved)
             with col2:
                 variable = sum(1 for r in results if r.conservation_score < 0.3)
-                st.metric("Variable positions", variable)
-
+                st.metric("Variable (<30%)", variable)
             with col3:
                 avg_cons = sum(r.conservation_score for r in results) / len(results)
                 st.metric("Average conservation", f"{avg_cons:.3f}")
+            with col4:
+                gapped = sum(1 for r in results if r.gap_frequency > 0.5)
+                st.metric("Gapped columns (>50%)", gapped)
 
-            # Download conservation data
-            csv = df.to_csv(index=False)
-            st.download_button(
-                "📥 Download Conservation Data",
-                csv,
-                "conservation.csv",
-                mime="text/csv"
+            st.markdown("#### Conservation Profile")
+
+            # Colour-coded bar chart: high conservation = teal, low = salmon
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                x=df['Position'],
+                y=df['Conservation'],
+                marker_color=[
+                    f"rgb({int(32+(0-32)*s)},{int(52+(200-52)*s)},{int(80+(180-80)*s)})"
+                    for s in df['Conservation']
+                ],
+                hovertemplate=(
+                    "Pos %{x}<br>Conservation: %{y:.3f}"
+                    "<br>Consensus: %{customdata[0]} (%{customdata[1]:.1f}%)"
+                    "<extra></extra>"
+                ),
+                customdata=list(zip(df['Consensus'], df['Consensus %'])),
+            ))
+            fig.update_layout(
+                height=260,
+                margin=dict(l=0, r=0, t=20, b=0),
+                xaxis_title="Position",
+                yaxis_title="Conservation",
+                yaxis=dict(range=[0, 1]),
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#cbd5e1'),
             )
+            st.plotly_chart(fig, use_container_width=True)
 
-            # Conserved positions table
-            st.markdown("#### Top Conserved Positions")
+            # Download
+            csv = df.to_csv(index=False)
+            st.download_button("📥 Download Conservation Data", csv, "conservation.csv", mime="text/csv")
 
+            # Top conserved table
+            st.markdown("#### Top 20 Conserved Positions")
             top_conserved = sorted(results, key=lambda x: x.conservation_score, reverse=True)[:20]
-
             conserved_df = pd.DataFrame([
                 {
                     'Position': r.position + 1,
                     'Consensus': r.consensus_residue,
                     'Conservation': f"{r.conservation_score:.3f}",
-                    'Frequency': f"{r.consensus_frequency * 100:.1f}%",
+                    'Consensus %': f"{r.consensus_frequency * 100:.1f}%",
+                    'Gap %': f"{r.gap_frequency * 100:.1f}%",
                 }
                 for r in top_conserved
             ])
-
             st.dataframe(conserved_df, use_container_width=True)
 
 
@@ -419,7 +452,7 @@ with main_tabs[2]:
     st.markdown("### 🔗 Coevolution Analysis")
 
     if not st.session_state.msa_alignment:
-        st.warning("Please load an MSA first")
+        st.info("👆 Load or paste an alignment in the **Input** tab first.")
     else:
         alignment = st.session_state.msa_alignment
 
@@ -524,7 +557,7 @@ with main_tabs[3]:
     st.markdown("### 🌳 Ancestral Sequence Reconstruction")
 
     if not st.session_state.msa_alignment:
-        st.warning("Please load an MSA first")
+        st.info("👆 Load or paste an alignment in the **Input** tab first.")
     else:
         alignment = st.session_state.msa_alignment
         names = st.session_state.msa_names
@@ -660,7 +693,7 @@ with main_tabs[4]:
     st.markdown("### 📈 Position-Specific Scoring Matrix")
 
     if not st.session_state.msa_alignment:
-        st.warning("Please load an MSA first")
+        st.info("👆 Load or paste an alignment in the **Input** tab first.")
     else:
         alignment = st.session_state.msa_alignment
 
@@ -834,17 +867,37 @@ with main_tabs[4]:
                 key_prefix="msa_agent",
             )
 
+            _msa_domain_ctx = "\n".join([
+                msa_context,
+                "",
+                "Immunology: highly conserved positions in antibody frameworks are canonical disulfide "
+                "partners — do NOT mutate. CDR positions (IMGT 27-38, 56-65, 105-117) are expected variable.",
+                "Wet lab: low-IC positions (<0.3 bits) tolerate mutations without expression loss; "
+                "high-IC positions (>1 bit) are functionally/structurally constrained.",
+                "Plant biology: cross-species conservation across Arabidopsis/rice/maize identifies "
+                "critical residues; conserved Ser/Thr = kinase substrate phosphorylation sites; "
+                "conserved Leu in LRR repeats = structural backbone (do not mutate).",
+            ])
             render_all_experts_panel(
                 "All-Expert Review (MSA/PSSM job)",
                 agenda=(
-                    "Interpret conservation and PSSM-derived mutation opportunities and "
-                    "recommend a practical mutation strategy."
+                    "Interpret conservation and PSSM-derived mutation opportunities from immunology, "
+                    "wet lab feasibility, and plant biology experimental perspectives."
                 ),
-                context=msa_context,
+                context=_msa_domain_ctx,
                 questions=(
-                    "Which suggested mutations are safest vs. highest risk?",
-                    "Which positions should remain fixed because of conservation/function?",
-                    "What shortlist should be validated first and with which predictors?",
+                    "Which suggested mutations fall in likely CDR-equivalent or active site positions "
+                    "(high information content, universally conserved) vs. safe framework/surface positions — "
+                    "for antibody sequences, does the conservation pattern match expected CDR vs. framework distribution?",
+                    "From a wet lab feasibility perspective: given the mutation tolerance at each position, "
+                    "which top 5 PSSM-suggested mutations should be ordered for gene synthesis and expression "
+                    "screening this week — and what throughput assay (HTRF, thermal shift, ELISA, "
+                    "plant immune reconstitution) gives the fastest functional confirmation?",
+                    "From a plant biology perspective: for plant receptor kinases (LRR-RKs) or NLR immune "
+                    "receptors, do the conserved positions correspond to known signaling motifs "
+                    "(activation loop Thr/Tyr, P-loop NBS, LRR backbone Leu), and do the suggested "
+                    "mutations risk disrupting plant hormone perception, PAMP recognition, or "
+                    "effector-triggered immunity (ETI)?",
                 ),
                 key_prefix="msa_all",
             )

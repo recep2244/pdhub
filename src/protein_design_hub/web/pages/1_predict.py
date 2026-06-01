@@ -28,6 +28,9 @@ from protein_design_hub.web.agent_helpers import (
     agent_sidebar_status,
     render_all_experts_panel,
     observed_scoring_section,
+    render_pymolai_section,
+    render_pymolai_chatbot,
+    render_pymolai_viewer,
 )
 from protein_design_hub.web.visualizations import (
     create_structure_viewer,
@@ -782,6 +785,22 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
     # =========================================================================
     # SECTION 3: Run Prediction
     # =========================================================================
+    # Per-predictor sequence-length limits (residues, single chain)
+    _PREDICTOR_LIMITS = {
+        "esmfold_api": (400, "ESMFold API accepts ≤ 400 residues. Use local ESMFold or ColabFold for longer sequences."),
+        "esmfold":     (1500, "Long sequences (>1500 aa) may exceed GPU memory with local ESMFold."),
+        "colabfold":   (2500, "ColabFold is tested up to ~2500 residues; longer chains may timeout."),
+        "chai1":       (1500, "Chai-1 is optimised for sequences up to ~1500 residues."),
+        "boltz2":      (1500, "Boltz-2 is optimised for sequences up to ~1500 residues."),
+        "esm3":        (1024, "ESM3 has a 1024-token context window."),
+    }
+    if sequence_input and selected_predictors:
+        _raw_seq_len = len(''.join(c for c in sequence_input if c.upper() in "ACDEFGHIKLMNPQRSTVWY"))
+        for _pred in selected_predictors:
+            _limit, _msg = _PREDICTOR_LIMITS.get(_pred, (99999, ""))
+            if _msg and _raw_seq_len > _limit:
+                st.warning(f"⚠️ **{_pred}**: {_msg}")
+
     is_ready = bool(sequence_input) and bool(selected_predictors)
 
     section_class = "" if is_ready else "disabled"
@@ -793,7 +812,7 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
         st.markdown("##### 🚀 Run Prediction")
         job_name = st.text_input(
             "Job Name",
-            value=incoming['name'] if incoming else "",
+            value=incoming.get('name', '') if incoming else "",
             placeholder="my_experiment_001",
             label_visibility="collapsed"
         )
@@ -926,6 +945,20 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                         title=best_name,
                         height=500,
                         key="predict_struct_viewer",
+                    )
+                    # ── PyMolAI Chat ──────────────────────────────────────────────────────────
+                    _pred_pymol_port = 0
+                    try:
+                        from protein_design_hub.web.pymol_server import get_pymol_server as _gps_pred
+                        _srv_pred = _gps_pred()
+                        if _srv_pred is not None:
+                            _pred_pymol_port = _srv_pred.server_address[1]
+                    except Exception:
+                        pass
+                    render_pymolai_section(
+                        key_prefix="predict_viewer",
+                        pymol_port=_pred_pymol_port,
+                        label="💬 Ask PyMolAI — Analyse this predicted structure",
                     )
                 else:
                     empty_state("No Structure", "Structure file not found", "🔬")
@@ -1072,17 +1105,49 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                     "Per-model scores:",
                     scores_ctx,
                 ])
+                # Enrich context with score spread and model delta analysis
+                _plddt_vals = [s["pLDDT"] for s in all_scores]
+                _ptm_vals = [s.get("pTM", 0) for s in all_scores if s.get("pTM", 0) > 0]
+                _plddt_spread = max(_plddt_vals) - min(_plddt_vals) if len(_plddt_vals) > 1 else 0
+                _best_predictor = best.get("Predictor", "unknown")
+                _seq_len = len(st.session_state.get("predict_sequence") or "")
+                _multimer_hint = (
+                    f"ipTM scores present (multimer mode). Best ipTM: {best.get('ipTM', 0):.3f}. "
+                    "ipTM > 0.8 → strong interface; 0.6–0.8 → moderate; < 0.6 → weak/non-specific."
+                    if any(s.get("ipTM", 0) > 0 for s in all_scores) else
+                    "Monomer prediction (no ipTM scores)."
+                )
+                _enriched_ctx = "\n".join([
+                    all_ctx,
+                    "",
+                    f"pLDDT spread across models: {_plddt_spread:.1f} (high spread → inconsistent prediction)",
+                    f"Best predictor: {_best_predictor}",
+                    f"pTM range: {min(_ptm_vals):.3f}–{max(_ptm_vals):.3f}" if _ptm_vals else "pTM: N/A",
+                    f"Sequence length: {_seq_len} residues" if _seq_len else "",
+                    _multimer_hint,
+                    "",
+                    "pLDDT thresholds: >90=very high, 70–90=confident, 50–70=low, <50=very low/disordered",
+                ])
                 render_all_experts_panel(
                     "🧠 All-Expert Investigation (prediction results)",
                     agenda=(
-                        "Interpret the prediction results and recommend next steps. "
-                        "Identify the most reliable model and any risks or uncertainties."
+                        "Interpret structure prediction results across all models from three perspectives: "
+                        "structural biology, wet lab feasibility, and immunology/plant biology application context."
                     ),
-                    context=all_ctx,
+                    context=_enriched_ctx,
                     questions=(
-                        "Which predictor/model is most reliable and why?",
-                        "Are there low-confidence regions or potential disorder to watch?",
-                        "Should we re-run with different methods or proceed to evaluation/refinement?",
+                        f"The pLDDT spread is {_plddt_spread:.1f} pts across {len(all_scores)} models — "
+                        "which single model is most trustworthy and why? "
+                        "Immunology note: for antibody CDR-H3 loops, pLDDT <70 is NORMAL and NOT misfolding — "
+                        "are there regions where low confidence signals true disorder vs. expected loop flexibility?",
+                        "From a wet lab perspective: does this pLDDT/pTM profile support immediate gene synthesis "
+                        "and expression (E. coli, HEK293, or Agrobacterium depending on protein class), "
+                        "or do disordered regions predict poor yield, aggregation, or misfolding on purification?",
+                        "From an immunology angle: if this is a therapeutic antibody, does the predicted fold "
+                        "preserve CDR loop geometry for antigen binding? "
+                        "From a plant biology angle: are low-pLDDT N-terminal regions consistent with a "
+                        "chloroplast/mitochondrial transit peptide (disordered until cleaved in organello), "
+                        "and should the mature form be re-predicted without the targeting sequence?",
                     ),
                     key_prefix="predict_all",
                 )
@@ -1144,6 +1209,31 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                 reference_path=_obs_ref if (_obs_ref and _obs_ref.exists()) else None,
                 section_key="predict_obs",
             )
+
+    st.divider()
+    _pred_pymol_port2 = 0
+    try:
+        from protein_design_hub.web.pymol_server import get_pymol_server as _gps_pred2
+        _srv_pred2 = _gps_pred2()
+        if _srv_pred2 is not None:
+            _pred_pymol_port2 = _srv_pred2.server_address[1]
+    except Exception:
+        pass
+    if _pred_pymol_port2:
+        import time as _pt
+        _pts = int(_pt.time())
+        _ph = "localhost"
+        try:
+            _ph = st.context.headers.get("host", "localhost").split(":")[0]
+        except Exception:
+            pass
+        from protein_design_hub.web.ui import section_header as _pred_sh
+        _pred_sh("PyMolAI Chat", "Molecular-visualization AI with live PyMOL access", "🔬")
+        _pc1, _pv1 = st.columns([55, 45], gap="medium")
+        with _pc1:
+            render_pymolai_chatbot(key_prefix="predict_pymolai", pymol_port=_pred_pymol_port2)
+        with _pv1:
+            render_pymolai_viewer(_pred_pymol_port2, "pdh-pymol-predict", height=700)
 
 
 if __name__ == "__main__":

@@ -268,7 +268,7 @@ class GPUConfig(BaseModel):
 #   CLOUD:  deepseek ~50 tok/s, openai ~80 tok/s, gemini ~100 tok/s
 LLM_PROVIDER_PRESETS: dict[str, tuple[str, str, str]] = {
     # ── Local (no API key) ──────────────────────────────────────────
-    "ollama":    ("http://localhost:11434/v1",  "qwen2.5:14b",      "ollama"),
+    "ollama":    ("http://localhost:11434/v1",  "qwen2.5:14b-instruct-q3_K_M",       "ollama"),
     "lmstudio":  ("http://localhost:1234/v1",   "default",           "lm-studio"),
     "vllm":      ("http://localhost:8000/v1",   "default",           "vllm"),
     "llamacpp":  ("http://localhost:8080/v1",   "default",           "llamacpp"),
@@ -284,15 +284,35 @@ LLM_PROVIDER_PRESETS: dict[str, tuple[str, str, str]] = {
     "openrouter": ("https://openrouter.ai/api/v1",        "meta-llama/llama-3.3-70b-instruct", ""),
 }
 
-_OLLAMA_DEFAULT_MODEL = "qwen2.5:14b"
+_OLLAMA_DEFAULT_MODEL = "qwen2.5:14b-instruct-q3_K_M"
 _OLLAMA_DEEPSEEK_MODEL = "deepseek-r1:14b"
+# Only remap clearly-stale tiny-model defaults. Do NOT remap qwen2.5:14b /
+# qwen2.5:14b-instruct-q3_K_M — they are installed defaults. Do NOT remap
+# qwen3:14b either, so users who actually pull it keep their choice.
 _LEGACY_OLLAMA_DEFAULT_MODELS = {"llama3.2", "llama3.2:latest"}
 
-# Recommended local models for Ollama (fits 12 GB VRAM)
+# Recommended local models for Ollama (fits 12 GB VRAM on RTX 4080 Laptop).
+# Qwen 2.5 14B is the default (installed on dev hardware, no extra pull
+# required). Qwen3 14B is an optional upgrade once pulled.
 OLLAMA_RECOMMENDED_MODELS: list[tuple[str, str]] = [
-    ("qwen2.5:14b", "Fast general-purpose (default, ~30-50 tok/s)"),
-    ("deepseek-r1:14b", "Deep reasoning with chain-of-thought (~20-35 tok/s)"),
+    ("qwen2.5:14b-instruct-q3_K_M", "⭐ Qwen 2.5 14B Q3_K_M — default; fits fully in 12 GB VRAM (100% GPU, no CPU spill; ~45-60 tok/s, ~7.3 GB)"),
+    ("qwen2.5:14b", "Qwen 2.5 14B Q4 — higher precision but spills ~18% to CPU on 12 GB (~28 tok/s, ~9 GB)"),
+    ("qwen3:14b", "Qwen3 14B — best reasoning + tool use, requires `ollama pull qwen3:14b` (~35-55 tok/s, ~9 GB VRAM)"),
+    ("deepseek-r1:14b", "DeepSeek-R1 14B — chain-of-thought reasoning (~20-35 tok/s, ~9 GB VRAM)"),
+    ("qwen3:8b", "Qwen3 8B — lighter option (~60-80 tok/s, ~5 GB VRAM)"),
+    ("llama3.3:70b-instruct-q2_K", "Llama 3.3 70B Q2 — large model quantized (~15-25 tok/s, ~22 GB)"),
 ]
+
+# Qwen3-specific Ollama generation options
+# /no_think disables the thinking token for faster non-reasoning responses
+# For scientific reasoning tasks, omit /no_think to use chain-of-thought
+_QWEN3_THINK_SUFFIX = ""         # append " /think" to prompt for explicit CoT mode
+_QWEN3_NO_THINK_SUFFIX = ""      # use empty — handled via options dict instead
+
+def _is_qwen3(model: str) -> bool:
+    """Return True if the model name indicates a Qwen3 family model."""
+    m = str(model or "").lower()
+    return "qwen3" in m or "qwen-3" in m
 
 
 def normalize_ollama_model_name(model: str) -> str:
@@ -313,7 +333,7 @@ class LLMConfig(BaseModel):
     providers (set ``provider`` and optionally ``model``):
 
     **Local (no API key needed):**
-      - ``ollama``     → http://localhost:11434/v1  (qwen2.5:14b default)
+      - ``ollama``     → http://localhost:11434/v1  (default model: qwen2.5:14b)
       - ``lmstudio``   → http://localhost:1234/v1
       - ``vllm``       → http://localhost:8000/v1   (fastest local)
       - ``llamacpp``   → http://localhost:8080/v1
@@ -357,8 +377,12 @@ class LLMConfig(BaseModel):
         description="Sampling temperature for meetings"
     )
     max_tokens: Optional[int] = Field(
-        default=4096,
-        description="Max tokens per response (None = model default)"
+        default=2048,
+        description=(
+            "Max tokens per response. Kept below the context window so prompt + "
+            "output fit without Ollama sliding-window 'K-shift' truncation "
+            "(4096 here overflowed a 4096 ctx and discarded the system prompt mid-gen)."
+        ),
     )
     num_rounds: int = Field(
         default=1,

@@ -870,6 +870,8 @@ with col_visual:
                 break
 
             if sequence and plddt_values:
+                # Cache sequence for PTM scanner auto-fill
+                st.session_state["_extracted_sequence"] = sequence
                 mean_plddt = sum(plddt_values) / len(plddt_values) if plddt_values else 0
 
                 # Quick stats
@@ -1204,17 +1206,38 @@ if run_quick:
 
                 # All-experts investigation
                 eval_ctx = "Evaluation metrics:\n" + "\n".join(f"- {p}" for p in eval_ctx_parts)
+                # Enrich evaluation context with multi-domain thresholds
+                _eval_domain_ctx = "\n".join([
+                    eval_ctx,
+                    "",
+                    "Immunology thresholds: CDR-H3 clash 5-15 = NORMAL for antibody loops (loop disorder). "
+                    "Interface BSA >1200 Å² → high-affinity binder; <600 Å² → weak/transient.",
+                    "Wet lab thresholds: Clash <5 for X-ray crystal deposition; "
+                    "lDDT >0.7 for SPR/BLI docking use; SASA 6000–12000 Å² = typical folded domain.",
+                    "Plant biology note: Low-pLDDT N-terminal regions may be transit peptides "
+                    "(disordered before organellar import/cleavage). Plant LRR domains often show "
+                    "lower VoroMQA scores due to repetitive solenoid geometry — not a quality problem.",
+                ])
                 render_all_experts_panel(
                     "🧠 All-Expert Investigation (evaluation results)",
                     agenda=(
-                        "Interpret the evaluation metrics and advise on structural quality, "
-                        "refinement needs, and readiness for downstream tasks."
+                        "Interpret structural evaluation metrics from immunology, wet lab, "
+                        "and plant biology experimental perspectives."
                     ),
-                    context=eval_ctx,
+                    context=_eval_domain_ctx,
                     questions=(
-                        "Is the model quality sufficient for downstream use (docking/design)?",
-                        "Which metrics indicate potential issues or refinement targets?",
-                        "What specific refinement or validation steps should be run next?",
+                        "Are these structural metrics sufficient for the intended experimental use — "
+                        "X-ray crystallography (clash <5, Ramachandran outliers <2%), SPR/BLI kinetics "
+                        "(lDDT >0.7), or cryo-EM — and what is the single highest-priority structural issue to fix?",
+                        "From an immunologist's perspective: if this is an antibody/nanobody structure, "
+                        "do the CDR clash scores, SASA, and interface BSA indicate a well-formed "
+                        "antigen-binding site — or is the elevated clash score in CDR loops expected "
+                        "loop disorder rather than real misfolding?",
+                        "From a wet lab and plant biology perspective: for plant proteins, are the "
+                        "low-confidence N-terminal regions transit peptides that should be excluded from "
+                        "the mature protein model? What is the single most informative wet lab assay to run "
+                        "next — SEC-HPLC for aggregation state, DSF for thermal stability (Tm), "
+                        "or functional assay (enzyme activity, plant immune receptor reconstitution)?",
                     ),
                     key_prefix="eval_all",
                 )
@@ -2097,6 +2120,386 @@ try:
 
 except ImportError as _obs_imp_e:
     st.info(f"Observed scoring module not available: {_obs_imp_e}")
+
+# =============================================================================
+# PTM LIABILITY SCANNER
+# =============================================================================
+st.markdown("---")
+with st.expander("⚠️ PTM Liability & Thermal Stability Scan", expanded=False):
+    st.markdown(
+        "Sequence-based scan for **post-translational modification liabilities** and "
+        "**thermal stability (Tm) estimate** — critical for CMC/developability assessment."
+    )
+
+    _ptm_seq_input = st.text_area(
+        "Protein sequence (paste here or auto-filled from structure above)",
+        value=st.session_state.get("_ptm_cached_seq", ""),
+        height=100,
+        key="ptm_seq_input",
+        placeholder="EVQLVESGGGLVQPGGSLRLSCAASGFTFS...",
+    )
+
+    _ptm_col1, _ptm_col2, _ptm_col3 = st.columns([2, 2, 1])
+    with _ptm_col1:
+        _ptm_antibody = st.checkbox("Run antibody-specific checks (CDR scan)", value=True, key="ptm_ab_check")
+    with _ptm_col2:
+        _ptm_scheme = st.selectbox(
+            "CDR numbering scheme",
+            ["chothia", "imgt", "kabat"],
+            key="ptm_scheme",
+            disabled=not _ptm_antibody,
+        )
+    with _ptm_col3:
+        _ptm_run = st.button("Scan Liabilities", type="primary", use_container_width=True, key="ptm_run_btn")
+
+    # Auto-populate sequence from structure extraction if available
+    if not _ptm_seq_input:
+        _auto_seq = st.session_state.get("_extracted_sequence", "")
+        if _auto_seq:
+            st.session_state["_ptm_cached_seq"] = _auto_seq
+            st.info(f"Auto-filled sequence from loaded structure ({len(_auto_seq)} residues). Click Scan.")
+
+    if _ptm_run and _ptm_seq_input.strip():
+        _ptm_seq_clean = "".join(
+            c.upper() for c in _ptm_seq_input.strip()
+            if c.upper() in "ACDEFGHIKLMNPQRSTVWY"
+        )
+        if len(_ptm_seq_clean) < 5:
+            st.warning("Sequence too short to scan.")
+        else:
+            st.session_state["_ptm_cached_seq"] = _ptm_seq_input
+            try:
+                from protein_design_hub.analysis.ptm_scanner import PTMLiabilityScanner
+                from protein_design_hub.biophysics.stability import predict_tm
+
+                _ptm_scanner = PTMLiabilityScanner()
+                with st.spinner("Scanning liabilities..."):
+                    _ptm_result = _ptm_scanner.scan(
+                        _ptm_seq_clean,
+                        check_antibody=_ptm_antibody,
+                    )
+                    _tm_result = predict_tm(_ptm_seq_clean)
+
+                st.session_state["_ptm_result"] = _ptm_result
+                st.session_state["_tm_result"] = _tm_result
+            except Exception as _ptm_e:
+                st.error(f"PTM scan failed: {_ptm_e}")
+                import traceback
+                with st.expander("Traceback"):
+                    st.code(traceback.format_exc())
+
+    # Display cached results
+    _ptm_result_cached = st.session_state.get("_ptm_result")
+    _tm_result_cached = st.session_state.get("_tm_result")
+
+    if _ptm_result_cached:
+        import pandas as pd
+
+        # ── Risk overview ─────────────────────────────────────────────────────
+        _risk_colors = {"Critical": "🔴", "High": "🟠", "Medium": "🟡", "Low": "🟢"}
+        _risk_icon = _risk_colors.get(_ptm_result_cached.risk_label, "⚪")
+
+        _ptm_ov_cols = st.columns(4)
+        with _ptm_ov_cols[0]:
+            st.metric("Overall Risk", f"{_risk_icon} {_ptm_result_cached.risk_label}")
+        with _ptm_ov_cols[1]:
+            st.metric("Risk Score", f"{_ptm_result_cached.risk_score:.0f} / 100")
+        with _ptm_ov_cols[2]:
+            st.metric("Total Liabilities", len(_ptm_result_cached.liabilities))
+        with _ptm_ov_cols[3]:
+            st.metric("High-Risk Sites", len(_ptm_result_cached.high_risk()))
+
+        # ── Thermal stability ─────────────────────────────────────────────────
+        if _tm_result_cached and _tm_result_cached.get("tm_estimate_c") is not None:
+            _tm_val = _tm_result_cached["tm_estimate_c"]
+            _tm_low, _tm_high = _tm_result_cached.get("tm_range", (_tm_val - 12, _tm_val + 12))
+            _tm_class = _tm_result_cached["stability_class"]
+            _tm_icon = "🔥" if _tm_class == "Thermophilic" else ("🌡️" if _tm_class == "Mesophilic" else "🧊")
+
+            st.markdown("#### Thermal Stability")
+            _tm_c1, _tm_c2, _tm_c3 = st.columns(3)
+            with _tm_c1:
+                st.metric("Predicted Tm", f"{_tm_val}°C", help="Sequence-only estimate ±10–15°C")
+            with _tm_c2:
+                st.metric("90% Interval", f"{_tm_low:.0f}–{_tm_high:.0f}°C")
+            with _tm_c3:
+                st.metric("Stability Class", f"{_tm_icon} {_tm_class}")
+            st.caption(_tm_result_cached.get("note", ""))
+
+        # ── Manufacturability flags ───────────────────────────────────────────
+        if _ptm_result_cached.manufacturability_flags:
+            st.markdown("#### Manufacturability Flags")
+            for _flag in _ptm_result_cached.manufacturability_flags:
+                st.warning(_flag)
+
+        # ── Liabilities by type ───────────────────────────────────────────────
+        st.markdown("#### Liability Summary")
+        _summary_data = [
+            {"Type": k, "Count": v}
+            for k, v in sorted(_ptm_result_cached.summary.items(), key=lambda x: -x[1])
+        ]
+        if _summary_data:
+            _sum_df = pd.DataFrame(_summary_data)
+            st.dataframe(_sum_df, use_container_width=True, hide_index=True, height=min(300, len(_summary_data) * 40 + 50))
+
+        # ── Detailed table ────────────────────────────────────────────────────
+        if _ptm_result_cached.liabilities:
+            st.markdown("#### Detailed Liabilities")
+            _ptm_filter = st.multiselect(
+                "Filter by risk",
+                ["High", "Medium", "Low"],
+                default=["High", "Medium"],
+                key="ptm_risk_filter",
+            )
+            _filtered_libs = [
+                lib for lib in _ptm_result_cached.liabilities
+                if lib.risk in _ptm_filter
+            ]
+            # Sort: CDR first, then by risk, then by position
+            _risk_order = {"High": 0, "Medium": 1, "Low": 2}
+            _filtered_libs.sort(key=lambda x: (not x.in_cdr, _risk_order.get(x.risk, 3), x.position))
+
+            _lib_rows = []
+            for _lib in _filtered_libs:
+                _lib_rows.append({
+                    "Pos": _lib.position,
+                    "AA": _lib.residue,
+                    "Motif": _lib.motif,
+                    "Type": _lib.liability_type,
+                    "Risk": _lib.risk,
+                    "In CDR": "✅" if _lib.in_cdr else "",
+                    "Description": _lib.description,
+                })
+
+            if _lib_rows:
+                _lib_df = pd.DataFrame(_lib_rows)
+                st.dataframe(
+                    _lib_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=min(500, len(_lib_rows) * 40 + 50),
+                    column_config={
+                        "Description": st.column_config.TextColumn(width="large"),
+                        "Risk": st.column_config.TextColumn(width="small"),
+                        "Pos": st.column_config.NumberColumn(width="small"),
+                    },
+                )
+
+                # Download
+                _ptm_csv = _lib_df.to_csv(index=False)
+                st.download_button(
+                    "📥 Download Liabilities CSV",
+                    data=_ptm_csv,
+                    file_name="ptm_liabilities.csv",
+                    mime="text/csv",
+                    key="ptm_download",
+                )
+            else:
+                st.info("No liabilities matching the selected risk filter.")
+        else:
+            st.success("No PTM liabilities detected at selected risk levels.")
+
+        # ── Antibody CDR analysis ─────────────────────────────────────────────
+        if _ptm_antibody:
+            try:
+                from protein_design_hub.analysis.ptm_scanner import detect_antibody_cdrs, calculate_humanness_score
+                _seq_for_ab = _ptm_result_cached.sequence
+
+                _cdr_map = detect_antibody_cdrs(_seq_for_ab, scheme=_ptm_scheme)
+                _humanness = calculate_humanness_score(_seq_for_ab)
+
+                if _cdr_map:
+                    st.markdown("#### Antibody CDR Regions (heuristic)")
+                    _cdr_cols = st.columns(len(_cdr_map))
+                    for _ci, (_cdr_name, (_cdr_s, _cdr_e)) in enumerate(_cdr_map.items()):
+                        with _cdr_cols[_ci]:
+                            _cdr_seq = _seq_for_ab[_cdr_s - 1:_cdr_e]
+                            st.metric(_cdr_name, f"{_cdr_s}–{_cdr_e}", f"{_cdr_seq}")
+
+                st.markdown("#### Humanness & Immunogenicity")
+                _hum_c1, _hum_c2 = st.columns(2)
+                with _hum_c1:
+                    st.metric(
+                        "Humanness Score",
+                        f"{_humanness['humanness_score']:.2f}",
+                        help="0=non-human, 1=fully human (heuristic)",
+                    )
+                with _hum_c2:
+                    st.metric(
+                        "Immunogenicity Risk",
+                        _humanness["immunogenicity_risk"],
+                    )
+                st.caption(_humanness.get("note", ""))
+            except Exception:
+                pass
+
+# =============================================================================
+# WET-LAB READINESS DASHBOARD
+# =============================================================================
+st.markdown("---")
+with st.expander("🧪 Wet-Lab Readiness Dashboard — Expression, Purification & Go/No-Go", expanded=False):
+    st.markdown(
+        "Integrated **wet-lab advancement assessment**: expression system recommendation, "
+        "step-by-step purification strategy, codon risk flags, and an evidence-based **Go/No-Go verdict**."
+    )
+
+    _wl_seq_input = st.text_area(
+        "Protein sequence for wet-lab assessment",
+        value=st.session_state.get("_wl_cached_seq", st.session_state.get("_ptm_cached_seq", "")),
+        height=90,
+        key="wl_seq_input",
+        placeholder="EVQLVESGGGLVQPGG...",
+    )
+
+    _wl_col1, _wl_col2, _wl_col3 = st.columns([2, 2, 1])
+    with _wl_col1:
+        _wl_is_ab = st.checkbox("Antibody / nanobody sequence", value=False, key="wl_is_ab")
+    with _wl_col2:
+        _wl_hosts = st.multiselect(
+            "Target expression host(s) for codon check",
+            ["E. coli", "HEK293/CHO", "Pichia pastoris", "N. benthamiana / Plant"],
+            default=["E. coli", "HEK293/CHO"],
+            key="wl_hosts",
+        )
+    with _wl_col3:
+        _wl_run = st.button("Assess Readiness", type="primary", use_container_width=True, key="wl_run_btn")
+
+    if _wl_run and _wl_seq_input.strip():
+        _wl_seq_clean = "".join(
+            c.upper() for c in _wl_seq_input.strip()
+            if c.upper() in "ACDEFGHIKLMNPQRSTVWY"
+        )
+        if len(_wl_seq_clean) < 10:
+            st.warning("Sequence too short (< 10 residues).")
+        else:
+            st.session_state["_wl_cached_seq"] = _wl_seq_input
+            try:
+                from protein_design_hub.analysis.wet_lab_advisor import build_wet_lab_report
+                with st.spinner("Generating wet-lab readiness report…"):
+                    _wl_report = build_wet_lab_report(
+                        _wl_seq_clean,
+                        is_antibody=_wl_is_ab,
+                        codon_hosts=_wl_hosts if _wl_hosts else None,
+                    )
+                st.session_state["_wl_report"] = _wl_report
+            except Exception as _wl_e:
+                st.error(f"Wet-lab assessment failed: {_wl_e}")
+                import traceback
+                with st.expander("Traceback"):
+                    st.code(traceback.format_exc())
+
+    _wl_report = st.session_state.get("_wl_report")
+    if _wl_report:
+        import pandas as pd
+
+        # ── Go/No-Go verdict banner ────────────────────────────────────────────
+        _verdict_colors = {"GO": "#22c55e", "CONDITIONAL": "#f59e0b", "NO-GO": "#ef4444"}
+        _verdict_icons = {"GO": "✅", "CONDITIONAL": "⚠️", "NO-GO": "❌"}
+        _vc = _verdict_colors.get(_wl_report.go_nogo, "#6b7280")
+        _vi = _verdict_icons.get(_wl_report.go_nogo, "❓")
+        st.markdown(
+            f'<div style="background:rgba(0,0,0,0.3);border-left:5px solid {_vc};'
+            f'padding:16px 20px;border-radius:8px;margin:12px 0;">'
+            f'<span style="font-size:1.4rem;font-weight:700;color:{_vc};">{_vi} {_wl_report.go_nogo}</span>'
+            f'<p style="color:#e2e8f0;margin:6px 0 0 0;">{_wl_report.go_nogo_reason}</p>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── Key properties row ─────────────────────────────────────────────────
+        _wl_p1, _wl_p2, _wl_p3, _wl_p4, _wl_p5 = st.columns(5)
+        _wl_p1.metric("MW", f"{_wl_report.mw_kda:.1f} kDa")
+        _wl_p2.metric("pI", f"{_wl_report.pi:.1f}")
+        _wl_p3.metric("GRAVY", f"{_wl_report.gravy:.3f}")
+        _wl_p4.metric("Instability Index", f"{_wl_report.instability_index:.1f}")
+        _wl_p5.metric("Disulfide Pairs", f"{_wl_report.disulfide_pairs_predicted}")
+
+        # ── Criteria checklist ─────────────────────────────────────────────────
+        _wl_crit_col1, _wl_crit_col2 = st.columns(2)
+        with _wl_crit_col1:
+            st.markdown("**Criteria Met**")
+            for _c in _wl_report.criteria_met:
+                st.markdown(f'<div style="color:#22c55e;padding:2px 0;">✅ {_c}</div>', unsafe_allow_html=True)
+            if not _wl_report.criteria_met:
+                st.caption("None")
+        with _wl_crit_col2:
+            st.markdown("**Criteria to Watch / Failed**")
+            for _c in _wl_report.criteria_watch:
+                st.markdown(f'<div style="color:#f59e0b;padding:2px 0;">⚠️ {_c}</div>', unsafe_allow_html=True)
+            for _c in _wl_report.criteria_failed:
+                st.markdown(f'<div style="color:#ef4444;padding:2px 0;">❌ {_c}</div>', unsafe_allow_html=True)
+            if not _wl_report.criteria_watch and not _wl_report.criteria_failed:
+                st.caption("None")
+
+        st.markdown("---")
+
+        # ── Expression system recommendations ──────────────────────────────────
+        st.markdown("#### 🔬 Expression System Recommendations (ranked)")
+        _expr_rows = []
+        for _es in _wl_report.expression_systems:
+            _yield_str = f"{_es.estimated_yield_mgl[0]:.0f}–{_es.estimated_yield_mgl[1]:.0f} mg/L"
+            _timeline_str = f"{_es.timeline_days[0]}–{_es.timeline_days[1]} days"
+            _cost_str = f"${_es.cost_per_mg_usd[0]:.0f}–${_es.cost_per_mg_usd[1]:.0f}/mg"
+            _score_bar = "█" * int(_es.score / 10) + "░" * (10 - int(_es.score / 10))
+            _expr_rows.append({
+                "System": _es.system,
+                "Score": f"{_es.score:.0f}/100",
+                "Est. Yield": _yield_str,
+                "Timeline": _timeline_str,
+                "Cost/mg": _cost_str,
+            })
+        st.dataframe(pd.DataFrame(_expr_rows), use_container_width=True, hide_index=True)
+
+        # Top system details
+        if _wl_report.expression_systems:
+            _top_es = _wl_report.expression_systems[0]
+            with st.expander(f"📋 Protocol: {_top_es.system} (top recommendation)", expanded=True):
+                if _top_es.rationale:
+                    st.markdown("**Why this system:**")
+                    for _r in _top_es.rationale:
+                        st.markdown(f"- {_r}")
+                if _top_es.caveats:
+                    st.markdown("**Caveats / Watch points:**")
+                    for _cv in _top_es.caveats:
+                        st.warning(_cv)
+                st.markdown("**Protocol steps:**")
+                for _pn in _top_es.protocol_notes:
+                    st.markdown(f"- {_pn}")
+
+        st.markdown("---")
+
+        # ── Purification strategy ──────────────────────────────────────────────
+        st.markdown("#### 🧫 Step-by-Step Purification Strategy")
+        st.caption(f"Estimated overall recovery: **{_wl_report.purification.overall_recovery_pct:.0f}%** | "
+                   f"Purity target: **{_wl_report.purification.final_purity_target}**")
+        for _ps in _wl_report.purification.steps:
+            with st.expander(f"Step {_ps.step_number}: {_ps.method}", expanded=(_ps.step_number == 1)):
+                _ps_c1, _ps_c2 = st.columns(2)
+                with _ps_c1:
+                    st.markdown(f"**Resin/Column:** {_ps.resin_or_column}")
+                    st.markdown(f"**Buffer system:** {_ps.buffer_system}")
+                with _ps_c2:
+                    st.metric("Expected Yield", f"{_ps.expected_yield_pct:.0f}%")
+                    st.metric("Expected Purity", f"{_ps.expected_purity_pct:.0f}%")
+                if _ps.notes:
+                    st.info(_ps.notes)
+
+        st.markdown("**QC Checklist after purification:**")
+        for _qc in _wl_report.purification.qc_checklist:
+            st.markdown(f"- {_qc}")
+        st.info(_wl_report.purification.concentration_notes)
+
+        st.markdown("---")
+
+        # ── Codon risk flags ───────────────────────────────────────────────────
+        st.markdown("#### 🧬 Codon Risk Assessment")
+        _codon_risk_colors = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}
+        for _cr in _wl_report.codon_risks:
+            _col_icon = _codon_risk_colors.get(_cr.risk_level, "⚪")
+            with st.expander(f"{_col_icon} {_cr.host} — {_cr.risk_level} risk", expanded=(_cr.risk_level != "Low")):
+                for _flag in _cr.rare_codons:
+                    st.markdown(f"- {_flag}")
+                st.info(_cr.recommendation)
 
 # ========== METRIC DESCRIPTIONS ==========
 with st.expander("ℹ️ Metric Descriptions"):

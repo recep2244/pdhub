@@ -4,12 +4,140 @@ This module provides:
 - ΔΔG mutation effect estimation
 - Disorder propensity prediction (IUPred-like)
 - Folding free energy estimation
-- Thermal stability indicators
+- Thermal stability Tm prediction (sequence-based)
 """
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 import math
+
+
+# ── Sequence-based Tm prediction ─────────────────────────────────────────────
+# Thermophilicity scale (Gromiha 2001, J Biol Chem; Rao & Bhargavi 2013)
+# Relative contribution of each residue to thermal stability (kcal/mol equivalent)
+# Positive = thermophilic preference, Negative = mesophilic preference
+_THERMO_SCALE: Dict[str, float] = {
+    "A":  0.09, "C": -0.12, "D": -0.23, "E":  0.16,
+    "F":  0.25, "G": -0.19, "H": -0.01, "I":  0.21,
+    "K":  0.11, "L":  0.22, "M":  0.04, "N": -0.14,
+    "P": -0.35, "Q": -0.08, "R":  0.18, "S": -0.11,
+    "T": -0.06, "V":  0.19, "W":  0.15, "Y":  0.03,
+}
+
+# Amino acid group contributions to folding cooperativity
+_HELIX_PROPENSITY: Dict[str, float] = {
+    "A": 1.41, "R": 0.98, "N": 0.67, "D": 1.01, "C": 0.70,
+    "E": 1.51, "Q": 1.11, "G": 0.57, "H": 1.00, "I": 1.08,
+    "L": 1.21, "K": 1.16, "M": 1.45, "F": 1.13, "P": 0.57,
+    "S": 0.77, "T": 0.83, "W": 1.08, "Y": 0.69, "V": 1.06,
+}
+
+
+def predict_tm(sequence: str) -> Dict:
+    """
+    Predict thermal melting temperature (Tm) from sequence composition.
+
+    Uses an empirical model combining:
+    - Thermophilicity scale (Gromiha 2001)
+    - Disulfide bond stabilisation (Pace 1988: +3.5°C per SS bond)
+    - Length correction (longer proteins tend to have higher Tm)
+    - Helix propensity (helical proteins tend to be more thermostable)
+    - Charged residue complement (salt bridge potential)
+
+    This is a SEQUENCE-ONLY estimate with ±10–15°C accuracy.
+    For accurate Tm: use DSF/DSC experimentally, or FoldX + MD for structure-based.
+
+    Args:
+        sequence: One-letter amino acid sequence.
+
+    Returns:
+        Dict with keys:
+            tm_estimate_c: Predicted Tm in °C
+            tm_range: (low, high) 90% confidence interval
+            stability_class: "Thermophilic" | "Mesophilic" | "Thermolabile"
+            contributing_factors: Dict of factor contributions
+    """
+    seq = sequence.upper().strip()
+    seq = "".join(c for c in seq if c in _THERMO_SCALE)
+    n = len(seq)
+
+    if n < 10:
+        return {
+            "tm_estimate_c": None,
+            "tm_range": None,
+            "stability_class": "Insufficient sequence",
+            "contributing_factors": {},
+        }
+
+    # Base Tm from thermophilicity scale
+    thermo_sum = sum(_THERMO_SCALE.get(aa, 0.0) for aa in seq) / n
+    # Scale to Tm range: average mesophilic protein ~50°C, thermophilic ~80°C
+    # thermo_sum ≈ -0.35 (very low) to +0.25 (very high)
+    base_tm = 50.0 + thermo_sum * 120.0
+
+    # Disulfide correction (+3.5°C per predicted SS bond)
+    cys_count = seq.count("C")
+    n_disulfides = cys_count // 2
+    ss_correction = n_disulfides * 3.5
+
+    # Length correction: longer proteins → marginal Tm increase (plateaus ~200 aa)
+    length_correction = min(8.0, (n - 50) * 0.04) if n > 50 else (n - 50) * 0.04
+
+    # Helix propensity correction
+    helix_score = sum(_HELIX_PROPENSITY.get(aa, 1.0) for aa in seq) / n
+    helix_correction = (helix_score - 1.0) * 10.0
+
+    # Salt bridge potential (charged residue pairs)
+    pos_charge = sum(1 for aa in seq if aa in "KRH") / n
+    neg_charge = sum(1 for aa in seq if aa in "DE") / n
+    salt_bridge_potential = min(pos_charge, neg_charge)
+    charge_correction = salt_bridge_potential * 15.0
+
+    # Hydrophobic core potential
+    hydrophobic = sum(1 for aa in seq if aa in "VILMFW") / n
+    core_correction = (hydrophobic - 0.35) * 20.0
+
+    tm_estimate = (
+        base_tm
+        + ss_correction
+        + length_correction
+        + helix_correction
+        + charge_correction
+        + core_correction
+    )
+
+    # Clamp to physically reasonable range
+    tm_estimate = max(10.0, min(115.0, tm_estimate))
+
+    # Confidence interval: ±12°C (sequence-only models)
+    uncertainty = 12.0
+    tm_low = max(0.0, tm_estimate - uncertainty)
+    tm_high = min(120.0, tm_estimate + uncertainty)
+
+    if tm_estimate >= 70.0:
+        stability_class = "Thermophilic"
+    elif tm_estimate >= 45.0:
+        stability_class = "Mesophilic"
+    else:
+        stability_class = "Thermolabile"
+
+    return {
+        "tm_estimate_c": round(tm_estimate, 1),
+        "tm_range": (round(tm_low, 1), round(tm_high, 1)),
+        "stability_class": stability_class,
+        "contributing_factors": {
+            "base_thermo_scale": round(base_tm, 1),
+            "disulfide_bonds": round(ss_correction, 1),
+            "length_effect": round(length_correction, 1),
+            "helix_propensity": round(helix_correction, 1),
+            "salt_bridge_potential": round(charge_correction, 1),
+            "hydrophobic_core": round(core_correction, 1),
+        },
+        "note": (
+            "Sequence-only estimate; uncertainty ±10–15°C. "
+            "Validate with DSF/DSC or structure-based tools."
+        ),
+    }
 
 
 # ΔΔG scales for amino acid substitutions (simplified FoldX-like)

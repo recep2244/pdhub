@@ -16,6 +16,14 @@ from typing import Any, Dict, List, Optional
 
 from protein_design_hub.agents.base import AgentResult, BaseAgent
 from protein_design_hub.agents.context import WorkflowContext
+from protein_design_hub.analysis.protein_utils import (
+    format_mutation_three_letter,
+    format_residue_three_letter,
+)
+from protein_design_hub.analysis.mutation_scoring import (
+    classify_score,
+    composite_mutation_score,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +65,34 @@ def _build_scanner(output_dir: Optional[Path] = None, run_ost: bool = True):
     if output_dir:
         kwargs["output_dir"] = output_dir
     return MutationScanner(**kwargs)
+
+
+def _build_library_recommendation(sequence: str, best_per_pos: dict) -> dict:
+    """Turn the best beneficial mutation per position into a combinatorial
+    library recommendation (NNK/degenerate codons + screening estimate).
+
+    Bridges the mutagenesis hits into ``evolution/library_design.py`` so the
+    output is directly actionable for wet-lab library construction.
+    """
+    from protein_design_hub.evolution.library_design import CombinatorialLibrary
+
+    combo = CombinatorialLibrary(parent_sequence=sequence, name="mutagenesis_hits")
+    for pos, r in best_per_pos.items():
+        aa = r.get("mutant_aa")
+        if aa in _VALID_AAS:
+            combo.add_mutation(pos, [aa])
+    library = combo.get_library()
+    out: dict[str, Any] = {
+        "n_sites": len(library.sites),
+        "positions": library.positions,
+        "theoretical_size": library.theoretical_size,
+        "codon_scheme": library.get_codon_scheme(),
+    }
+    try:
+        out["screening"] = library.estimate_screening_requirements()
+    except Exception:
+        pass
+    return out
 
 
 def _extract_ost_metrics(extra_metrics: dict) -> dict:
@@ -323,26 +359,28 @@ class MutationComparisonAgent(BaseAgent):
             successful = [r for r in results if r.get("success")]
             failed = [r for r in results if not r.get("success")]
 
-            # Compute improvement scores
-            for r in successful:
-                delta_mean = r.get("delta_mean_plddt", 0.0) or 0.0
-                delta_local = r.get("delta_local_plddt", 0.0) or 0.0
-                r["improvement_score"] = 0.6 * delta_mean + 0.4 * delta_local
+            seq0 = context.sequences[0].sequence if context.sequences else ""
+            wt_metrics = context.extra.get("mutation_wt_metrics", {})
 
-            # Rank by improvement score
+            # Composite, physics-aware improvement score: stability (ΔΔG) +
+            # fold agreement (OST lDDT/RMSD) + clash/PTM penalties, with pLDDT
+            # demoted to a confidence gate. See analysis/mutation_scoring.py.
+            for r in successful:
+                score, components = composite_mutation_score(r, wt_metrics, seq0)
+                r["improvement_score"] = score
+                r["score_components"] = components
+                r["flags"] = components.get("flags", [])
+
             ranked = sorted(
                 successful,
                 key=lambda x: x.get("improvement_score", 0),
                 reverse=True,
             )
 
-            # Classify
-            beneficial = [r for r in ranked if r.get("improvement_score", 0) > 0]
-            neutral = [
-                r for r in ranked
-                if -0.5 <= r.get("improvement_score", 0) <= 0.5
-            ]
-            detrimental = [r for r in ranked if r.get("improvement_score", 0) < -0.5]
+            # Classify on the composite score (≈ kcal/mol scale).
+            beneficial = [r for r in ranked if classify_score(r.get("improvement_score", 0)) == "beneficial"]
+            detrimental = [r for r in ranked if classify_score(r.get("improvement_score", 0)) == "detrimental"]
+            neutral = [r for r in ranked if classify_score(r.get("improvement_score", 0)) == "neutral"]
 
             # Group by position
             by_position: Dict[int, Dict[str, Any]] = {}
@@ -356,16 +394,18 @@ class MutationComparisonAgent(BaseAgent):
             wt_per_res = context.extra.get("mutation_wt_plddt_per_residue", [])
             per_residue_analysis: Dict[str, Any] = {}
             if wt_per_res:
+                _seq0 = context.sequences[0].sequence if context.sequences else ""
                 low_conf = [
-                    {"pos": i + 1, "aa": (context.sequences[0].sequence[i] if context.sequences else "?"), "plddt": v}
+                    {"pos": i + 1, "aa": (_seq0[i] if i < len(_seq0) else "?"), "plddt": v}
                     for i, v in enumerate(wt_per_res) if v < 70
                 ]
                 high_conf = sum(1 for v in wt_per_res if v >= 90)
+                n_res = len(wt_per_res)
                 per_residue_analysis = {
-                    "total_residues": len(wt_per_res),
-                    "mean_plddt": sum(wt_per_res) / len(wt_per_res),
-                    "min_plddt": min(wt_per_res),
-                    "max_plddt": max(wt_per_res),
+                    "total_residues": n_res,
+                    "mean_plddt": sum(wt_per_res) / n_res if n_res else 0.0,
+                    "min_plddt": min(wt_per_res) if wt_per_res else 0.0,
+                    "max_plddt": max(wt_per_res) if wt_per_res else 0.0,
                     "high_confidence_count": high_conf,
                     "low_confidence_positions": sorted(low_conf, key=lambda x: x["plddt"]),
                     "plddt_distribution": {
@@ -385,6 +425,41 @@ class MutationComparisonAgent(BaseAgent):
                     if val is not None:
                         ost_summary_best[k] = val
 
+            # ── Epistasis: combine best beneficial hit per distinct position ──
+            # ADDITIVE estimate only — true epistasis must be confirmed by
+            # predicting the combined multi-mutant structure or experimentally.
+            best_per_pos: Dict[int, Dict[str, Any]] = {}
+            for r in beneficial:
+                p = r["position"]
+                if p not in best_per_pos or r["improvement_score"] > best_per_pos[p]["improvement_score"]:
+                    best_per_pos[p] = r
+            top_combo = sorted(
+                best_per_pos.values(), key=lambda x: x["improvement_score"], reverse=True
+            )[:6]
+            combinatorial_candidate = None
+            if len(top_combo) >= 2:
+                combinatorial_candidate = {
+                    "mutations": [r.get("mutation_code") for r in top_combo],
+                    "n_mutations": len(top_combo),
+                    "additive_score": round(sum(r["improvement_score"] for r in top_combo), 3),
+                    "additive_ddg_kcal": round(
+                        sum(r.get("score_components", {}).get("ddg_kcal", 0.0) for r in top_combo), 2
+                    ),
+                    "note": (
+                        "Additive estimate across distinct positions; epistasis is "
+                        "untested. Validate the combined variant experimentally or by "
+                        "predicting the multi-mutant structure."
+                    ),
+                }
+
+            # ── Recommended combinatorial library from the top hits ──────────
+            recommended_library = None
+            if seq0 and best_per_pos:
+                try:
+                    recommended_library = _build_library_recommendation(seq0, best_per_pos)
+                except Exception as lib_err:
+                    logger.warning("Library recommendation failed: %s", lib_err)
+
             comparison = {
                 "total_mutations": len(results),
                 "successful_count": len(successful),
@@ -401,6 +476,8 @@ class MutationComparisonAgent(BaseAgent):
                 "wt_per_residue_analysis": per_residue_analysis,
                 "best_ost_metrics": ost_summary_best,
                 "wt_metrics": context.extra.get("mutation_wt_metrics", {}),
+                "combinatorial_candidate": combinatorial_candidate,
+                "recommended_library": recommended_library,
             }
 
             context.extra["mutation_comparison"] = comparison
@@ -521,7 +598,8 @@ class MutagenesisPipelineReportAgent(BaseAgent):
             if low_positions:
                 lines.append("\n**Low-confidence residues (pLDDT < 70):**")
                 for p in low_positions[:15]:
-                    lines.append(f"- {p['aa']}{p['pos']}: pLDDT = {p['plddt']:.1f}")
+                    res = format_residue_three_letter(p['aa'], p['pos'])
+                    lines.append(f"- {res}: pLDDT = {p['plddt']:.1f}")
 
         # ── Mutation summary ─────────────────────────────────
         lines.append("\n## Mutation Results Summary")
@@ -530,14 +608,29 @@ class MutagenesisPipelineReportAgent(BaseAgent):
         lines.append(f"- Beneficial: {comparison.get('beneficial_count', 0)}")
         lines.append(f"- Detrimental: {comparison.get('detrimental_count', 0)}")
 
+        lines.append(
+            "\n*Ranking = composite physics score (stability ΔΔG + fold agreement "
+            "+ clash/PTM penalties); pLDDT is a confidence gate, not the objective.*"
+        )
+
         best = comparison.get("best_overall")
         if best:
             lines.append(f"\n### Best Mutation")
             lines.append(
-                f"- **{best.get('mutation_code', '?')}**: "
+                f"- **{format_mutation_three_letter(best.get('mutation_code', '?'))}**: "
                 f"score = {best.get('improvement_score', 0):.3f}, "
                 f"delta pLDDT = {best.get('delta_mean_plddt', 0):+.2f}"
             )
+            comp = best.get("score_components", {})
+            if comp:
+                lines.append(
+                    f"- Score breakdown: ΔΔG={comp.get('ddg_kcal', 0):+.2f} kcal/mol "
+                    f"({comp.get('ddg_effect', '?')}), stability={comp.get('stability_term', 0):+.2f}, "
+                    f"fold={comp.get('fold_term', 0):+.2f}, clash={comp.get('clash_penalty', 0):+.2f}, "
+                    f"PTM={comp.get('ptm_penalty', 0):+.2f}"
+                )
+            if best.get("flags"):
+                lines.append(f"- Flags: {', '.join(best['flags'])}")
             if best.get("ost_lddt") is not None:
                 lines.append(f"- OST lDDT vs WT: {best['ost_lddt']:.3f}")
             if best.get("ost_rmsd_ca") is not None:
@@ -561,10 +654,37 @@ class MutagenesisPipelineReportAgent(BaseAgent):
                 ost_s = f"{ost_lddt:.3f}" if ost_lddt is not None else "-"
                 clash_s = f"{clash:.1f}" if clash is not None else "-"
                 lines.append(
-                    f"| {i} | {r.get('mutation_code', '?')} | "
+                    f"| {i} | {format_mutation_three_letter(r.get('mutation_code', '?'))} | "
                     f"{r.get('improvement_score', 0):.3f} | "
                     f"{r.get('delta_mean_plddt', 0):+.2f} | "
                     f"{rmsd_s} | {ost_s} | {clash_s} |"
+                )
+
+        # ── Combinatorial candidate (epistasis estimate) ─────
+        combo = comparison.get("combinatorial_candidate")
+        if combo:
+            codes = ", ".join(format_mutation_three_letter(c) for c in combo.get("mutations", []))
+            lines.append("\n### Combinatorial Candidate (additive estimate)")
+            lines.append(f"- Stack: **{codes}**")
+            lines.append(
+                f"- Additive score: {combo.get('additive_score', 0):.3f}, "
+                f"additive ΔΔG: {combo.get('additive_ddg_kcal', 0):+.2f} kcal/mol"
+            )
+            lines.append(f"- ⚠️ {combo.get('note', '')}")
+
+        # ── Recommended combinatorial library ────────────────
+        lib = comparison.get("recommended_library")
+        if lib:
+            lines.append("\n### Recommended Library (from top hits)")
+            lines.append(
+                f"- Sites: {lib.get('n_sites', 0)} at positions {lib.get('positions', [])}"
+            )
+            lines.append(f"- Theoretical size: {lib.get('theoretical_size', 0)} variants")
+            scr = lib.get("screening", {})
+            if scr:
+                lines.append(
+                    f"- Screen ~{scr.get('variants_to_screen', '?')} variants for "
+                    f"{int(scr.get('coverage_target', 0.95) * 100)}% coverage"
                 )
 
         # ── Step verdicts ────────────────────────────────────

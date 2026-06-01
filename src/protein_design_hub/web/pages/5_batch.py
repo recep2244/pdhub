@@ -390,87 +390,100 @@ with main_tabs[2]:
                     })
 
                 # Process jobs
+                n_jobs = len(st.session_state.batch_jobs)
                 progress_bar = st.progress(0)
-                status_container = st.container()
+                status_text = st.empty()
+                live_table = st.empty()
+
+                _completed = 0
+                _failed = 0
 
                 for i, job in enumerate(st.session_state.batch_jobs):
-                    progress_bar.progress((i + 1) / len(st.session_state.batch_jobs))
                     job['status'] = 'running'
-
-                    with status_container:
-                        st.text(f"Processing: {job['name']} ({i + 1}/{len(st.session_state.batch_jobs)})")
+                    status_text.markdown(
+                        f"⚙️ **Processing** `{job['name']}` — "
+                        f"{i+1}/{n_jobs} &nbsp;|&nbsp; "
+                        f"✅ {_completed} &nbsp;❌ {_failed}"
+                    )
 
                     try:
-                        # Run based on job type
                         if config['type'] == 'prediction':
-                            # Quick ESMFold API prediction
                             if config['predictor'] == "ESMFold (API)" and len(job['sequence']) <= 400:
                                 import requests
-
                                 response = requests.post(
                                     "https://api.esmatlas.com/foldSequence/v1/pdb/",
                                     data=job['sequence'],
                                     headers={"Content-Type": "text/plain"},
                                     timeout=120,
                                 )
-
                                 if response.status_code == 200:
-                                    # Extract pLDDT
                                     plddt_values = []
                                     for line in response.text.split('\n'):
                                         if line.startswith("ATOM") and line[12:16].strip() == "CA":
                                             try:
                                                 plddt_values.append(float(line[60:66]))
-                                            except:
+                                            except Exception:
                                                 pass
-
                                     job['result'] = {
                                         'pdb': response.text,
                                         'plddt': sum(plddt_values) / len(plddt_values) if plddt_values else 0,
                                     }
                                     job['status'] = 'complete'
+                                    _completed += 1
                                 else:
                                     job['status'] = 'failed'
-                                    job['error'] = f"API error: {response.status_code}"
+                                    job['error'] = f"API error {response.status_code}"
+                                    _failed += 1
+                            elif len(job['sequence']) > 400 and config['predictor'] == "ESMFold (API)":
+                                job['status'] = 'failed'
+                                job['error'] = f"Sequence too long for API ({len(job['sequence'])} aa > 400 limit)"
+                                _failed += 1
                             else:
                                 job['status'] = 'failed'
-                                job['error'] = "Predictor not available for batch mode"
+                                job['error'] = f"Predictor '{config['predictor']}' not available in batch mode — use ESMFold (API)"
+                                _failed += 1
 
                         elif config['type'] == 'biophysics':
-                            try:
-                                from protein_design_hub.biophysics import (
-                                    calculate_mw, calculate_pi, calculate_gravy,
-                                    calculate_instability_index,
-                                )
-                                from protein_design_hub.biophysics.solubility import SolubilityPredictor
-
-                                seq = job['sequence']
-                                sol_pred = SolubilityPredictor()
-                                sol = sol_pred.predict(seq)
-
-                                job['result'] = {
-                                    'mw': calculate_mw(seq),
-                                    'pi': calculate_pi(seq),
-                                    'gravy': calculate_gravy(seq),
-                                    'instability': calculate_instability_index(seq),
-                                    'solubility_score': sol['solubility_score'],
-                                }
-                                job['status'] = 'complete'
-
-                            except Exception as _e:
-                                job['status'] = 'failed'
-                                job['error'] = f"Biophysics error: {_e}"
+                            from protein_design_hub.biophysics import (
+                                calculate_mw, calculate_pi, calculate_gravy,
+                                calculate_instability_index,
+                            )
+                            from protein_design_hub.biophysics.solubility import SolubilityPredictor
+                            seq = job['sequence']
+                            sol_pred = SolubilityPredictor(sequence=seq)
+                            sol = sol_pred.predict()
+                            job['result'] = {
+                                'mw': calculate_mw(seq),
+                                'pi': calculate_pi(seq),
+                                'gravy': calculate_gravy(seq),
+                                'instability': calculate_instability_index(seq),
+                                'solubility_score': sol['solubility_score'],
+                                'aggregation': sol.get('aggregation_propensity', 0),
+                                'overall': sol.get('overall_assessment', ''),
+                            }
+                            job['status'] = 'complete'
+                            _completed += 1
 
                         else:
                             job['status'] = 'failed'
-                            job['error'] = f"Job type {config['type']} not implemented"
+                            job['error'] = f"Job type '{config['type']}' not implemented in batch mode"
+                            _failed += 1
 
                     except Exception as e:
                         job['status'] = 'failed'
                         job['error'] = str(e)
+                        _failed += 1
 
+                    progress_bar.progress((i + 1) / n_jobs)
+
+                status_text.empty()
                 st.session_state.batch_running = False
-                st.success("Batch processing complete!")
+                if _failed == 0:
+                    st.success(f"✅ All {_completed} jobs completed successfully!")
+                elif _completed == 0:
+                    st.error(f"❌ All {_failed} jobs failed — check the Results tab for details.")
+                else:
+                    st.warning(f"⚠️ Completed {_completed}/{n_jobs} jobs. {_failed} failed — see Results tab.")
                 st.rerun()
 
             if st.button("⏹️ Stop", disabled=not st.session_state.batch_running):
@@ -586,14 +599,20 @@ with main_tabs[3]:
                 data = []
                 for job in complete:
                     result = job.get('result', {})
+                    instability = result.get('instability', 0)
+                    sol = result.get('solubility_score', 0)
+                    agg = result.get('aggregation', 0)
                     data.append({
                         'Name': job['name'],
                         'Length': len(job['sequence']),
                         'MW (Da)': f"{result.get('mw', 0):.0f}",
                         'pI': f"{result.get('pi', 0):.2f}",
                         'GRAVY': f"{result.get('gravy', 0):.2f}",
-                        'Instability': f"{result.get('instability', 0):.1f}",
-                        'Solubility': f"{result.get('solubility_score', 0):.2f}",
+                        'Instability': f"{instability:.1f}",
+                        'Stable?': '✅' if instability < 40 else '⚠️',
+                        'Solubility': f"{sol:.2f}",
+                        'Aggregation': f"{agg:.2f}",
+                        'Assessment': result.get('overall', ''),
                     })
 
                 df = pd.DataFrame(data)
@@ -640,6 +659,56 @@ with main_tabs[3]:
                     mime="text/csv"
                 )
 
+                # ── Wet-Lab Go/No-Go per sequence ──────────────────────────
+                with st.expander("🧪 Wet-Lab Go/No-Go Assessment (all sequences)", expanded=False):
+                    st.markdown(
+                        "Quick wet-lab advancement decision for each completed sequence "
+                        "based on biophysical properties."
+                    )
+                    try:
+                        from protein_design_hub.analysis.wet_lab_advisor import build_wet_lab_report as _build_wlr
+                        _wl_rows = []
+                        for _bj in complete[:20]:  # cap at 20 to avoid long waits
+                            _bjseq = _bj.get("sequence", "")
+                            if len(_bjseq) < 10:
+                                continue
+                            try:
+                                _bjr = _build_wlr(_bjseq, is_antibody=False, codon_hosts=["E. coli", "HEK293/CHO"])
+                                _top_sys = _bjr.expression_systems[0] if _bjr.expression_systems else None
+                                _wl_rows.append({
+                                    "Name": _bj["name"],
+                                    "Verdict": _bjr.go_nogo,
+                                    "Top System": _top_sys.system if _top_sys else "N/A",
+                                    "Est. Yield": (
+                                        f"{_top_sys.estimated_yield_mgl[0]:.0f}–{_top_sys.estimated_yield_mgl[1]:.0f} mg/L"
+                                        if _top_sys else "N/A"
+                                    ),
+                                    "Timeline": (
+                                        f"{_top_sys.timeline_days[0]}–{_top_sys.timeline_days[1]} days"
+                                        if _top_sys else "N/A"
+                                    ),
+                                    "Key Issue": (
+                                        _bjr.criteria_failed[0][:60] + "…"
+                                        if _bjr.criteria_failed
+                                        else (_bjr.criteria_watch[0][:60] + "…" if _bjr.criteria_watch else "—")
+                                    ),
+                                })
+                            except Exception:
+                                pass
+                        if _wl_rows:
+                            _wl_df = pd.DataFrame(_wl_rows)
+                            st.dataframe(_wl_df, use_container_width=True, hide_index=True)
+                            _go_count = sum(1 for r in _wl_rows if r["Verdict"] == "GO")
+                            _cond_count = sum(1 for r in _wl_rows if r["Verdict"] == "CONDITIONAL")
+                            _nogo_count = sum(1 for r in _wl_rows if r["Verdict"] == "NO-GO")
+                            st.markdown(
+                                f"**Summary:** {_go_count} GO ✅ | {_cond_count} CONDITIONAL ⚠️ | {_nogo_count} NO-GO ❌"
+                            )
+                        else:
+                            st.info("No sequences with sufficient length for wet-lab assessment.")
+                    except Exception as _wlbatch_e:
+                        st.warning(f"Wet-lab assessment unavailable: {_wlbatch_e}")
+
             # All-experts review for batch outcomes
             config = st.session_state.get('batch_config', {})
             success_rate = (len(complete) / len(jobs)) if jobs else 0.0
@@ -678,17 +747,37 @@ with main_tabs[3]:
                 key_prefix="batch_agent",
             )
 
+            _batch_domain_ctx = "\n".join([
+                *context_lines,
+                "",
+                "Wet lab synthesis budget: ~$100-200/gene construct; typical screening batch = 4-16 variants. "
+                "Go criteria: pLDDT>80, instability<40, GRAVY<0, no high-risk CDR PTMs.",
+                "Immunology: therapeutic candidates need pLDDT>80 AND humanness>85% AND no high MHC-II epitopes.",
+                "Plant biology: select constructs with correct codon usage for target plant host "
+                "(Arabidopsis/tobacco/rice codon tables differ); include p19 silencing suppressor "
+                "in Agrobacterium mix for highest transient expression yield.",
+            ])
             render_all_experts_panel(
                 "All-Expert Review (batch job)",
                 agenda=(
-                    "Assess the batch run quality, failure profile, and whether output "
-                    "is ready for downstream analysis."
+                    "Assess batch run quality and identify which designs are ready for wet lab advancement "
+                    "from immunology, wet lab, and plant biology experimental perspectives."
                 ),
-                context="\n".join(context_lines),
+                context=_batch_domain_ctx,
                 questions=(
-                    "Do the completion/failure patterns suggest setup issues or expected noise?",
-                    "Which subset of completed jobs should be prioritized first?",
-                    "What changes should be made to the next batch run configuration?",
+                    "Do the batch failure/success patterns suggest setup issues (sequence length limits, "
+                    "predictor limitations with certain folds like LRR arrays or coiled-coil NLRs) "
+                    "or expected noise — and for therapeutic antibody batches, what fraction of designs "
+                    "have acceptable pLDDT AND low immunogenicity risk?",
+                    "Based on batch results, which top 3-5 sequences should be ordered for gene synthesis "
+                    "and wet lab expression screening this week? Selection criteria: pLDDT threshold, "
+                    "instability index, GRAVY, absence of PTM liabilities in CDR/active site regions, "
+                    "and absence of rare codons for the target expression host.",
+                    "From a plant biology perspective: for plant protein batches (enzymes, NLR immune "
+                    "receptors, designer binders for crop protection), which completed predictions show "
+                    "stable, well-folded candidates for Agrobacterium-mediated transient expression in "
+                    "N. benthamiana — and what construct architecture (35S promoter, signal peptide, "
+                    "His/Strep tag, p19 co-expression) maximizes protein yield?",
                 ),
                 key_prefix="batch_all",
             )

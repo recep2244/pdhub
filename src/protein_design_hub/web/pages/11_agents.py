@@ -27,6 +27,8 @@ from protein_design_hub.web.ui import (
 from protein_design_hub.web.agent_helpers import (
     agent_sidebar_status,
     render_agent_chatbot,
+    render_pymolai_chatbot,
+    render_pymolai_viewer,
     render_model_switcher,
     list_available_models,
     switch_llm_model,
@@ -74,14 +76,17 @@ def _check_llm():
 def _load_team_presets():
     from protein_design_hub.agents import scientists as S
     return {
-        "default":       ("General prediction pipeline",     S.DEFAULT_TEAM_LEAD, S.DEFAULT_TEAM_MEMBERS),
-        "design":        ("Protein design & engineering",    S.DEFAULT_TEAM_LEAD, S.DESIGN_TEAM_MEMBERS),
-        "nanobody":      ("Antibody / nanobody engineering", S.DEFAULT_TEAM_LEAD, S.NANOBODY_TEAM_MEMBERS),
-        "evaluation":    ("Structure quality assessment",    S.DEFAULT_TEAM_LEAD, S.EVALUATION_TEAM_MEMBERS),
-        "refinement":    ("Structure refinement workflow",   S.DEFAULT_TEAM_LEAD, S.REFINEMENT_TEAM_MEMBERS),
-        "mutagenesis":   ("Mutagenesis & sequence design",   S.DEFAULT_TEAM_LEAD, S.MUTAGENESIS_TEAM_MEMBERS),
-        "mpnn_design":   ("MPNN inverse folding design",     S.DEFAULT_TEAM_LEAD, S.MPNN_DESIGN_TEAM_MEMBERS),
-        "full_pipeline": ("Full pipeline review (all experts)", S.DEFAULT_TEAM_LEAD, S.FULL_PIPELINE_TEAM_MEMBERS),
+        "default":        ("General prediction pipeline",                    S.DEFAULT_TEAM_LEAD, S.DEFAULT_TEAM_MEMBERS),
+        "design":         ("Protein design & engineering (+ wet lab)",       S.DEFAULT_TEAM_LEAD, S.DESIGN_TEAM_MEMBERS),
+        "nanobody":       ("Antibody / nanobody engineering (+ wet lab)",    S.DEFAULT_TEAM_LEAD, S.NANOBODY_TEAM_MEMBERS),
+        "antibody":       ("Therapeutic antibody — CDR, developability, QC", S.DEFAULT_TEAM_LEAD, S.ANTIBODY_TEAM_MEMBERS),
+        "evaluation":     ("Structure quality assessment (+ wet lab QC)",    S.DEFAULT_TEAM_LEAD, S.EVALUATION_TEAM_MEMBERS),
+        "refinement":     ("Structure refinement workflow",                  S.DEFAULT_TEAM_LEAD, S.REFINEMENT_TEAM_MEMBERS),
+        "mutagenesis":    ("Mutagenesis & sequence design (+ screening)",    S.DEFAULT_TEAM_LEAD, S.MUTAGENESIS_TEAM_MEMBERS),
+        "mpnn_design":    ("MPNN inverse folding design",                    S.DEFAULT_TEAM_LEAD, S.MPNN_DESIGN_TEAM_MEMBERS),
+        "wet_lab":        ("Wet lab advancement — expression & assay plan",  S.DEFAULT_TEAM_LEAD, S.WET_LAB_TEAM_MEMBERS),
+        "plant_biology":  ("Plant biology — NLR/LRR-RK, Agrobacterium",     S.DEFAULT_TEAM_LEAD, S.PLANT_BIOLOGY_TEAM_MEMBERS),
+        "full_pipeline":  ("Full pipeline review (+ wet lab readiness)",     S.DEFAULT_TEAM_LEAD, S.FULL_PIPELINE_TEAM_MEMBERS),
     }
 
 
@@ -243,20 +248,78 @@ tabs = st.tabs([
 
 
 ###############################################################################
-# TAB 0 — QUICK CHAT
+# TAB 0 — QUICK CHAT  (PyMolAI tab + Scientist Agents tab)
 ###############################################################################
 with tabs[0]:
-    section_header("Quick Chat", "Have a conversation with any scientist agent", "💬")
+    section_header("Quick Chat", "PyMolAI agent with live PyMOL access · Scientist agents below", "💬")
 
-    info_box(
-        "Chat with 10 specialist agents: ask about protein design, interpret results, "
-        "plan experiments, or get a second opinion. The conversation stays in context "
-        "so follow-up questions work naturally.",
-        variant="info",
-        icon="💡",
+    # ── Detect running PyMOL server ───────────────────────────────────
+    _pymol_port = 0
+    try:
+        from protein_design_hub.web.pymol_server import get_pymol_server
+        _srv = get_pymol_server()
+        if _srv is not None:
+            _pymol_port = _srv.server_address[1]
+    except Exception:
+        pass
+
+    # ── PyMOL viewer helper (uses shared render_pymolai_viewer with scroll-lock)
+    def _render_pymol_viewer(port: int, iframe_id: str) -> None:
+        render_pymolai_viewer(port, iframe_id, height=700)
+        with st.form(key=f"pymol_cmd_{iframe_id}", clear_on_submit=True):
+            _ci = st.text_input(
+                "PyMOL command",
+                placeholder="color red, chain A  |  show surface  |  set_view (…)",
+                label_visibility="collapsed",
+            )
+            _c1, _c2 = st.columns([3, 1])
+            with _c1:
+                _run = st.form_submit_button("▶ Run", use_container_width=True)
+            with _c2:
+                _snap = st.form_submit_button("📸 Snap", use_container_width=True)
+        if _run and _ci and _ci.strip():
+            from protein_design_hub.web.agent_helpers import _pymol_execute
+            _res, _img = _pymol_execute(_ci.strip(), port)
+            _col = "#22c55e" if _res == "OK" else "#ef4444"
+            st.markdown(
+                f'<div style="font-size:.75rem;color:{_col}">'
+                f'{_html.escape(_ci.strip())} → {_html.escape(_res)}</div>',
+                unsafe_allow_html=True,
+            )
+            if _img:
+                st.image(_img, use_container_width=True)
+        if _snap:
+            from protein_design_hub.web.agent_helpers import _pymol_snapshot
+            _fr = _pymol_snapshot(port)
+            if _fr:
+                st.image(_fr, use_container_width=True)
+
+    # ══════════════════════════════════════════════════════════════════
+    # SECTION 1 — PyMolAI (primary, full-width chat + viewer)
+    # ══════════════════════════════════════════════════════════════════
+    if _pymol_port:
+        _chat_col, _view_col = st.columns([55, 45], gap="medium")
+        with _chat_col:
+            render_pymolai_chatbot(key_prefix="pymolai_main", pymol_port=_pymol_port)
+        with _view_col:
+            _render_pymol_viewer(_pymol_port, "pdh-pymol-main")
+    else:
+        info_box(
+            "Load a structure on the Design page to enable the live PyMOL viewer.",
+            variant="info", icon="💡",
+        )
+        render_pymolai_chatbot(key_prefix="pymolai_main", pymol_port=0)
+
+    # ══════════════════════════════════════════════════════════════════
+    # SECTION 2 — Scientist Agents (below PyMolAI, separate)
+    # ══════════════════════════════════════════════════════════════════
+    st.divider()
+    section_header(
+        "Scientist Agents",
+        "10 specialist scientists — structural biology, protein engineering, MD simulation and more",
+        "🧬",
     )
-
-    render_agent_chatbot(key_prefix="main_chat")
+    render_agent_chatbot(key_prefix="sci_main", pymol_port=_pymol_port)
 
 
 ###############################################################################
@@ -289,7 +352,7 @@ with tabs[1]:
 - **Step-only mode** runs {_STEP_PIPELINE_COUNT} compute steps and is faster for quick checks
 - **LLM-guided / Nanobody / Binding Affinity modes** run {_LLM_PIPELINE_COUNT} steps and add meeting overhead for richer interpretation
 - **LLM-guided mode** typically adds ~5-15s per meeting with `qwen2.5:14b` on GPU
-- Default model: **qwen2.5:14b** (fast, concise). Alternative: **deepseek-r1:14b** (deeper reasoning)
+- **Default model: `qwen2.5:14b`** (installed; ~28 tok/s on RTX 4080 Laptop). Optional upgrade: `qwen3:14b` (`ollama pull qwen3:14b`, best reasoning + tool use). Alternative: `deepseek-r1:14b` (deep CoT reasoning)
 - Switch models in **LLM Status** tab or via the **Model** dropdown in pipeline settings
 - For large proteins (>500 residues), expect longer prediction times
         """)
@@ -398,12 +461,10 @@ with tabs[1]:
                 ]
                 ci = 0
             provider = st.selectbox("LLM Provider", prov_names, index=ci, key="p_prov")
-            if provider == "ollama":
-                legacy_sel = str(st.session_state.get("p_mov", "")).strip().lower()
-                if legacy_sel in {"llama3.2", "llama3.2:latest"}:
-                    st.session_state["p_mov"] = "(provider default)"
 
-            # Model selector: show available models from backend
+            # Model selector: ONLY offer models actually present on the backend.
+            # Recommended-but-not-installed names live in the docs, not the picker —
+            # otherwise users can pick a missing model and every meeting 404s.
             _avail_models = list_available_models()
             _cur_model = _cfg.model if _cfg else ""
             if provider == "ollama":
@@ -412,18 +473,32 @@ with tabs[1]:
                 except Exception:
                     if _cur_model.strip().lower() in {"llama3.2", "llama3.2:latest"}:
                         _cur_model = "qwen2.5:14b"
-                # Ensure recommended local models are always visible
+
+            # Drop any stale session-state pick that points to a model the backend
+            # doesn't actually have (e.g. qwen3:14b was selectable in an older build).
+            _stale_sel = str(st.session_state.get("p_mov", "")).strip()
+            if (
+                _stale_sel
+                and _stale_sel != "(provider default)"
+                and _avail_models
+                and _stale_sel not in _avail_models
+            ):
+                st.session_state["p_mov"] = "(provider default)"
+
+            # Same defence for the in-memory settings: if a previous Run left
+            # settings.llm.model pointing at a missing Ollama model, clear it so
+            # the provider preset (qwen2.5:14b) takes over.
+            if provider == "ollama" and _cur_model and _avail_models and _cur_model not in _avail_models:
                 try:
-                    from protein_design_hub.core.config import OLLAMA_RECOMMENDED_MODELS
-                    for rec_model, _ in OLLAMA_RECOMMENDED_MODELS:
-                        if rec_model not in _avail_models:
-                            _avail_models.append(rec_model)
+                    from protein_design_hub.core.config import get_settings as _gs
+                    from protein_design_hub.agents.meeting import reset_llm_client as _reset_client
+                    _gs().llm.model = ""
+                    _reset_client()
                 except Exception:
-                    for rec in ("qwen2.5:14b", "deepseek-r1:14b"):
-                        if rec not in _avail_models:
-                            _avail_models.append(rec)
-            if _cur_model and _cur_model not in _avail_models:
-                _avail_models = [_cur_model] + _avail_models
+                    pass
+                _cur_model = ""
+            elif _cur_model and _avail_models and _cur_model not in _avail_models:
+                _cur_model = ""
             _model_opts = ["(provider default)"] + _avail_models
             _mi = _model_opts.index(_cur_model) if _cur_model in _model_opts else 0
             _sel_model = st.selectbox("Model", _model_opts, index=_mi, key="p_mov")
@@ -495,7 +570,14 @@ with tabs[1]:
                 s = get_settings()
                 s.llm.provider = provider
                 s.llm.base_url = ""
-                s.llm.model = model_ov or ""
+                # Only honour an explicit model override if the backend actually
+                # has it loaded. Otherwise fall through to the provider default —
+                # writing a missing model name here causes every meeting to 404.
+                chosen_model = model_ov or ""
+                if chosen_model and provider == "ollama" and _avail_models:
+                    if chosen_model not in _avail_models:
+                        chosen_model = ""
+                s.llm.model = chosen_model
                 s.llm.api_key = ""
             except Exception:
                 pass

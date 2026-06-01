@@ -247,7 +247,7 @@ class DirectedEvolution:
         population = self._initialize_population()
 
         generations: List[GenerationResult] = []
-        best_ever = population[0]
+        best_ever: Optional[FitnessResult] = None
         stagnation_count = 0
 
         for gen in range(self.config.num_generations):
@@ -259,7 +259,7 @@ class DirectedEvolution:
 
             # Track best
             gen_best = evaluated[0]
-            new_best = gen_best.fitness > best_ever.fitness
+            new_best = best_ever is None or gen_best.fitness > best_ever.fitness
 
             if new_best:
                 best_ever = gen_best
@@ -305,6 +305,14 @@ class DirectedEvolution:
             termination_reason = "target_reached"
         elif stagnation_count >= self.config.stagnation_generations:
             termination_reason = "stagnation"
+
+        # Fallback: if loop never ran (0 generations) create a sentinel
+        if best_ever is None:
+            best_ever = FitnessResult(
+                sequence=self.parent_sequence,
+                fitness=0.0,
+                components={},
+            )
 
         return EvolutionResult(
             config=self.config,

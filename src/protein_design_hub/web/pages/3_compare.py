@@ -31,6 +31,9 @@ from protein_design_hub.web.agent_helpers import (
     agent_sidebar_status,
     render_all_experts_panel,
     observed_scoring_section,
+    render_pymolai_section,
+    render_pymolai_chatbot,
+    render_pymolai_viewer,
 )
 from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 
@@ -833,8 +836,9 @@ if "compare_result" in st.session_state:
     ''', unsafe_allow_html=True)
 
     # Best predictor highlight
-    if result.best_predictor:
-        st.markdown(f"### 🏆 Best Predictor: **{result.best_predictor.upper()}**")
+    _best_pred = getattr(result, "best_predictor", None)
+    if _best_pred:
+        st.markdown(f"### 🏆 Best Predictor: **{_best_pred.upper()}**")
 
     # Results tabs
     tab_ranking, tab_metrics, tab_viewer, tab_download = st.tabs([
@@ -863,18 +867,20 @@ if "compare_result" in st.session_state:
                 f"- Rank {i}: {name} (score: {score:.3f})"
                 for i, (name, score) in enumerate(result.ranking, 1)
             )
+            _best_pred_name = getattr(result, "best_predictor", None)
+            _ranking = getattr(result, "ranking", []) or []
             compare_data = {
-                "Best predictor": result.best_predictor.upper() if result.best_predictor else "N/A",
-                "Top score": f"{result.ranking[0][1]:.3f}" if result.ranking else "N/A",
-                "Predictors compared": len(result.ranking),
+                "Best predictor": _best_pred_name.upper() if _best_pred_name else "N/A",
+                "Top score": f"{_ranking[0][1]:.3f}" if _ranking else "N/A",
+                "Predictors compared": len(_ranking),
             }
 
             # Save to shared cross-page context
             set_page_results("Compare", {
-                "best_predictor": result.best_predictor or "",
-                "top_score": result.ranking[0][1] if result.ranking else 0,
-                "num_predictors": len(result.ranking),
-                "ranking": [{"predictor": n, "score": s} for n, s in result.ranking],
+                "best_predictor": _best_pred_name or "",
+                "top_score": _ranking[0][1] if _ranking else 0,
+                "num_predictors": len(_ranking),
+                "ranking": [{"predictor": n, "score": s} for n, s in _ranking],
             })
 
             # Stats panel for predictor comparison
@@ -903,23 +909,45 @@ if "compare_result" in st.session_state:
                 key_prefix="compare_agent",
             )
 
-            # All-experts investigation
+            # All-experts investigation — enrich context with score spread
+            _score_spread = ""
+            if len(_ranking) >= 2:
+                top_s = _ranking[0][1]
+                bot_s = _ranking[-1][1]
+                _score_spread = f"Score spread: {top_s:.3f} (best) to {bot_s:.3f} (worst), gap={top_s - bot_s:.3f}"
             compare_ctx_lines = [
-                f"Best predictor: {result.best_predictor.upper()}" if result.best_predictor else "Best predictor: N/A",
+                f"Best predictor: {_best_pred_name.upper()}" if _best_pred_name else "Best predictor: N/A",
+                _score_spread,
                 "Ranking:",
                 ranking_ctx,
             ]
+            _compare_domain_notes = (
+                "Immunology: for antibody sequences, ABodyBuilder2/ImmuneBUILDER gives better CDR "
+                "geometry than AlphaFold2 — if multiple predictors were run, weight CDR quality heavily.\n"
+                "Wet lab: the winning predictor structure is used as template for SPR/BLI docking, "
+                "crystal soaking, or cryo-EM model building — geometric accuracy at binding site matters most.\n"
+                "Plant biology: for LRR arrays, NLR proteins, or TIR domain proteins, ColabFold with "
+                "deep MSA gives better predictions than ESMFold (no MSA) — predictor choice matters for repetitive folds."
+            )
             render_all_experts_panel(
                 "🧠 All-Expert Investigation (comparison results)",
                 agenda=(
-                    "Interpret the predictor ranking and evaluation metrics to select the "
-                    "best structure and recommend next steps."
+                    "Interpret predictor ranking from immunology, wet lab, and plant biology perspectives. "
+                    "Recommend the single best structure for experimental advancement."
                 ),
-                context="\n".join(compare_ctx_lines),
+                context="\n".join(l for l in compare_ctx_lines if l) + "\n\n" + _compare_domain_notes,
                 questions=(
-                    "Is the top-ranked predictor clearly superior? If not, why?",
-                    "Should we refine the top model or re-run with alternative settings/predictors?",
-                    "What validation metrics should be prioritized next?",
+                    "Is the score gap between the top and second-best predictor large enough to be "
+                    "confident in the winner, or are they effectively tied? "
+                    "For antibody sequences: is ImmuneBUILDER/ABodyBuilder2 available and preferred "
+                    "for CDR geometry over general-purpose predictors?",
+                    "From a wet lab perspective: the winning structure will be used as template for "
+                    "SPR docking, crystal design, or cryo-EM — which predictor gives the most "
+                    "accurate binding site geometry, and are there known failure modes for this protein class?",
+                    "From a plant biology perspective: for repetitive fold proteins (LRR arrays, NLR "
+                    "immune receptors, TIR domains), did ColabFold with deep MSA outperform ESMFold? "
+                    "Recommend the single best structure to carry forward and justify from each "
+                    "team member's perspective (structural accuracy, CDR quality, plant immune function).",
                 ),
                 key_prefix="compare_all",
             )
@@ -1071,6 +1099,16 @@ if "compare_result" in st.session_state:
                         height=500,
                     )
 
+                    _cmp_port = 0
+                    try:
+                        from protein_design_hub.web.pymol_server import get_pymol_server as _gps_cmp
+                        _srv_cmp = _gps_cmp()
+                        if _srv_cmp is not None:
+                            _cmp_port = _srv_cmp.server_address[1]
+                    except Exception:
+                        pass
+                    render_pymolai_section(key_prefix="compare_struct1", pymol_port=_cmp_port, label="💬 Ask PyMolAI — Analyse structure 1")
+
                     if ref_path:
                         st.caption(f"Aligned with reference: {ref_path.name}")
         else:
@@ -1183,6 +1221,16 @@ if existing_results and Path(existing_results).exists():
                     height=500,
                 )
 
+                _cmp_port = 0
+                try:
+                    from protein_design_hub.web.pymol_server import get_pymol_server as _gps_cmp
+                    _srv_cmp = _gps_cmp()
+                    if _srv_cmp is not None:
+                        _cmp_port = _srv_cmp.server_address[1]
+                except Exception:
+                    pass
+                render_pymolai_section(key_prefix="compare_struct2", pymol_port=_cmp_port, label="💬 Ask PyMolAI — Analyse structure 2")
+
                 if ref_path:
                     st.caption(f"Showing alignment with reference: {ref_path.name}")
                 else:
@@ -1268,3 +1316,28 @@ with st.expander("ℹ️ About Comparison", expanded=False):
 - Each predictor runs sequentially to manage GPU memory
 - Use Chai-1 or Boltz-2 for protein-ligand complexes
     """)
+
+st.divider()
+_cmp_pymol_port = 0
+try:
+    from protein_design_hub.web.pymol_server import get_pymol_server as _gps_cmp2
+    _srv_cmp2 = _gps_cmp2()
+    if _srv_cmp2 is not None:
+        _cmp_pymol_port = _srv_cmp2.server_address[1]
+except Exception:
+    pass
+if _cmp_pymol_port:
+    import time as _cpt
+    _cpts = int(_cpt.time())
+    _cph = "localhost"
+    try:
+        _cph = st.context.headers.get("host", "localhost").split(":")[0]
+    except Exception:
+        pass
+    from protein_design_hub.web.ui import section_header as _cmp_sh
+    _cmp_sh("PyMolAI Chat", "Molecular-visualization AI with live PyMOL access", "🔬")
+    _cc1, _cv1 = st.columns([55, 45], gap="medium")
+    with _cc1:
+        render_pymolai_chatbot(key_prefix="compare_pymolai", pymol_port=_cmp_pymol_port)
+    with _cv1:
+        render_pymolai_viewer(_cmp_pymol_port, "pdh-pymol-compare", height=700)

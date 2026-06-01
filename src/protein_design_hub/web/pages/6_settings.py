@@ -720,7 +720,7 @@ with tabs[4]:
                 else:
                     try:
                         total_size += sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
-                    except:
+                    except OSError:
                         pass
 
         st.metric("Total Cache Size", f"{total_size / 1e9:.2f} GB")

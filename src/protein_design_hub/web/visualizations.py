@@ -497,11 +497,11 @@ def create_structure_viewer(
         _highlight_js = f"""
         // Highlight mutant residues
         var hlResi = {_resi_js};
-        if (hlResi.length > 0) {{{{
-            viewer.addStyle({{{{resi: hlResi}}}}, {{{{stick: {{{{color: '#f59e0b', radius: 0.28}}}}}}}});
-            viewer.addStyle({{{{resi: hlResi}}}}, {{{{sphere: {{{{color: '#f59e0b', radius: 0.45}}}}}}}});
+        if (hlResi.length > 0) {{
+            viewer.addStyle({{resi: hlResi}}, {{stick: {{color: '#f59e0b', radius: 0.28}}}});
+            viewer.addStyle({{resi: hlResi}}, {{sphere: {{color: '#f59e0b', radius: 0.45}}}});
             {_label_js}
-        }}}}
+        }}
         viewer.render();"""
 
     toolbar_html = ""
@@ -512,7 +512,7 @@ def create_structure_viewer(
             background: linear-gradient(180deg, rgba(5,5,8,0.95) 0%, rgba(5,5,8,0.0) 100%);
             padding: 10px 14px 20px;
             display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-            z-index: 100; pointer-events: auto;
+            z-index: 10; pointer-events: auto;
         ">
             <!-- Style buttons -->
             <div style="display:flex;gap:4px;background:rgba(255,255,255,0.05);border-radius:8px;padding:3px;">
@@ -588,126 +588,135 @@ def create_structure_viewer(
     <script src="https://3dmol.org/build/3Dmol-min.js"></script>
     <script>
     (function() {{
-        var viewerEl = document.getElementById("{vid}");
-        var viewer = $3Dmol.createViewer(viewerEl, {{ backgroundColor: "{background_color}" }});
         var molData = `{model_data_js}`;
         var currentStyle = "cartoon";
         var currentColor = "plddt";
         var spinning = {'true' if spin else 'false'};
         var surfaceObj = null;
 
-        viewer.addModel(molData, "{file_fmt}");
-
-        function applyStyle_{vid}() {{
-            viewer.setStyle({{}}, {{}});
-            if (surfaceObj) {{ try {{ viewer.removeAllSurfaces(); }} catch(e) {{}} surfaceObj = null; }}
-
-            var colorSpec = getColorSpec_{vid}(currentColor, currentStyle);
-
-            if (currentStyle === "cartoon") {{
-                viewer.setStyle({{}}, {{cartoon: colorSpec}});
-            }} else if (currentStyle === "surface") {{
-                viewer.setStyle({{}}, {{cartoon: {{opacity: 0.15, color: '#475569'}}}});
-                surfaceObj = viewer.addSurface($3Dmol.SurfaceType.VDW, {{
-                    opacity: {surface_opacity},
-                    colorscheme: colorSpec.colorscheme || {{prop: 'b', gradient: 'roygb', min: 50, max: 90}},
-                }});
-            }} else if (currentStyle === "stick") {{
-                viewer.setStyle({{}}, {{stick: colorSpec}});
-            }} else if (currentStyle === "sphere") {{
-                viewer.setStyle({{}}, {{sphere: colorSpec}});
-            }} else if (currentStyle === "ribbon") {{
-                viewer.setStyle({{}}, {{ribbon: colorSpec}});
+        // Defer init until the container has real dimensions (WebGL needs non-zero size)
+        function _init_{vid}() {{
+            var viewerEl = document.getElementById("{vid}");
+            if (!viewerEl || viewerEl.offsetWidth === 0 || viewerEl.offsetHeight === 0) {{
+                setTimeout(_init_{vid}, 80);
+                return;
             }}
-            viewer.render();
-        }}
 
-        function getColorSpec_{vid}(color, style) {{
-            if (color === "plddt") {{
-                return {{colorscheme: {{prop: 'b', gradient: 'roygb', min: 50, max: 90}}}};
-            }} else if (color === "spectrum") {{
+            var viewer = $3Dmol.createViewer(viewerEl, {{ backgroundColor: "{background_color}" }});
+            viewer.addModel(molData, "{file_fmt}");
+
+            function applyStyle_{vid}() {{
+                viewer.setStyle({{}}, {{}});
+                if (surfaceObj) {{ try {{ viewer.removeAllSurfaces(); }} catch(e) {{}} surfaceObj = null; }}
+
+                var colorSpec = getColorSpec_{vid}(currentColor, currentStyle);
+
+                if (currentStyle === "cartoon") {{
+                    viewer.setStyle({{}}, {{cartoon: colorSpec}});
+                }} else if (currentStyle === "surface") {{
+                    viewer.setStyle({{}}, {{cartoon: {{opacity: 0.15, color: '#475569'}}}});
+                    surfaceObj = viewer.addSurface($3Dmol.SurfaceType.VDW, {{
+                        opacity: {surface_opacity},
+                        colorscheme: colorSpec.colorscheme || {{prop: 'b', gradient: 'roygb', min: 50, max: 90}},
+                    }});
+                }} else if (currentStyle === "stick") {{
+                    viewer.setStyle({{}}, {{stick: colorSpec}});
+                }} else if (currentStyle === "sphere") {{
+                    viewer.setStyle({{}}, {{sphere: colorSpec}});
+                }} else if (currentStyle === "ribbon") {{
+                    viewer.setStyle({{}}, {{ribbon: colorSpec}});
+                }}
+                viewer.render();
+            }}
+
+            function getColorSpec_{vid}(color, style) {{
+                if (color === "plddt") {{
+                    return {{colorscheme: {{prop: 'b', gradient: 'roygb', min: 50, max: 90}}}};
+                }} else if (color === "spectrum") {{
+                    return {{colorscheme: 'spectrum'}};
+                }} else if (color === "chain") {{
+                    return {{colorscheme: 'chain'}};
+                }} else if (color === "ss") {{
+                    return {{colorscheme: {{helix: 0xff6699, sheet: 0x6699ff, loop: 0x99cc99}}}};
+                }}
                 return {{colorscheme: 'spectrum'}};
-            }} else if (color === "chain") {{
-                return {{colorscheme: 'chain'}};
-            }} else if (color === "ss") {{
-                return {{colorscheme: {{helix: 0xff6699, sheet: 0x6699ff, loop: 0x99cc99}}}};
             }}
-            return {{colorscheme: 'spectrum'}};
-        }}
 
-        window["setMolStyle_{vid}"] = function(s) {{
-            currentStyle = s;
-            // Update button highlights
-            ['cartoon','surface','stick','sphere','ribbon'].forEach(function(n) {{
-                var btn = document.getElementById("{vid}_btn_" + n);
-                if (btn) {{
-                    btn.style.background = (n === s) ? 'rgba(99,102,241,0.3)' : 'transparent';
-                    btn.style.color = (n === s) ? '#c7d2fe' : '#94a3b8';
+            window["setMolStyle_{vid}"] = function(s) {{
+                currentStyle = s;
+                ['cartoon','surface','stick','sphere','ribbon'].forEach(function(n) {{
+                    var btn = document.getElementById("{vid}_btn_" + n);
+                    if (btn) {{
+                        btn.style.background = (n === s) ? 'rgba(99,102,241,0.3)' : 'transparent';
+                        btn.style.color = (n === s) ? '#c7d2fe' : '#94a3b8';
+                    }}
+                }});
+                applyStyle_{vid}();
+            }};
+
+            window["setMolColor_{vid}"] = function(c) {{
+                currentColor = c;
+                ['plddt','spectrum','chain','ss'].forEach(function(n) {{
+                    var btn = document.getElementById("{vid}_clr_" + n);
+                    if (btn) {{
+                        btn.style.background = (n === c) ? 'rgba(34,197,94,0.2)' : 'transparent';
+                        btn.style.color = (n === c) ? '#86efac' : '#94a3b8';
+                    }}
+                }});
+                applyStyle_{vid}();
+            }};
+
+            window["toggleSpin_{vid}"] = function() {{
+                spinning = !spinning;
+                var btn = document.getElementById("{vid}_btn_spin");
+                if (spinning) {{
+                    viewer.spin('y', 0.5);
+                    if (btn) {{ btn.style.color = '#6366f1'; btn.style.borderColor = 'rgba(99,102,241,0.4)'; }}
+                }} else {{
+                    viewer.spin(false);
+                    if (btn) {{ btn.style.color = '#94a3b8'; btn.style.borderColor = 'rgba(255,255,255,0.1)'; }}
                 }}
-            }});
-            applyStyle_{vid}();
-        }};
+            }};
 
-        window["setMolColor_{vid}"] = function(c) {{
-            currentColor = c;
-            ['plddt','spectrum','chain','ss'].forEach(function(n) {{
-                var btn = document.getElementById("{vid}_clr_" + n);
-                if (btn) {{
-                    btn.style.background = (n === c) ? 'rgba(34,197,94,0.2)' : 'transparent';
-                    btn.style.color = (n === c) ? '#86efac' : '#94a3b8';
+            window["resetView_{vid}"] = function() {{
+                viewer.zoomTo();
+                viewer.render();
+            }};
+
+            window["screenshot_{vid}"] = function() {{
+                var png = viewer.pngURI();
+                var a = document.createElement('a');
+                a.href = png;
+                a.download = '{display_name.replace(" ", "_")}.png';
+                a.click();
+            }};
+
+            viewer.setHoverable({{}}, true,
+                function(atom, v, event, container) {{
+                    var info = document.getElementById("{vid}_info");
+                    if (info && atom) {{
+                        info.style.display = 'block';
+                        info.textContent = (atom.chain ? 'Chain ' + atom.chain + '  ' : '') +
+                            (atom.resn || '') + ' ' + (atom.resi || '') +
+                            (atom.atom ? '  [' + atom.atom + ']' : '') +
+                            (atom.b !== undefined ? '  pLDDT ' + atom.b.toFixed(1) : '');
+                    }}
+                }},
+                function(atom, v, event, container) {{
+                    var info = document.getElementById("{vid}_info");
+                    if (info) info.style.display = 'none';
                 }}
-            }});
+            );
+
             applyStyle_{vid}();
-        }};
-
-        window["toggleSpin_{vid}"] = function() {{
-            spinning = !spinning;
-            var btn = document.getElementById("{vid}_btn_spin");
-            if (spinning) {{
-                viewer.spin('y', 0.5);
-                if (btn) {{ btn.style.color = '#6366f1'; btn.style.borderColor = 'rgba(99,102,241,0.4)'; }}
-            }} else {{
-                viewer.spin(false);
-                if (btn) {{ btn.style.color = '#94a3b8'; btn.style.borderColor = 'rgba(255,255,255,0.1)'; }}
-            }}
-        }};
-
-        window["resetView_{vid}"] = function() {{
             viewer.zoomTo();
             viewer.render();
-        }};
+            if (spinning) viewer.spin('y', 0.5);
+            {_highlight_js}
+        }}
 
-        window["screenshot_{vid}"] = function() {{
-            var png = viewer.pngURI();
-            var a = document.createElement('a');
-            a.href = png;
-            a.download = '{display_name.replace(" ", "_")}.png';
-            a.click();
-        }};
-
-        // Hover labels
-        viewer.setHoverable({{}}, true,
-            function(atom, v, event, container) {{
-                var info = document.getElementById("{vid}_info");
-                if (info && atom) {{
-                    info.style.display = 'block';
-                    info.textContent = (atom.chain ? 'Chain ' + atom.chain + '  ' : '') +
-                        (atom.resn || '') + ' ' + (atom.resi || '') +
-                        (atom.atom ? '  [' + atom.atom + ']' : '') +
-                        (atom.b !== undefined ? '  pLDDT ' + atom.b.toFixed(1) : '');
-                }}
-            }},
-            function(atom, v, event, container) {{
-                var info = document.getElementById("{vid}_info");
-                if (info) info.style.display = 'none';
-            }}
-        );
-
-        applyStyle_{vid}();
-        viewer.zoomTo();
-        viewer.render();
-        if (spinning) viewer.spin('y', 0.5);
-        {_highlight_js}
+        // Start trying once scripts are ready; retry if element not yet sized
+        setTimeout(_init_{vid}, 50);
     }})();
     </script>
     """
@@ -998,6 +1007,11 @@ def render_pymol_headless(
     width: int = 1200,
     height: int = 900,
     ray: bool = False,
+    highlight_residues: "Optional[List[int]]" = None,
+    restraint_residues: "Optional[List[int]]" = None,
+    mutation_label: str = "",
+    score_labels: "Optional[Dict[str, str]]" = None,
+    dark_bg: bool = True,
 ) -> bool:
     """
     Render structures to a PNG using the pymol2 headless API.
@@ -1012,6 +1026,11 @@ def render_pymol_headless(
         width: Image width in pixels.
         height: Image height in pixels.
         ray: Use ray-tracing (slower but higher quality).
+        highlight_residues: Mutation residue positions to highlight in amber.
+        restraint_residues: Restraint/fixed residue positions to highlight in green.
+        mutation_label: Label text to show on highlighted residues.
+        score_labels: Dict of score_name -> value_str for text overlays.
+        dark_bg: Use dark background matching app theme.
 
     Returns:
         True if rendering succeeded, False otherwise.
@@ -1032,11 +1051,15 @@ def render_pymol_headless(
         cmd.set("cartoon_fancy_helices", 1)
         cmd.set("cartoon_side_chain_helper", 1)
         cmd.set("ray_shadows", 0)
-        cmd.bg_color("white")
         cmd.set("antialias", 2)
+        cmd.set("depth_cue", 0)
+        if dark_bg:
+            cmd.bg_color("black")
+        else:
+            cmd.bg_color("white")
 
         # Load structures
-        colors = ["marine", "red", "forest", "orange", "magenta", "cyan"]
+        colors = ["0x3b82f6", "0xef4444", "0x22c55e", "0xf97316", "0xa855f7", "0x06b6d4"]
         for i, (path, name) in enumerate(structures):
             cmd.load(str(path), name)
             cmd.color(colors[i % len(colors)], name)
@@ -1050,9 +1073,30 @@ def render_pymol_headless(
         # Display
         cmd.show("cartoon", "all")
         cmd.hide("lines", "all")
-        cmd.set("cartoon_transparency", 0.0)
+        cmd.set("cartoon_transparency", 0.1)
         cmd.center("all")
         cmd.zoom("all", 2)
+
+        # Highlight mutation residues in amber/orange
+        if highlight_residues:
+            resi_str = "+".join(str(r) for r in highlight_residues)
+            cmd.select("mutations", f"resi {resi_str}")
+            cmd.show("sticks", "mutations")
+            cmd.color("0xf59e0b", "mutations")  # amber
+            cmd.set("stick_radius", 0.25, "mutations")
+            if mutation_label:
+                cmd.label("mutations and name CA", f'"{mutation_label}"')
+                cmd.set("label_color", "0xf59e0b")
+                cmd.set("label_size", 14)
+                cmd.set("label_font_id", 7)
+
+        # Highlight restraint residues in green
+        if restraint_residues:
+            resi_str = "+".join(str(r) for r in restraint_residues)
+            cmd.select("restraints", f"resi {resi_str}")
+            cmd.show("sticks", "restraints")
+            cmd.color("0x10b981", "restraints")  # emerald green
+            cmd.set("stick_radius", 0.20, "restraints")
 
         # Render
         if ray:
@@ -1060,6 +1104,186 @@ def render_pymol_headless(
         cmd.png(str(output_image), width=width, height=height, dpi=150, quiet=1)
 
     return output_image.exists()
+
+
+# Best available PyMOL GUI binary (checked once at import time)
+def _find_pymol_binary() -> Optional[str]:
+    """Find the best available PyMOL binary for launching the GUI."""
+    import shutil, os
+    candidates = []
+    # Allow explicit override via environment variable
+    env_override = os.environ.get("PYMOL_BINARY")
+    if env_override:
+        candidates.append(env_override)
+    # PATH-based discovery (works across all systems)
+    candidates.append(shutil.which("pymol"))
+    for c in candidates:
+        if c and Path(c).exists():
+            return c
+    return None
+
+
+def build_pymol_script(
+    structures: List[Tuple[Path, str]],
+    highlight_residues: "Optional[List[int]]" = None,
+    restraint_residues: "Optional[List[int]]" = None,
+    mutation_label: str = "",
+    score_labels: "Optional[Dict[str, str]]" = None,
+    superimpose: bool = True,
+    dark_bg: bool = True,
+) -> str:
+    """Generate a PyMOL .pml script for interactive visualization.
+
+    Works with PyMOL GUI and PyMOL AI. Highlights mutation residues in amber
+    and restraint/fixed residues in green.
+    """
+    lines = [
+        "# PyMOL visualization script — Protein Design Hub",
+        f"# Mutation: {mutation_label}" if mutation_label else "# Structure viewer",
+        "",
+        f"bg_color {'black' if dark_bg else 'white'}",
+        "set cartoon_fancy_helices, 1",
+        "set cartoon_side_chain_helper, 1",
+        "set depth_cue, 0",
+        "set ray_shadows, 0",
+        "set antialias, 2",
+        "",
+    ]
+
+    colors = ["marine", "salmon", "forest", "orange", "magenta", "cyan"]
+    for i, (path, name) in enumerate(structures):
+        lines.append(f"load {path}, {name}")
+
+    lines.append("")
+    if superimpose and len(structures) > 1:
+        ref = structures[0][1]
+        for _, name in structures[1:]:
+            lines.append(f"align {name}, {ref}")
+        lines.append("")
+
+    for i, (_, name) in enumerate(structures):
+        lines.append(f"color {colors[i % len(colors)]}, {name}")
+
+    lines.extend([
+        "",
+        "hide lines, all",
+        "show cartoon, all",
+        "set cartoon_transparency, 0.1",
+        "",
+    ])
+
+    if highlight_residues:
+        resi_str = "+".join(str(r) for r in highlight_residues)
+        lines.extend([
+            f"select mutations, resi {resi_str}",
+            "show sticks, mutations",
+            "color tv_orange, mutations",
+            "set stick_radius, 0.25, mutations",
+        ])
+        if mutation_label:
+            lines.extend([
+                f'label mutations and name CA, "{mutation_label}"',
+                "set label_color, tv_orange",
+                "set label_size, 14",
+                "set label_font_id, 7",
+            ])
+        lines.append("")
+
+    if restraint_residues:
+        resi_str = "+".join(str(r) for r in restraint_residues)
+        lines.extend([
+            f"select restraints, resi {resi_str}",
+            "show sticks, restraints",
+            "color green, restraints",
+            "set stick_radius, 0.20, restraints",
+            "",
+        ])
+
+    if score_labels:
+        for k, v in score_labels.items():
+            lines.append(f"# Score: {k} = {v}")
+        lines.append("")
+
+    lines.extend([
+        "center all",
+        "zoom all, 2",
+        "deselect",
+    ])
+
+    return "\n".join(lines)
+
+
+def launch_pymol_interactive(
+    structures,
+    highlight_residues: "Optional[List[int]]" = None,
+    restraint_residues: "Optional[List[int]]" = None,
+    mutation_label: str = "",
+    score_labels: "Optional[Dict[str, str]]" = None,
+    superimpose: bool = True,
+) -> Optional[int]:
+    """Launch PyMOL GUI interactively with structures and mutation/restraint highlights.
+
+    Non-blocking — opens a separate PyMOL window and returns immediately.
+
+    Args:
+        structures: Path | str | List[Path | (Path, name)].
+        highlight_residues: Mutation residue positions to highlight in amber.
+        restraint_residues: Restraint/fixed residue positions to highlight in green.
+        mutation_label: Label for mutation residues.
+        score_labels: Dict of score_name -> value_str shown as comments.
+        superimpose: Align structures if multiple.
+
+    Returns:
+        PID of the launched PyMOL process, or None if launch failed.
+    """
+    import subprocess, tempfile, time
+
+    binary = _find_pymol_binary()
+    if not binary:
+        return None
+
+    # Normalise structures list
+    def _norm(p):
+        if isinstance(p, (list, tuple)) and len(p) == 2 and isinstance(p[1], str):
+            return (Path(p[0]), p[1])
+        return (Path(p), Path(p).stem)
+
+    if isinstance(structures, (str, Path)):
+        structs = [_norm(structures)]
+    elif isinstance(structures, list):
+        structs = [_norm(s) for s in structures]
+    else:
+        structs = [_norm(structures)]
+    structs = [(p, n) for p, n in structs if p.exists()]
+    if not structs:
+        return None
+
+    script = build_pymol_script(
+        structs,
+        highlight_residues=highlight_residues,
+        restraint_residues=restraint_residues,
+        mutation_label=mutation_label,
+        score_labels=score_labels,
+        superimpose=superimpose,
+    )
+
+    # Write to a persistent temp file (PyMOL needs to read it after launch)
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".pml", prefix="pdh_pymol_", delete=False
+    )
+    tmp.write(script)
+    tmp.close()
+
+    try:
+        proc = subprocess.Popen(
+            [binary, tmp.name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return proc.pid
+    except Exception:
+        return None
 
 
 def export_pymol_session(
@@ -1436,122 +1660,171 @@ def create_msa_viewer(
     width: int = 800,
     height: int = 400,
     max_sequences: int = 100,
+    show_conservation_bar: bool = True,
 ) -> str:
     """
-    Create an HTML-based MSA viewer with coloring.
+    Create an HTML-based MSA viewer with ClustalX-style coloring,
+    per-column conservation bar, hover tooltips, and sticky name column.
 
     Args:
-        alignment: List of aligned sequences.
+        alignment: List of aligned sequences (all same length).
         names: List of sequence names.
-        width: Widget width.
-        height: Widget height.
-        max_sequences: Limit sequences for performance.
+        width: Widget width in pixels.
+        height: Widget height in pixels.
+        max_sequences: Truncate at this many sequences for performance.
+        show_conservation_bar: Show per-column conservation bar at the bottom.
 
     Returns:
         HTML string.
     """
-    # Truncate if too many
+    import html as _html_mod
+
+    if not alignment:
+        return "<p>No alignment data</p>"
+
     if len(alignment) > max_sequences:
         alignment = alignment[:max_sequences]
         names = names[:max_sequences]
-    
-    # Check length consistency
+
     seq_len = len(alignment[0])
-    
-    # Basic Clustal-like colors
-    colors = {
-        'G': '#f79d5c', 'P': '#f79d5c', 'S': '#f79d5c', 'T': '#f79d5c',
-        'C': '#f2d388', 'A': '#95a5a6', 'V': '#95a5a6', 'L': '#95a5a6', 'I': '#95a5a6', 'M': '#95a5a6',
+    n_seqs = len(alignment)
+
+    # ── ClustalX-style residue colors ──────────────────────────────────────
+    RESIDUE_COLOR = {
+        'G': '#f79d5c', 'P': '#f79d5c', 'S': '#f5a623', 'T': '#f5a623',
+        'C': '#f2d388',
+        'A': '#7f8c8d', 'V': '#7f8c8d', 'L': '#7f8c8d', 'I': '#7f8c8d', 'M': '#7f8c8d',
         'F': '#81ecec', 'W': '#81ecec', 'Y': '#81ecec',
         'N': '#a29bfe', 'Q': '#a29bfe', 'H': '#a29bfe',
         'D': '#ff7675', 'E': '#ff7675',
         'K': '#74b9ff', 'R': '#74b9ff',
-        '-': '#1f2430'
+        '-': '#1a2030', '.': '#1a2030',
     }
-    
-    rows_html = []
-    
-    # Header row (ruler)
+
+    # ── Per-column conservation score (0–1) ────────────────────────────────
+    cons_scores: List[float] = []
+    for col in range(seq_len):
+        counts: dict = {}
+        for seq in alignment:
+            aa = seq[col].upper() if col < len(seq) else '-'
+            if aa not in ('-', '.'):
+                counts[aa] = counts.get(aa, 0) + 1
+        total = sum(counts.values())
+        if total == 0:
+            cons_scores.append(0.0)
+        else:
+            top = max(counts.values())
+            cons_scores.append(top / total)
+
+    # ── Ruler row ──────────────────────────────────────────────────────────
     ruler_cells = []
     for i in range(1, seq_len + 1):
-        label = str(i) if i % 10 == 0 or i == 1 else ""
-        ruler_cells.append(f'<div class="msa-ruler-cell">{label}</div>')
-    
-    rows_html.append(f"""
-    <div class="msa-row">
-        <div class="msa-name"></div>
-        <div class="msa-seq">{''.join(ruler_cells)}</div>
-    </div>
-    """)
-    
-    for name, seq in zip(names, alignment):
-        residues = []
-        for char in seq:
-            c = colors.get(char.upper(), '#1f2430')
-            residues.append(f'<div class="msa-res" style="background-color: {c};">{char}</div>')
-        
-        rows_html.append(f"""
-        <div class="msa-row">
-            <div class="msa-name" title="{name}">{name[:15]}</div>
-            <div class="msa-seq">{''.join(residues)}</div>
-        </div>
-        """)
-    
-    css = """
-    <style>
-    .msa-container {
-        font-family: 'Courier New', monospace;
-        overflow-x: auto;
-        border: 1px solid #2a3342;
-        border-radius: 4px;
-        background: #0f141d;
+        if i == 1 or i % 10 == 0:
+            label = str(i)
+            tick = 'border-top:2px solid #4a5568;'
+        elif i % 5 == 0:
+            label = ''
+            tick = 'border-top:1px solid #3a4455;'
+        else:
+            label = ''
+            tick = ''
+        ruler_cells.append(
+            f'<div class="msa-cell msa-ruler" style="{tick}" title="Position {i}">{label}</div>'
+        )
+
+    rows_html = [
+        f'<div class="msa-row">'
+        f'<div class="msa-label msa-ruler-label">Pos</div>'
+        f'<div class="msa-seq">{"".join(ruler_cells)}</div>'
+        f'</div>'
+    ]
+
+    # ── Sequence rows ───────────────────────────────────────────────────────
+    ref_seq = alignment[0]
+    for row_idx, (name, seq) in enumerate(zip(names, alignment)):
+        # Identity to first sequence (excluding gaps in reference)
+        matches = sum(
+            1 for a, b in zip(ref_seq, seq)
+            if a == b and a not in ('-', '.')
+        )
+        ref_len = sum(1 for c in ref_seq if c not in ('-', '.'))
+        pct_id = f"{matches/ref_len*100:.0f}%" if ref_len > 0 and row_idx > 0 else "query"
+
+        cells = []
+        for col, char in enumerate(seq):
+            bg = RESIDUE_COLOR.get(char.upper(), '#1a2030')
+            tip = _html_mod.escape(f"{name} | pos {col+1} | {char}")
+            # Dim residues that match reference exactly (except reference itself)
+            opacity = '0.55' if (row_idx > 0 and char == ref_seq[col] and char not in ('-', '.')) else '1'
+            cells.append(
+                f'<div class="msa-cell msa-res" '
+                f'style="background:{bg};opacity:{opacity}" title="{tip}">{char}</div>'
+            )
+
+        safe_name = _html_mod.escape(name)
+        rows_html.append(
+            f'<div class="msa-row">'
+            f'<div class="msa-label" title="{safe_name}">'
+            f'<span class="msa-name-text">{safe_name[:18]}</span>'
+            f'<span class="msa-pct-id">{pct_id}</span>'
+            f'</div>'
+            f'<div class="msa-seq">{"".join(cells)}</div>'
+            f'</div>'
+        )
+
+    # ── Conservation bar ────────────────────────────────────────────────────
+    if show_conservation_bar:
+        bar_cells = []
+        for score in cons_scores:
+            bar_h = max(2, int(score * 18))
+            # Colour: low cons = dim grey, high cons = vivid teal
+            r = int(32 + (0 - 32) * score)
+            g = int(52 + (200 - 52) * score)
+            b = int(80 + (180 - 80) * score)
+            bg = f'rgb({r},{g},{b})'
+            bar_cells.append(
+                f'<div class="msa-cell msa-cons-cell" title="Conservation {score:.2f}">'
+                f'<div style="height:{bar_h}px;background:{bg};margin-top:auto;border-radius:1px"></div>'
+                f'</div>'
+            )
+        rows_html.append(
+            f'<div class="msa-row msa-cons-row">'
+            f'<div class="msa-label" style="font-size:9px;color:#64748b">Cons.</div>'
+            f'<div class="msa-seq">{"".join(bar_cells)}</div>'
+            f'</div>'
+        )
+
+    css = """<style>
+    .msa-wrap { font-family:'Courier New',monospace; overflow-x:auto;
+                border:1px solid #1e2a3a; border-radius:6px; background:#0b0f1a; }
+    .msa-row  { display:flex; align-items:stretch; border-bottom:1px solid #111827; }
+    .msa-row:last-child { border-bottom:none; }
+    .msa-label {
+        width:160px; flex-shrink:0; display:flex; align-items:center;
+        justify-content:space-between; padding:0 6px;
+        background:#111827; border-right:1px solid #1e2a3a;
+        position:sticky; left:0; z-index:2;
     }
-    .msa-row {
-        display: flex;
-        height: 20px;
-    }
-    .msa-name {
-        width: 150px;
-        flex-shrink: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        border-right: 1px solid #2a3342;
-        padding-left: 5px;
-        font-size: 12px;
-        line-height: 20px;
-        background: #141b26;
-        position: sticky;
-        left: 0;
-    }
-    .msa-seq {
-        display: flex;
-    }
-    .msa-res {
-        width: 12px;
-        height: 20px;
-        text-align: center;
-        font-size: 12px;
-        line-height: 20px;
-        color: #cbd5e1;
-    }
-    .msa-ruler-cell {
-        width: 12px;
-        height: 20px;
-        font-size: 9px;
-        color: #94a3b8;
-        border-bottom: 1px solid #2a3342;
-    }
-    </style>
-    """
-    
-    html = f"""
-    {css}
-    <div class="msa-container" style="width: 100%; height: {height}px; overflow-y: auto;">
-        {''.join(rows_html)}
-    </div>
-    """
-    return html
+    .msa-name-text { font-size:11px; color:#cbd5e1; overflow:hidden;
+                     text-overflow:ellipsis; white-space:nowrap; max-width:105px; }
+    .msa-pct-id    { font-size:9px; color:#64748b; flex-shrink:0; margin-left:4px; }
+    .msa-ruler-label { font-size:9px; color:#64748b; }
+    .msa-seq  { display:flex; }
+    .msa-cell { width:13px; height:20px; text-align:center; font-size:11px;
+                line-height:20px; flex-shrink:0; cursor:default; }
+    .msa-res  { color:#e2e8f0; font-weight:500; }
+    .msa-res:hover { outline:1px solid #f8fafc; z-index:3; position:relative; }
+    .msa-ruler { font-size:9px; color:#94a3b8; background:#0d1117; }
+    .msa-cons-row { height:20px; }
+    .msa-cons-cell { display:flex; flex-direction:column; justify-content:flex-end; }
+    </style>"""
+
+    return (
+        f"{css}"
+        f'<div class="msa-wrap" style="height:{height}px;overflow-y:auto;">'
+        + "".join(rows_html)
+        + "</div>"
+    )
 
 
 def create_plddt_sequence_viewer(
@@ -1956,7 +2229,7 @@ def create_model_quality_summary(
 
 
 # =============================================================================
-# PyMOL-first structure display (falls back to 3Dmol.js)
+# PyMOL API interactive viewer (embedded HTTP server) + fallbacks
 # =============================================================================
 
 def show_structure_with_pymol_fallback(
@@ -1967,11 +2240,20 @@ def show_structure_with_pymol_fallback(
     ray: bool = False,
     key: str = "struct",
     highlight_residues: "Optional[List[int]]" = None,
+    restraint_residues: "Optional[List[int]]" = None,
     mutation_label: str = "",
     score_overlay: "Optional[Dict[str, str]]" = None,
 ) -> None:
-    """Display structure(s) using interactive 3Dmol.js viewer (primary) with optional
-    PyMOL HD-render button.
+    """Display structure(s) using an embedded interactive PyMOL API session.
+
+    Primary flow (no WebGL required):
+    1. Start singleton PyMOL HTTP server (port 8592) on first call
+    2. Load structure into PyMOL with mutation/restraint highlights
+    3. Embed interactive viewer via <iframe> — drag to rotate, scroll to zoom,
+       toolbar for style/color/surface changes, keyboard shortcuts
+    4. Offer "Open in PyMOL" button to launch full PyMOL GUI separately
+
+    Falls back to 3Dmol.js iframe if PyMOL is unavailable.
 
     Args:
         structure_paths: One of:
@@ -1981,15 +2263,17 @@ def show_structure_with_pymol_fallback(
         title: Caption shown above the viewer.
         height: Viewer height in pixels.
         superimpose: Align structures to first when using PyMOL.
-        ray: Enable PyMOL ray-tracing (slower but higher quality).
+        ray: Unused (kept for API compatibility).
         key: Unique Streamlit widget key prefix.
-        highlight_residues: Residue numbers (1-indexed) to highlight in yellow.
+        highlight_residues: Mutation residue positions to highlight in amber.
+        restraint_residues: Restraint/fixed residue positions to highlight in green.
         mutation_label: Label shown on the highlighted residue and overlay.
         score_overlay: Dict of score_name -> value_str displayed as an overlay panel.
     """
     import streamlit as st
     import streamlit.components.v1 as components
-    import tempfile
+
+    from protein_design_hub.web.pymol_server import get_pymol_server
 
     # ---------- normalise input ----------
     def _to_tuple(p):
@@ -2012,46 +2296,153 @@ def show_structure_with_pymol_fallback(
     if title:
         st.caption(f"🔬 **{title}**")
 
-    # ---------- Primary: interactive 3Dmol.js ----------
-    if len(structs) == 1:
-        html_str = create_structure_viewer(
-            structs[0][0],
-            title=structs[0][1],
-            height=height,
-            highlight_residues=highlight_residues,
-            mutation_label=mutation_label,
-            score_overlay=score_overlay,
-        )
-    else:
-        html_str = create_structure_comparison_3d(
-            model_path=structs[0][0],
-            reference_path=structs[1][0],
-            title=title,
-            height=height,
-        )
-    components.html(html_str, height=height + 20, scrolling=False)
+    # ---------- Try PyMOL interactive server (primary, no WebGL needed) ----------
+    server = get_pymol_server()
 
-    # ---------- Optional: PyMOL HD render button ----------
-    pymol_ok = is_pymol_available()
-    if pymol_ok:
-        _pymol_key = f"_pymol_hd_{key}"
-        if st.button(
-            "📸 PyMOL HD Render",
-            key=f"{_pymol_key}_btn",
-            help="Render high-quality static PNG using PyMOL",
-        ):
-            st.session_state[_pymol_key] = True
-        if st.session_state.get(_pymol_key):
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                out_img = Path(tmp.name)
-            with st.spinner("Rendering with PyMOL…"):
-                try:
-                    success = render_pymol_headless(
-                        structs, out_img, superimpose=superimpose, ray=ray
-                    )
-                    if success and out_img.exists() and out_img.stat().st_size > 1000:
-                        st.image(str(out_img), use_container_width=True, caption="PyMOL HD render")
-                    else:
-                        st.warning("PyMOL render produced no output.")
-                except Exception as _e:
-                    st.warning(f"PyMOL render error: {_e}")
+    if server is not None:
+        pdb_data = structs[0][0].read_text()
+        server.load_structure(
+            pdb_data=pdb_data,
+            name=structs[0][1],
+            highlight_residues=highlight_residues,
+            restraint_residues=restraint_residues,
+            mutation_label=mutation_label,
+        )
+
+        # Build legend/score HTML for postMessage injection into the iframe
+        _legend_parts = []
+        if mutation_label:
+            _legend_parts.append(
+                f'<span class="leg-mut">&#9632; Mutations (amber): {mutation_label}</span>'
+            )
+        if restraint_residues:
+            _legend_parts.append(
+                f'<span class="leg-res">&#9632; Restraints (green): '
+                f'{", ".join(str(r) for r in restraint_residues)}</span>'
+            )
+        _legend_html = "<br>".join(_legend_parts)
+
+        _scores_html = ""
+        if score_overlay:
+            _scores_html = "".join(
+                f'<div class="score-row"><span class="score-k">{k}</span>'
+                f'<span class="score-v">{v}</span></div>'
+                for k, v in score_overlay.items()
+            )
+
+        _port = server.server_address[1]
+        _iframe_id = f"pymol-iframe-{key}"
+        # Cache-bust the iframe src so the browser always reloads the viewer
+        # when Streamlit rerenders (otherwise same-src iframes are not reloaded).
+        import time as _time
+        _ts = int(_time.time())
+        _pymol_host = "localhost"
+        try:
+            _req_host = st.context.headers.get("host", "localhost")
+            _pymol_host = _req_host.split(":")[0]
+        except Exception:
+            pass
+
+        iframe_html = f"""
+        <iframe
+          id="{_iframe_id}"
+          src="http://{_pymol_host}:{_port}/?t={_ts}"
+          width="100%"
+          height="{height}px"
+          style="border:none; border-radius:8px; background:#0a0a0f; display:block;"
+          allow="*"
+        ></iframe>
+        <script>
+        (function() {{
+          var fr = document.getElementById('{_iframe_id}');
+          fr.addEventListener('load', function() {{
+            fr.contentWindow.postMessage({{
+              type: 'pdh-load',
+              legend_html: {json.dumps(_legend_html)},
+              scores_html: {json.dumps(_scores_html)},
+            }}, '*');
+          }});
+        }})();
+        </script>
+        """
+        st.markdown(iframe_html, unsafe_allow_html=True)
+
+        # ---------- Action buttons ----------
+        _bcols = st.columns([1, 1, 1])
+        pymol_binary = _find_pymol_binary()
+
+        with _bcols[0]:
+            if pymol_binary and st.button(
+                "🔬 Open in PyMOL",
+                key=f"{key}_open_pymol",
+                help="Launch full PyMOL GUI window",
+                use_container_width=True,
+            ):
+                pid = launch_pymol_interactive(
+                    structs,
+                    highlight_residues=highlight_residues,
+                    restraint_residues=restraint_residues,
+                    mutation_label=mutation_label,
+                    score_labels=score_overlay,
+                    superimpose=superimpose,
+                )
+                if pid:
+                    st.success(f"PyMOL GUI launched (PID {pid})")
+                else:
+                    st.error("Failed to launch PyMOL")
+
+        with _bcols[1]:
+            if st.button("🔄 Reload", key=f"{key}_reload",
+                         help="Reload structure into viewer",
+                         use_container_width=True):
+                server.load_structure(
+                    pdb_data=pdb_data,
+                    name=structs[0][1],
+                    highlight_residues=highlight_residues,
+                    restraint_residues=restraint_residues,
+                    mutation_label=mutation_label,
+                )
+                st.rerun()
+
+        with _bcols[2]:
+            if st.button("📸 Save PNG", key=f"{key}_savepng",
+                         help="Download current PyMOL view as PNG",
+                         use_container_width=True):
+                png = server.get_frame()
+                st.download_button(
+                    "⬇ Download PNG",
+                    data=png,
+                    file_name=f"{structs[0][1]}_view.png",
+                    mime="image/png",
+                    key=f"{key}_dl",
+                )
+
+    else:
+        # ---------- Fallback: 3Dmol.js (needs WebGL) ----------
+        if len(structs) == 1:
+            html_str = create_structure_viewer(
+                structs[0][0],
+                title=structs[0][1],
+                height=height,
+                highlight_residues=highlight_residues,
+                mutation_label=mutation_label,
+                score_overlay=score_overlay,
+            )
+        else:
+            html_str = create_structure_comparison_3d(
+                model_path=structs[0][0],
+                reference_path=structs[1][0],
+                title=title,
+                height=height,
+            )
+        components.html(html_str, height=height + 20, scrolling=False)
+
+        pymol_binary = _find_pymol_binary()
+        if pymol_binary and st.button("🔬 Open in PyMOL", key=f"{key}_open_pymol2"):
+            launch_pymol_interactive(
+                structs,
+                highlight_residues=highlight_residues,
+                restraint_residues=restraint_residues,
+                mutation_label=mutation_label,
+                score_labels=score_overlay,
+            )

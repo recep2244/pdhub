@@ -288,6 +288,33 @@ class LibraryDesigner:
         """
         self.parent_sequence = parent_sequence.upper()
 
+    def create_saturation_library(
+        self,
+        sequence: str,
+        positions: List[int],
+        max_variants: int = 1000,
+    ) -> "MutationLibrary":
+        """
+        Create a site-saturation (NNK) library for the given positions.
+
+        Args:
+            sequence: Parent sequence (may differ from self.parent_sequence when
+                      called from a UI with a live sequence).
+            positions: 0-indexed positions to saturate.
+            max_variants: Soft limit; returned library stores sites, not variants.
+
+        Returns:
+            MutationLibrary with full 20-AA saturation at each position.
+        """
+        seq = sequence.upper() if sequence else self.parent_sequence
+        library = MutationLibrary(name="saturation", parent_sequence=seq)
+        for pos in positions:
+            # positions from the page are 0-indexed; add_saturation_site is 1-indexed
+            library.add_saturation_site(pos + 1)
+        # Expose a pre-generated .variants list capped at max_variants
+        library.variants = library.generate_variants(max_variants=max_variants)
+        return library
+
     def design_focused_library(
         self,
         beneficial_mutations: List[str],

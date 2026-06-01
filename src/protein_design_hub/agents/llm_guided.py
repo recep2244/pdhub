@@ -31,6 +31,12 @@ from protein_design_hub.agents.base import AgentResult, BaseAgent
 from protein_design_hub.agents.context import WorkflowContext
 from protein_design_hub.agents.llm_agent import LLMAgent
 from protein_design_hub.agents.meeting import run_meeting
+from protein_design_hub.analysis.protein_utils import (
+    format_mutation_three_letter,
+    format_residue_three_letter,
+    three_letter,
+)
+from protein_design_hub.analysis.mutation_scoring import position_risk_summary
 from protein_design_hub.agents.scientists import (
     DEFAULT_TEAM_LEAD,
     DEFAULT_TEAM_MEMBERS,
@@ -283,68 +289,215 @@ def _prediction_detail_text(context: WorkflowContext) -> str:
                 med_res = sum(1 for v in pr if 50 <= v < 70)
                 high_res = sum(1 for v in pr if v >= 70)
                 parts.append(
-                    f"per-residue: {high_res} high(>=70), "
+                    f"per-residue pLDDT: {high_res} high(>=70), "
                     f"{med_res} medium(50-70), {low_res} low(<50)"
                 )
+                # Show worst positions with amino acid labels
+                _seq = (context.sequences[0].sequence
+                        if context.sequences else "")
+                low_positions = sorted(
+                    [(i, v) for i, v in enumerate(pr) if v < 70],
+                    key=lambda x: x[1],
+                )[:8]
+                if low_positions:
+                    worst = ", ".join(
+                        f"{format_residue_three_letter(_seq[i] if i < len(_seq) else '?', i+1)}({v:.0f})"
+                        for i, v in low_positions
+                    )
+                    parts.append(f"low-conf residues: {worst}")
         lines.append(f"  - {name}: {', '.join(parts)}")
     return "\n".join(lines)
 
 
-def _evaluation_detail_text(context: WorkflowContext) -> str:
-    """Build comprehensive per-predictor evaluation summary for LLM review."""
+def _per_residue_summary(
+    values: list[float],
+    label: str,
+    bad_threshold: float,
+    bad_direction: str = "below",  # "below" or "above"
+    top_n_worst: int = 5,
+    sequence: str = "",
+) -> str:
+    """Summarise per-residue scores: mean/min/max + count of bad residues + worst positions."""
+    if not values:
+        return ""
+    mean_v = sum(values) / len(values)
+    min_v = min(values)
+    max_v = max(values)
+    if bad_direction == "below":
+        bad_idx = [(i, v) for i, v in enumerate(values) if v < bad_threshold]
+    else:
+        bad_idx = [(i, v) for i, v in enumerate(values) if v > bad_threshold]
+    n_bad = len(bad_idx)
+    bad_idx_sorted = sorted(bad_idx, key=lambda x: x[1] if bad_direction == "below" else -x[1])
+    worst_str = ""
+    if bad_idx_sorted:
+        worst_parts = []
+        for i, v in bad_idx_sorted[:top_n_worst]:
+            aa = sequence[i] if i < len(sequence) else "?"
+            worst_parts.append(f"{aa}{i+1}({v:.2f})")
+        worst_str = f"; worst: {', '.join(worst_parts)}"
+    return (
+        f"{label}: mean={mean_v:.3f}, min={min_v:.3f}, max={max_v:.3f}, "
+        f"{n_bad}/{len(values)} {'<' if bad_direction=='below' else '>'}{bad_threshold}"
+        f"{worst_str}"
+    )
+
+
+def _evaluation_detail_text(context: WorkflowContext, sequence: str = "") -> str:
+    """Build full per-predictor evaluation text for LLM review.
+
+    Exposes ALL available metrics grouped by category:
+      - Reference-based accuracy (lDDT, TM, RMSD, GDT)
+      - Structural geometry (clash, contact energy, MolProbity from metadata)
+      - Energy scores (Rosetta, FoldX, OpenMM GBSA)
+      - Model quality assessment (VoroMQA, CAD-score)
+      - Surface & interface (SASA, BSA, salt bridges, shape complementarity)
+      - Biophysical properties (disorder, sequence recovery)
+      - Per-residue breakdowns (lDDT, VoroMQA, CAD, disorder)
+      - Any extra fields stored in metadata by the tools
+    """
     lines: list[str] = []
     for name, ev in context.evaluation_results.items():
-        parts: list[str] = []
-        # Core metrics
-        if ev.lddt is not None:
-            parts.append(f"lDDT={ev.lddt:.3f}")
-        if ev.tm_score is not None:
-            parts.append(f"TM={ev.tm_score:.3f}")
-        if ev.rmsd is not None:
-            parts.append(f"RMSD={ev.rmsd:.2f}Å")
-        if ev.gdt_ts is not None:
-            parts.append(f"GDT-TS={ev.gdt_ts:.1f}")
-        if ev.gdt_ha is not None:
-            parts.append(f"GDT-HA={ev.gdt_ha:.1f}")
-        if ev.qs_score is not None:
-            parts.append(f"QS-score={ev.qs_score:.3f}")
-        # Structural quality
-        if ev.clash_score is not None:
-            parts.append(f"clash={ev.clash_score:.1f}")
-        if ev.clash_count is not None:
-            parts.append(f"clashes={ev.clash_count}")
-        if ev.contact_energy is not None:
-            parts.append(f"contact_E={ev.contact_energy:.1f}")
-        # Energy scores
-        if ev.rosetta_total_score is not None:
-            parts.append(f"Rosetta={ev.rosetta_total_score:.1f}")
-        if ev.openmm_gbsa_energy_kj_mol is not None:
-            parts.append(f"GBSA={ev.openmm_gbsa_energy_kj_mol:.0f}kJ/mol")
-        if ev.foldx_ddg_kcal_mol is not None:
-            parts.append(f"FoldX_ddG={ev.foldx_ddg_kcal_mol:.2f}kcal/mol")
-        # MQA scores
-        if ev.voromqa_score is not None:
-            parts.append(f"VoroMQA={ev.voromqa_score:.3f}")
-        if ev.cad_score is not None:
-            parts.append(f"CAD={ev.cad_score:.3f}")
-        # Surface & interface
-        if ev.sasa_total is not None:
-            parts.append(f"SASA={ev.sasa_total:.0f}Å²")
-        if ev.interface_bsa_total is not None:
-            parts.append(f"BSA={ev.interface_bsa_total:.0f}Å²")
-        if ev.salt_bridge_count is not None:
-            parts.append(f"salt_bridges={ev.salt_bridge_count}")
-        # Disorder
-        if ev.disorder_fraction is not None:
-            parts.append(f"disorder={ev.disorder_fraction:.1%}")
-        # Shape complementarity
-        if ev.shape_complementarity is not None:
-            parts.append(f"Sc={ev.shape_complementarity:.3f}")
-        # Sequence recovery
-        if ev.sequence_recovery is not None:
-            parts.append(f"seq_recovery={ev.sequence_recovery:.1%}")
+        block: list[str] = [f"  [{name}]"]
 
-        lines.append(f"  - {name}: {', '.join(parts) or 'n/a'}")
+        # ── Reference-based accuracy ─────────────────────────────
+        ref_parts: list[str] = []
+        if ev.lddt is not None:
+            ref_parts.append(f"lDDT={ev.lddt:.3f}")
+        if ev.tm_score is not None:
+            ref_parts.append(f"TM-score={ev.tm_score:.3f}")
+        if ev.rmsd is not None:
+            ref_parts.append(f"RMSD={ev.rmsd:.2f}Å")
+        if ev.gdt_ts is not None:
+            ref_parts.append(f"GDT-TS={ev.gdt_ts:.1f}")
+        if ev.gdt_ha is not None:
+            ref_parts.append(f"GDT-HA={ev.gdt_ha:.1f}")
+        if ev.qs_score is not None:
+            ref_parts.append(f"QS-score={ev.qs_score:.3f}")
+        if ref_parts:
+            block.append(f"    Accuracy: {', '.join(ref_parts)}")
+
+        # ── Structural geometry ──────────────────────────────────
+        geom_parts: list[str] = []
+        if ev.clash_score is not None:
+            qual = "excellent" if ev.clash_score < 10 else ("good" if ev.clash_score < 20 else ("acceptable" if ev.clash_score < 40 else "POOR"))
+            geom_parts.append(f"clash_score={ev.clash_score:.1f} ({qual})")
+        if ev.clash_count is not None:
+            geom_parts.append(f"clash_pairs={ev.clash_count}")
+        if ev.contact_energy is not None:
+            geom_parts.append(f"contact_energy={ev.contact_energy:.1f}")
+        if ev.contact_energy_per_residue is not None:
+            geom_parts.append(f"contact_E/res={ev.contact_energy_per_residue:.3f}")
+        # MolProbity data from metadata (if OST/phenix ran)
+        mp = ev.metadata.get("clash_score", {}) if ev.metadata else {}
+        for mp_key in ("molprobity_score", "molprobity_clashscore",
+                       "molprobity_rama_favored_pct", "molprobity_rama_outliers_pct",
+                       "molprobity_rotamer_outliers_pct", "molprobity_rms_bonds",
+                       "molprobity_rms_angles"):
+            val = mp.get(mp_key)
+            if val is not None:
+                geom_parts.append(f"{mp_key.replace('molprobity_','MP_')}={val:.2f}")
+        # Check other metadata keys for MolProbity
+        for meta_key in ("molprobity", "observed_scoring"):
+            mp2 = ev.metadata.get(meta_key, {}) if ev.metadata else {}
+            for sub_key in ("molprobity_score", "molprobity_rama_favored_pct",
+                            "molprobity_rama_outliers_pct", "molprobity_rotamer_outliers_pct"):
+                val = mp2.get(sub_key)
+                if val is not None:
+                    geom_parts.append(f"MP_{sub_key.replace('molprobity_','')}={val:.2f}")
+        if geom_parts:
+            block.append(f"    Geometry: {', '.join(geom_parts)}")
+
+        # ── Energy scores ────────────────────────────────────────
+        energy_parts: list[str] = []
+        if ev.rosetta_total_score is not None:
+            per_res = ""
+            n_res = len(sequence) if sequence else 0
+            if n_res > 0:
+                per_res = f" ({ev.rosetta_total_score/n_res:.2f} REU/res)"
+            energy_parts.append(f"Rosetta={ev.rosetta_total_score:.1f} REU{per_res}")
+        if ev.rosetta_score_jd2_total_score is not None and ev.rosetta_score_jd2_total_score != ev.rosetta_total_score:
+            energy_parts.append(f"Rosetta_JD2={ev.rosetta_score_jd2_total_score:.1f}")
+        if ev.rosetta_cartesian_ddg is not None:
+            energy_parts.append(f"Rosetta_cart_ddG={ev.rosetta_cartesian_ddg:.2f} REU")
+        if ev.openmm_potential_energy_kj_mol is not None:
+            energy_parts.append(f"OpenMM_PE={ev.openmm_potential_energy_kj_mol:.0f} kJ/mol")
+        if ev.openmm_gbsa_energy_kj_mol is not None:
+            energy_parts.append(f"OpenMM_GBSA={ev.openmm_gbsa_energy_kj_mol:.0f} kJ/mol")
+        if ev.foldx_ddg_kcal_mol is not None:
+            stability = "stabilising" if ev.foldx_ddg_kcal_mol < -1 else ("destabilising" if ev.foldx_ddg_kcal_mol > 1 else "neutral")
+            energy_parts.append(f"FoldX_ddG={ev.foldx_ddg_kcal_mol:.2f} kcal/mol ({stability})")
+        if energy_parts:
+            block.append(f"    Energy: {', '.join(energy_parts)}")
+
+        # ── Model quality assessment ─────────────────────────────
+        mqa_parts: list[str] = []
+        if ev.voromqa_score is not None:
+            qual = "good" if ev.voromqa_score > 0.4 else ("borderline" if ev.voromqa_score > 0.3 else "POOR")
+            mqa_parts.append(f"VoroMQA={ev.voromqa_score:.3f} ({qual})")
+        if ev.voromqa_residue_count is not None:
+            mqa_parts.append(f"VoroMQA_residues={ev.voromqa_residue_count}")
+        if ev.cad_score is not None:
+            mqa_parts.append(f"CAD-score={ev.cad_score:.3f}")
+        if mqa_parts:
+            block.append(f"    MQA: {', '.join(mqa_parts)}")
+
+        # ── Surface & interface ──────────────────────────────────
+        surf_parts: list[str] = []
+        if ev.sasa_total is not None:
+            surf_parts.append(f"SASA={ev.sasa_total:.0f}Å²")
+        if ev.interface_bsa_total is not None:
+            quality_bsa = "high-affinity" if ev.interface_bsa_total > 1200 else ("moderate" if ev.interface_bsa_total > 600 else "low")
+            surf_parts.append(f"interface_BSA={ev.interface_bsa_total:.0f}Å² ({quality_bsa})")
+        if ev.salt_bridge_count is not None:
+            surf_parts.append(f"salt_bridges={ev.salt_bridge_count}")
+        if ev.salt_bridge_count_interchain is not None:
+            surf_parts.append(f"salt_bridges_interchain={ev.salt_bridge_count_interchain}")
+        if ev.shape_complementarity is not None:
+            surf_parts.append(f"shape_complementarity={ev.shape_complementarity:.3f}")
+        if ev.interface_residues_a is not None:
+            surf_parts.append(f"interface_res_A={ev.interface_residues_a}")
+        if ev.interface_residues_b is not None:
+            surf_parts.append(f"interface_res_B={ev.interface_residues_b}")
+        if surf_parts:
+            block.append(f"    Surface/Interface: {', '.join(surf_parts)}")
+
+        # ── Biophysical properties ───────────────────────────────
+        biophys_parts: list[str] = []
+        if ev.disorder_fraction is not None:
+            biophys_parts.append(f"disorder_fraction={ev.disorder_fraction:.1%}")
+        if ev.disorder_regions:
+            n_regions = len(ev.disorder_regions)
+            lengths = [r.get("length", r.get("end", 0) - r.get("start", 0)) for r in ev.disorder_regions]
+            total_disordered = sum(lengths)
+            biophys_parts.append(f"disorder_regions={n_regions} (total {total_disordered} residues)")
+        if ev.sequence_recovery is not None:
+            biophys_parts.append(f"seq_recovery={ev.sequence_recovery:.1%}")
+        if biophys_parts:
+            block.append(f"    Biophysics: {', '.join(biophys_parts)}")
+
+        # ── Per-residue breakdowns ───────────────────────────────
+        # These give agents spatial context on where problems are
+        if ev.lddt_per_residue:
+            s = _per_residue_summary(ev.lddt_per_residue, "lDDT/res", 0.5, "below", sequence=sequence)
+            if s:
+                block.append(f"    {s}")
+        if ev.voromqa_per_residue:
+            s = _per_residue_summary(ev.voromqa_per_residue, "VoroMQA/res", 0.4, "below", sequence=sequence)
+            if s:
+                block.append(f"    {s}")
+        if ev.cad_score_per_residue:
+            s = _per_residue_summary(ev.cad_score_per_residue, "CAD/res", 0.5, "below", sequence=sequence)
+            if s:
+                block.append(f"    {s}")
+        if ev.disorder_per_residue:
+            s = _per_residue_summary(ev.disorder_per_residue, "disorder/res", 0.5, "above", sequence=sequence)
+            if s:
+                block.append(f"    {s}")
+
+        if len(block) == 1:
+            block.append("    (no metrics computed)")
+        lines.append("\n".join(block))
     return "\n".join(lines)
 
 
@@ -650,8 +803,9 @@ class LLMEvaluationReviewAgent(BaseAgent, _LLMGuidedMixin):
                 lines.append(f"  - {name}: composite score {score:.3f}")
             rank_text = "\n".join(lines) if lines else "  (none)"
 
-            # Comprehensive evaluation details
-            eval_text = _evaluation_detail_text(context)
+            # Comprehensive evaluation details (pass sequence for per-residue position labels)
+            _seq = context.sequences[0].sequence if context.sequences else ""
+            eval_text = _evaluation_detail_text(context, sequence=_seq)
 
             # Prediction confidence recap
             pred_lines = []
@@ -670,26 +824,36 @@ class LLMEvaluationReviewAgent(BaseAgent, _LLMGuidedMixin):
             agenda = (
                 "Review the comprehensive evaluation and comparison results.\n\n"
                 f"Composite ranking (higher is better):\n{rank_text}\n\n"
-                f"Full evaluation metrics:\n{eval_text}\n\n"
+                f"Full evaluation metrics (grouped by category):\n{eval_text}\n\n"
                 f"Prediction confidence recap:\n{pred_recap}\n\n"
-                "Interpret ALL metrics holistically. Assess structure quality "
-                "using clash scores (< 10 excellent, > 40 severe), energy scores "
-                "(Rosetta < -2 REU/res is well-folded), VoroMQA (> 0.4 good), "
-                "and disorder fraction. Identify weaknesses and whether the "
-                "structures are suitable for downstream applications."
+                "The evaluation data above contains ALL available metrics, grouped as: "
+                "Accuracy (lDDT/TM/RMSD), Geometry (clash/MolProbity/contact energy), "
+                "Energy (Rosetta/FoldX/OpenMM GBSA), MQA (VoroMQA/CAD), "
+                "Surface/Interface (SASA/BSA/salt bridges/shape complementarity), "
+                "Biophysics (disorder/sequence recovery), and per-residue breakdowns "
+                "(shows mean/min/max + worst positions for lDDT, VoroMQA, CAD, disorder).\n\n"
+                "Each team member should interpret the metrics within their domain. "
+                "Cross-domain conflicts are especially valuable: e.g. if Rosetta energy "
+                "is poor but VoroMQA is good, or if clash score is low but lDDT is poor."
             )
             questions = (
-                "Which predictor produced the best structure? Cite specific "
-                "metrics (lDDT, TM-score, clash score, energy) to justify.",
-                "Are there quality concerns? Evaluate: clash score (< 10?), "
-                "energy scores, VoroMQA/CAD, disorder fraction.",
-                "What per-residue quality issues exist? Identify specific regions "
-                "that are unreliable based on available per-residue data.",
-                "Are the structures suitable for downstream use? Consider each: "
-                "docking (need low clash + good interface), design (need reliable "
-                "backbone), experimental interpretation (need good Ramachandran).",
-                "Verdict: PASS (structures are reliable for downstream use), "
-                "WARN (usable with caveats), or FAIL (refinement/re-prediction needed)?",
+                "Which predictor produced the best structure? Justify using AT LEAST "
+                "3 independent metrics from different categories (e.g. lDDT + VoroMQA + "
+                "clash score). Do NOT rely on pLDDT alone.",
+                "Are there specific geometric problems? Report: clash score (threshold<10), "
+                "contact energy, and any MolProbity data (Ramachandran favored %, "
+                "rotamer outliers %, cbeta deviations) if available.",
+                "What do the energy scores say? Interpret Rosetta (REU/res: well-folded "
+                "if <-2.5), OpenMM GBSA (more negative = better solvation), and FoldX ddG "
+                "(if available). Do energy and structural quality metrics agree?",
+                "What do the per-residue breakdowns reveal? Identify specific positions "
+                "where lDDT/VoroMQA/CAD scores are poor (below threshold) — these are "
+                "the regions agents should flag for refinement or mutagenesis.",
+                "Are the structures suitable for downstream use? Assess separately for: "
+                "docking (need clash<10, BSA>800Å², shape_Sc>0.6), mutagenesis (need "
+                "reliable backbone = lDDT>0.8), experimental validation (need good geometry).",
+                "Verdict: PASS, WARN, or FAIL — with specific metric thresholds that "
+                "informed the decision.",
             )
             prev_summaries = [
                 v for v in [
@@ -1112,7 +1276,8 @@ class LLMBaselineReviewAgent(BaseAgent, _LLMGuidedMixin):
                     )
 
             pred_summary = _prediction_detail_text(context)
-            eval_summary = _evaluation_detail_text(context) if context.evaluation_results else ""
+            _bl_seq = context.sequences[0].sequence if context.sequences else ""
+            eval_summary = _evaluation_detail_text(context, sequence=_bl_seq) if context.evaluation_results else ""
 
             # ── Build sequence info with residue numbering ───────
             seq_info = ""
@@ -1134,23 +1299,38 @@ class LLMBaselineReviewAgent(BaseAgent, _LLMGuidedMixin):
                 agenda += f"\nEvaluation metrics:\n{eval_summary}\n"
 
             agenda += (
-                "\nYour task: analyse the per-residue pLDDT profile to identify regions "
-                "suitable for stabilising mutations. Identify low-confidence regions "
-                "(pLDDT < 70) that could benefit from mutations, flag functional residues "
-                "that must NOT be mutated (Cys involved in disulfides, catalytic residues, "
-                "conserved Gly/Pro in turns), and assess overall mutagenesis suitability."
+                "\nYour task: perform a comprehensive structural analysis of the wild-type "
+                "baseline to inform mutagenesis strategy. Go beyond pLDDT — reason about "
+                "the structural context of each low-confidence region: is it a flexible "
+                "loop, a buried core residue, a surface patch, an interface? Identify "
+                "residues that are UNSAFE to mutate (disulfide-forming Cys, catalytic "
+                "residues, conserved Gly/Pro in tight turns) and regions where mutations "
+                "are LIKELY to improve stability (high B-factor equivalents = low pLDDT "
+                "in loops, exposed charged residues, buried polar residues).\n"
+                "Important: the Structural Biologist, Biophysicist, and ML Specialist "
+                "should each bring their domain-specific lens. Disagreements about which "
+                "positions to target are scientifically valuable — resolve them with "
+                "specific evidence."
             )
 
             questions = (
-                "Analyse the per-residue pLDDT profile: which specific positions have "
-                "low confidence and why? List each position with its pLDDT value and "
-                "the amino acid at that position.",
-                "Which residues are critical and must NOT be mutated? Look for "
-                "Cys pairs (disulfide bonds), Pro in turns, Gly in tight loops, "
-                "and any conserved functional motifs in the sequence.",
-                "Based on the 3D model quality, which regions are well-folded "
-                "(pLDDT > 90) and which are disordered/flexible? How does this "
-                "inform mutation strategy?",
+                "Analyse the per-residue pLDDT profile in structural context: for each "
+                "low-confidence position (<70), state: (a) amino acid identity, (b) "
+                "pLDDT value, (c) structural element (loop/helix/strand/turn), and "
+                "(d) likely reason for low confidence (flexibility, disorder, crystal "
+                "packing artifact, or prediction limitation). Give specific positions.",
+                "Which residues are critical and must NOT be mutated — and why? "
+                "Look beyond Cys pairs: include Pro in turns (φ≈-60°), Gly in tight "
+                "loops (needs smallest residue), charged residues forming salt bridges "
+                "(Asp-Arg pairs within 4Å), and any NxS/NxT glycosylation sites. "
+                "For each, state the structural rationale.",
+                "From a biophysical perspective: which regions suggest thermodynamic "
+                "weakness? Look for: exposed hydrophobic patches, buried polar residues "
+                "(fa_sol penalty), strained backbone geometry, and unsatisfied H-bond "
+                "donors/acceptors. These are priority targets for stabilising mutations.",
+                "Do the ML confidence scores (pLDDT) and the energy metrics agree on "
+                "which regions are problematic? If they disagree — high pLDDT but poor "
+                "energy, or vice versa — explain what that means for mutagenesis.",
                 "Verdict: is this structure suitable for computational mutagenesis? "
                 "PASS (good quality, proceed), WARN (proceed with caveats), or "
                 "FAIL (too unreliable for mutagenesis)?",
@@ -1247,14 +1427,33 @@ class LLMMutationSuggestionAgent(BaseAgent, _LLMGuidedMixin):
                     ]
                     if low_residues:
                         low_text = ", ".join(
-                            f"{sequence[pos-1] if pos <= len(sequence) else '?'}{pos} (pLDDT={val:.1f})"
+                            f"{format_residue_three_letter(sequence[pos-1] if pos <= len(sequence) else '?', pos)} (pLDDT={val:.1f})"
                             for pos, val in sorted(low_residues, key=lambda x: x[1])[:20]
                         )
                         per_residue_text = f"\nLow-confidence residues: {low_text}"
                 break  # Use first successful predictor
 
             pred_summary = _prediction_detail_text(context)
-            eval_summary = _evaluation_detail_text(context) if context.evaluation_results else ""
+            _ms_seq = sequence if sequence else ""
+            eval_summary = _evaluation_detail_text(context, sequence=_ms_seq) if context.evaluation_results else ""
+
+            # Data-backed mutability risk for the candidate (low-confidence)
+            # positions, so the "avoid critical residues" guidance below is
+            # grounded in an actual signal rather than a single-sequence guess.
+            risk_text = ""
+            cand_positions = [p for p in low_conf if isinstance(p, int)][:20]
+            if sequence and cand_positions:
+                risks = position_risk_summary(sequence, cand_positions)
+                flagged = [
+                    f"{format_residue_three_letter(d['wt_aa'], p)} (risk {d['risk']}: {'; '.join(d['notes'])})"
+                    for p, d in sorted(risks.items()) if d.get("notes")
+                ]
+                if flagged:
+                    risk_text = (
+                        "\nPosition mutability risk (higher = more conserved/structurally "
+                        "critical WT residue — prefer NOT to mutate these): "
+                        + ", ".join(flagged) + "\n"
+                    )
 
             agenda = (
                 "Based on the baseline structure review, suggest 3-8 specific "
@@ -1264,6 +1463,7 @@ class LLMMutationSuggestionAgent(BaseAgent, _LLMGuidedMixin):
                 f"\nPrediction results:\n{pred_summary}\n"
                 f"{plddt_distribution}\n"
                 f"{per_residue_text}\n"
+                f"{risk_text}"
             )
             if eval_summary:
                 agenda += f"\nEvaluation metrics:\n{eval_summary}\n"
@@ -1272,6 +1472,13 @@ class LLMMutationSuggestionAgent(BaseAgent, _LLMGuidedMixin):
                 "\nConsider: stabilising mutations at low-confidence regions, "
                 "surface mutations for improved solubility, conservative substitutions "
                 "at semi-conserved positions, and avoid critical functional residues.\n\n"
+                "Key debate to resolve: the Protein Engineer should propose mutations "
+                "from a structural/stability perspective; the ML Specialist should "
+                "evaluate the likelihood each proposed mutation is natural (i.e., "
+                "appears in homologous sequences); the Biophysicist should predict "
+                "the thermodynamic effect; the Scientific Critic should challenge "
+                "any proposal lacking quantitative support. The team MUST reconcile "
+                "disagreements before the final mutation plan is produced.\n\n"
                 "You MUST provide your mutation plan in a specific format."
             )
 
@@ -1286,17 +1493,24 @@ class LLMMutationSuggestionAgent(BaseAgent, _LLMGuidedMixin):
             )
 
             questions = (
-                "Which 3-8 positions should be mutated? For each, cite the exact "
-                "pLDDT value at that position, the amino acid identity, structural "
-                "context (buried/surface, loop/helix), and propose 2-4 target AAs "
-                "with rationale for each substitution.",
-                "What is the overall mutation strategy? (targeted stabilisation, "
-                "surface engineering, saturation at weak spots, conservative consensus)",
-                "How many total variants will this produce? Is this experimentally tractable?",
-                "What are the risks? Which mutations might destabilise the fold? "
-                "Which positions should be avoided (e.g., Cys in disulfides, "
-                "catalytic residues, conserved Gly/Pro)?",
-                "Experimental validation strategy for the top candidates?",
+                "Which 3-8 positions should be mutated? For each, cite: (a) exact "
+                "pLDDT value, (b) amino acid identity, (c) structural context "
+                "(buried/surface, secondary structure element), (d) 2-4 target AAs "
+                "with rationale for each, and (e) predicted effect on stability "
+                "(stabilising/destabilising/neutral with reasoning).",
+                "For each proposed mutation, what is the evolutionary evidence? "
+                "Is the target AA found in homologous sequences at that position? "
+                "High conservation at the WT position = high-risk mutation.",
+                "What is the overall mutation strategy and why? Specifically: "
+                "does the team agree on the strategy? If the Protein Engineer and "
+                "ML Specialist disagree, state the disagreement and which view prevailed.",
+                "How many total variants will this produce? Is this experimentally tractable? "
+                "Consider that screening >200 variants requires deep mutational scanning; "
+                "<20 variants can be validated individually by DSF and SEC.",
+                "Risk assessment: which of the proposed mutations carry the highest "
+                "risk of fold disruption? For each high-risk mutation, what is the "
+                "safety check (TM-score cutoff, pLDDT threshold, ddG limit)?",
+                "Experimental validation strategy for the top 3 candidates?",
             )
 
             prev_summaries = [
@@ -1444,7 +1658,7 @@ class LLMMutationResultsAgent(BaseAgent, _LLMGuidedMixin):
                 low_positions = per_res.get("low_confidence_positions", [])
                 if low_positions:
                     low_text = ", ".join(
-                        f"{p['aa']}{p['pos']} (pLDDT={p['plddt']:.1f})"
+                        f"{format_residue_three_letter(p['aa'], p['pos'])} (pLDDT={p['plddt']:.1f})"
                         for p in low_positions[:15]
                     )
                     per_res_text += f"  Low-confidence residues: {low_text}\n"
@@ -1453,8 +1667,13 @@ class LLMMutationResultsAgent(BaseAgent, _LLMGuidedMixin):
             ranked = comparison.get("ranked_mutations", [])
             result_lines = []
             for i, r in enumerate(ranked[:20], 1):
-                parts = [f"{r.get('mutation_code', '?')}"]
+                parts = [f"{format_mutation_three_letter(r.get('mutation_code', '?'))}"]
                 parts.append(f"score={r.get('improvement_score', 0):.3f}")
+                _comp = r.get("score_components", {})
+                if _comp.get("ddg_kcal") is not None:
+                    parts.append(f"ddG={_comp['ddg_kcal']:+.2f}kcal/mol")
+                if r.get("flags"):
+                    parts.append(f"flags=[{'; '.join(r['flags'])}]")
                 parts.append(f"delta_mean_pLDDT={r.get('delta_mean_plddt', 0):+.2f}")
                 parts.append(f"delta_local_pLDDT={r.get('delta_local_plddt', 0):+.2f}")
                 parts.append(f"mutant_mean_pLDDT={r.get('mean_plddt', 0):.1f}")
@@ -1494,50 +1713,85 @@ class LLMMutationResultsAgent(BaseAgent, _LLMGuidedMixin):
                         if m.get("improvement_score", 0) > 0
                     )
                     pos_lines.append(
-                        f"  Position {pos_key} ({best.get('original_aa', '?')}): "
+                        f"  Position {pos_key} ({three_letter(best.get('original_aa', '?'))}): "
                         f"{n_beneficial}/{n_total} beneficial, "
-                        f"best={best.get('mutation_code', '?')} "
+                        f"best={format_mutation_three_letter(best.get('mutation_code', '?'))} "
                         f"(score={best.get('improvement_score', 0):.3f})"
                     )
                 pos_text = "\nPer-position summary:\n" + "\n".join(pos_lines[:15]) + "\n"
 
+            # Compute overall beneficial rate for context
+            total = comparison.get("total_mutations", 0)
+            beneficial = comparison.get("beneficial_count", 0)
+            beneficial_rate = (beneficial / total * 100) if total > 0 else 0
+
+            # Combinatorial candidate (additive epistasis estimate), if any.
+            combo = comparison.get("combinatorial_candidate")
+            combo_text = ""
+            if combo:
+                _codes = ", ".join(
+                    format_mutation_three_letter(c) for c in combo.get("mutations", [])
+                )
+                combo_text = (
+                    f"\nCombinatorial candidate (ADDITIVE estimate, epistasis untested): "
+                    f"{_codes} | additive ΔΔG={combo.get('additive_ddg_kcal', 0):+.2f} kcal/mol. "
+                    f"{combo.get('note', '')}\n"
+                )
+
             agenda = (
                 "Interpret the mutation scanning results and recommend candidates "
                 "for experimental validation.\n\n"
+                "Scoring note: the improvement score is a COMPOSITE PHYSICS score "
+                "(stability ΔΔG + fold agreement from OST lDDT/RMSD + clash/PTM "
+                "penalties). pLDDT is only a confidence gate, NOT the objective. "
+                "Each ranked entry shows its ddG and any risk flags.\n"
                 f"{seq_info}"
                 f"{wt_text}"
                 f"{per_res_text}"
                 f"\nMutation summary:\n"
-                f"  Total mutations tested: {comparison.get('total_mutations', 0)}\n"
+                f"  Total mutations tested: {total}\n"
                 f"  Successful: {comparison.get('successful_count', 0)}\n"
-                f"  Beneficial (score > 0): {comparison.get('beneficial_count', 0)}\n"
-                f"  Detrimental (score < -0.5): {comparison.get('detrimental_count', 0)}\n"
+                f"  Beneficial (composite score > 0.25): {beneficial} ({beneficial_rate:.0f}%)\n"
+                f"  Detrimental (composite score < -0.25): {comparison.get('detrimental_count', 0)}\n"
                 f"\nRanked mutations (top 20):\n{results_text}\n"
+                f"{combo_text}"
                 f"{ost_text}"
                 f"{pos_text}"
-                "\nYour task: provide a thorough scientific interpretation. "
-                "Assess which mutations are genuinely beneficial based on BOTH "
-                "pLDDT improvement AND structural quality (RMSD, OST lDDT, clash). "
-                "A mutation with high pLDDT but poor RMSD may have altered the fold. "
-                "Identify the top 3-5 candidates for experimental validation and "
-                "suggest a validation strategy."
+                "\nYour task: provide a rigorous multi-perspective interpretation. "
+                "This is NOT just 'pick the highest-scoring mutations'. Each team "
+                "member must bring their domain lens:\n"
+                "  Protein Engineer: structural rationale for top mutations — what "
+                "    chemistry explains improvement at each position?\n"
+                "  ML Specialist: are the pLDDT improvements real or an artifact "
+                "    of the predictor being biased toward certain AAs?\n"
+                "  Biophysicist: what experimental assay would definitively confirm "
+                "    stability improvement for each top candidate?\n"
+                "  Scientific Critic: which of the 'beneficial' mutations might "
+                "    be false positives? What's the risk of each top candidate?\n"
+                "Reconcile any conflicts — a mutation is only recommended if at "
+                "least 3 of 4 domain perspectives support it."
             )
 
             questions = (
-                "Which mutations are genuinely beneficial and why? Analyse each top "
-                "candidate considering: delta pLDDT, RMSD to WT, OST lDDT, clash score, "
-                "and the structural context of the mutated position.",
-                "Why did certain mutations fail or show negative scores? "
-                "Are there position-specific patterns? Which amino acid types "
-                "consistently improve or worsen the structure?",
-                "Top 3-5 candidates for experimental validation: rank and justify "
-                "based on the full set of structural metrics, not just pLDDT.",
-                "Any unexpected results that warrant further investigation? "
-                "For example, positions where mutations improved pLDDT but "
-                "increased RMSD, or vice versa.",
-                "Recommended experimental validation strategy: "
-                "expression, purification, stability assays (DSF, CD), "
-                "activity assays, crystallography or cryo-EM?",
+                "Which mutations are genuinely beneficial — not just highest-scoring? "
+                "For each top candidate: (a) delta_mean_pLDDT, (b) delta_local_pLDDT, "
+                "(c) RMSD to WT (high RMSD = fold change, not just local improvement), "
+                "(d) OST lDDT (independent validation), (e) clash score, and "
+                "(f) structural rationale for *why* this substitution works.",
+                "Flag any suspiciously high-scoring mutations. A mutation that dramatically "
+                "improves pLDDT but also increases RMSD>1.5Å likely reflects a fold change "
+                "rather than true stabilisation. Are any top candidates in this category?",
+                "Which positions show the most consistent improvement across multiple "
+                "substitutions? Position-consistent improvement is stronger evidence "
+                "than a single outlier mutation.",
+                "Top 3-5 candidates for experimental validation — ranked by the team's "
+                "combined assessment (structural + ML + biophysics). For each, state: "
+                "(a) the recommended substitution, (b) the primary evidence, "
+                "(c) the main risk, and (d) the specific assay to validate it.",
+                "Recommended experimental validation order and strategy: which assay "
+                "first (thermal shift / DSF for Tm, SEC for oligomeric state, "
+                "CD for secondary structure, activity assay for function)? "
+                "What result would confirm success vs. failure for each candidate?",
             )
 
             prev_summaries = [

@@ -327,17 +327,35 @@ if jobs:
             key_prefix=f"job_agent_{selected_job['job_id']}",
         )
 
+        _job_domain_ctx = "\n".join([
+            job_ctx,
+            "",
+            "Wet lab go criteria: pLDDT>80, clash<10, instability<40, no high-risk PTMs → advance to synthesis.",
+            "Immunology criteria: humanness>85%, no high MHC-II epitopes, pI 5-8 for mAbs, CDR PTMs absent.",
+            "Plant biology criteria: transit peptide removed for mature form; LRR-RK/NLR fold geometry correct; "
+            "codon usage appropriate for target plant host; no rare plant codons (>10% frequency penalty).",
+        ])
         render_all_experts_panel(
             "All-Expert Review (selected job)",
             agenda=(
-                "Review this job's artifacts and determine quality, risks, and the "
-                "best next action in the workflow."
+                "Review this job's artifacts from immunology, wet lab, and plant biology perspectives "
+                "to determine readiness for experimental advancement."
             ),
-            context=job_ctx,
+            context=_job_domain_ctx,
             questions=(
-                "Is this job output sufficient for decision-making or does it need re-run/refinement?",
-                "Which downstream step should be executed next for this job?",
-                "Any reliability risks or missing artifacts to fix first?",
+                "Does this job's computational output quality warrant wet lab advancement "
+                "(gene synthesis, small-scale expression, analytical SEC/DSF), or does it "
+                "need another computational iteration? What specific go/no-go metric thresholds apply?",
+                "From an immunologist's and wet lab perspective: does this protein meet minimum CDR "
+                "quality, humanness, and developability criteria for therapeutic advancement? "
+                "What is the exact next wet lab step — order gene block, book Protein A/SEC column, "
+                "schedule BLI/SPR assay — and what timeline and responsible person applies?",
+                "From a plant biology experimental perspective: if this is a plant protein job, "
+                "is the predicted structure consistent with expected biological function "
+                "(NLR resistance, enzyme active site, hormone receptor binding pocket)? "
+                "What plant-specific assay validates this — transient N. benthamiana expression, "
+                "yeast two-hybrid with pathogen effector, in vitro kinase assay with plant "
+                "substrate peptide, or co-immunoprecipitation from plant tissue?",
             ),
             key_prefix=f"job_all_{selected_job['job_id']}",
             save_dir=job_path / "meetings",

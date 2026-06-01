@@ -26,6 +26,9 @@ from protein_design_hub.web.agent_helpers import (
     agent_sidebar_status,
     render_all_experts_panel,
     observed_scoring_section,
+    render_pymolai_section,
+    render_pymolai_chatbot,
+    render_pymolai_viewer,
 )
 from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 
@@ -352,7 +355,13 @@ with main_tabs[1]:
                         fitness_fn = CompositeFitness(weights={
                             "stability": w_stability,
                             "solubility": w_solubility,
+                            "plddt": w_plddt,
+                            "recovery": w_recovery,
                         })
+                    elif fitness_type == "Sequence recovery":
+                        fitness_fn = CompositeFitness(weights={"recovery": 1.0})
+                    elif fitness_type == "Structure quality":
+                        fitness_fn = CompositeFitness(weights={"plddt": 1.0})
                     else:
                         fitness_fn = StabilityFitness()
 
@@ -524,15 +533,61 @@ with main_tabs[2]:
         best_seq = results["best_sequence"]
         orig_seq = results["starting_sequence"]
 
+        # Sequence recovery
+        if len(orig_seq) == len(best_seq):
+            recovery = sum(a == b for a, b in zip(orig_seq, best_seq)) / len(orig_seq)
+        else:
+            recovery = 0.0
+
         # Highlight mutations
-        st.markdown("**Mutations:**")
         mutations_list = []
         for i, (orig, evolved) in enumerate(zip(orig_seq, best_seq)):
             if orig != evolved:
-                mutations_list.append(f"{orig}{i + 1}{evolved}")
+                mutations_list.append((orig, i + 1, evolved))
+
+        _evo_res_c1, _evo_res_c2, _evo_res_c3 = st.columns(3)
+        with _evo_res_c1:
+            st.metric("Sequence Recovery", f"{recovery:.1%}",
+                      help="Fraction of positions identical to starting sequence")
+        with _evo_res_c2:
+            st.metric("Total Mutations", len(mutations_list))
+        with _evo_res_c3:
+            st.metric("Sequence Length", len(best_seq))
 
         if mutations_list:
-            st.code(" ".join(mutations_list))
+            st.markdown("**Ranked mutation list:**")
+            st.code("  ".join(f"{o}{p}{e}" for o, p, e in mutations_list))
+
+            # Biophysics delta (parent vs evolved)
+            try:
+                from protein_design_hub.biophysics import (
+                    calculate_pi, calculate_gravy, calculate_instability_index, calculate_mw,
+                )
+                _parent_pi = calculate_pi(orig_seq)
+                _evolved_pi = calculate_pi(best_seq)
+                _parent_ii = calculate_instability_index(orig_seq)
+                _evolved_ii = calculate_instability_index(best_seq)
+                _parent_gravy = calculate_gravy(orig_seq)
+                _evolved_gravy = calculate_gravy(best_seq)
+                _parent_mw = calculate_mw(orig_seq) / 1000
+                _evolved_mw = calculate_mw(best_seq) / 1000
+
+                st.markdown("**Biophysical delta (parent → evolved):**")
+                _bp_cols = st.columns(4)
+                _bp_cols[0].metric("pI", f"{_evolved_pi:.2f}", f"{_evolved_pi - _parent_pi:+.2f}")
+                _bp_cols[1].metric("Instability Index",
+                                   f"{_evolved_ii:.1f}",
+                                   f"{_evolved_ii - _parent_ii:+.1f}",
+                                   delta_color="inverse")
+                _bp_cols[2].metric("GRAVY", f"{_evolved_gravy:.3f}", f"{_evolved_gravy - _parent_gravy:+.3f}")
+                _bp_cols[3].metric("MW (kDa)", f"{_evolved_mw:.1f}", f"{_evolved_mw - _parent_mw:+.1f}")
+
+                if _evolved_ii < 40 and _parent_ii >= 40:
+                    st.success("Evolved variant crosses instability threshold (II < 40) — improved stability!")
+                elif _evolved_ii >= 40 and _parent_ii < 40:
+                    st.warning("Evolved variant crossed above instability threshold — check if mutations destabilised structure.")
+            except Exception:
+                pass
         else:
             st.info("No mutations in best sequence")
 
@@ -570,6 +625,34 @@ with main_tabs[2]:
                 "evolution_results.json",
                 use_container_width=True
             )
+
+        with col_dl3:
+            if st.button("🧪 Wet-Lab Readiness", use_container_width=True, key="evo_wl_btn",
+                         help="Check expression system, purification, and go/no-go for best variant"):
+                try:
+                    from protein_design_hub.analysis.wet_lab_advisor import build_wet_lab_report as _build_evo_wl
+                    with st.spinner("Assessing wet-lab readiness…"):
+                        _evo_wl_rep = _build_evo_wl(best_seq, is_antibody=False)
+                    st.session_state["_evo_wl_report"] = _evo_wl_rep
+                except Exception as _ewle:
+                    st.error(f"Assessment failed: {_ewle}")
+
+            _evo_wl = st.session_state.get("_evo_wl_report")
+            if _evo_wl:
+                _vvc = {"GO": "#22c55e", "CONDITIONAL": "#f59e0b", "NO-GO": "#ef4444"}
+                _vvi = {"GO": "✅", "CONDITIONAL": "⚠️", "NO-GO": "❌"}
+                st.markdown(
+                    f'<div style="background:rgba(0,0,0,0.3);border-left:4px solid '
+                    f'{_vvc.get(_evo_wl.go_nogo,"#6b7280")};padding:10px 14px;border-radius:6px;">'
+                    f'<b style="color:{_vvc.get(_evo_wl.go_nogo,"#6b7280")};">'
+                    f'{_vvi.get(_evo_wl.go_nogo,"?")} {_evo_wl.go_nogo}</b>'
+                    f'<br><small style="color:#e2e8f0;">{_evo_wl.go_nogo_reason}</small>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                if _evo_wl.expression_systems:
+                    _et = _evo_wl.expression_systems[0]
+                    st.caption(f"Top system: {_et.system} ({_et.score:.0f}/100)")
 
         with col_dl3:
            st.markdown("**Structure Preview**")
@@ -636,17 +719,45 @@ with main_tabs[2]:
             key_prefix="evo_agent",
         )
 
+        # Enrich context with trajectory shape and mutation burden
+        _first_gen_fitness = generations[0]["best_fitness"]
+        _last_gen_fitness = generations[-1]["best_fitness"]
+        _fitness_gain = _last_gen_fitness - _first_gen_fitness
+        _plateau_check = abs(generations[-1]["best_fitness"] - generations[-2]["best_fitness"]) < 1e-4 if len(generations) >= 2 else False
+        _mean_last = generations[-1]["mean_fitness"]
+        _fitness_gap = _last_gen_fitness - _mean_last  # best vs mean in last gen
+        _mutation_burden = len(mutations_list)
+        _enriched_evo_ctx = "\n".join([
+            evo_context,
+            "",
+            f"Fitness gain across all generations: {_fitness_gain:+.4f} ({_first_gen_fitness:.4f} → {_last_gen_fitness:.4f})",
+            f"Plateau detected (last gen delta < 1e-4): {'YES — may be converged' if _plateau_check else 'No — still improving'}",
+            f"Best vs. mean fitness gap (last gen): {_fitness_gap:.4f} (large gap → high-fitness outlier, may be noisy)",
+            f"Mutation burden: {_mutation_burden} mutations from WT",
+        ])
         render_all_experts_panel(
             "All-Expert Review (evolution job)",
             agenda=(
-                "Review directed evolution output and determine if the optimized sequence "
-                "is strong enough to move forward, plus what to test next."
+                "Evaluate the directed evolution trajectory from structural biology, wet lab, "
+                "immunology, and plant biology perspectives."
             ),
-            context=evo_context,
+            context=_enriched_evo_ctx,
             questions=(
-                "Is the fitness improvement convincing or likely overfit/noisy?",
-                "Which mutations are most likely causal vs. incidental?",
-                "What follow-up validation and screening strategy should be used?",
+                f"The fitness improved by {_fitness_gain:+.4f} over {len(generations)} generations "
+                f"{'and appears to have plateaued' if _plateau_check else 'with no clear plateau'} — "
+                "is this gain convincing or likely noise/overfitting? Which subset of the "
+                f"{_mutation_burden} mutations are most likely causal vs. hitchhiker, "
+                "and is there epistasis risk that collapses fitness when mutations are separated?",
+                f"From a wet lab perspective: what is the optimal validation plan for the evolved variant — "
+                "synthesize top 3 single-mutant variants plus the multi-mutant best, express in "
+                "E. coli/HEK293 (therapeutics) or Agrobacterium N. benthamiana (plant proteins), "
+                "then screen by DSF for thermal stability and SPR/ELISA for function; "
+                "at what throughput can your assay system handle these variants?",
+                "From an immunology angle: do the evolved mutations introduce new T-cell epitope-prone "
+                "hydrophobic stretches or remove canonical disulfide Cys residues? "
+                "From a plant biology angle: do the mutations affect known phosphorylation sites "
+                "(Ser/Thr-Pro motifs for plant kinases), ubiquitination lysines, or effector-interaction "
+                "surfaces on NLR/LRR-RK proteins that mediate plant immune signaling?",
             ),
             key_prefix="evo_all",
         )
@@ -667,6 +778,20 @@ with main_tabs[2]:
                 tmp_path = Path(tmp.name)
 
             show_structure_with_pymol_fallback(tmp_path, title="Best Evolved Variant", height=400)
+
+            _evo_port = 0
+            try:
+                from protein_design_hub.web.pymol_server import get_pymol_server as _gps_evo
+                _srv_evo = _gps_evo()
+                if _srv_evo is not None:
+                    _evo_port = _srv_evo.server_address[1]
+            except Exception:
+                pass
+            render_pymolai_section(
+                key_prefix="evolution_viewer",
+                pymol_port=_evo_port,
+                label="💬 Ask PyMolAI — Analyse evolved variant structure",
+            )
 
             if tmp_path and Path(tmp_path).exists():
                 observed_scoring_section(
@@ -722,10 +847,17 @@ with main_tabs[3]:
                     custom_codon = st.text_input("Custom codon", placeholder="NNG")
 
             elif library_type == "Combinatorial":
-                st.markdown("**Define mutations per position:**")
-                st.text_input("Position 1", placeholder="42:AILVM")
-                st.text_input("Position 2", placeholder="58:DEKR")
-                st.text_input("Position 3", placeholder="102:FWY")
+                st.markdown("**Define mutations per position (format: `position:AAs`)**")
+                _comb_p1 = st.text_input("Position 1", placeholder="42:AILVM", key="comb_pos1")
+                _comb_p2 = st.text_input("Position 2", placeholder="58:DEKR", key="comb_pos2")
+                _comb_p3 = st.text_input("Position 3 (optional)", placeholder="102:FWY", key="comb_pos3")
+                _comb_inputs = [x for x in [_comb_p1, _comb_p2, _comb_p3] if x.strip()]
+                if _comb_inputs:
+                    _comb_size = 1
+                    for _ci in _comb_inputs:
+                        if ":" in _ci:
+                            _comb_size *= len(_ci.split(":", 1)[1])
+                    st.caption(f"Combinatorial library size: **{_comb_size:,}** variants")
 
             else:  # Error-prone
                 error_rate = st.slider("Error rate (%)", 0.1, 5.0, 1.0)
@@ -737,7 +869,7 @@ with main_tabs[3]:
                 try:
                     from protein_design_hub.evolution.library_design import LibraryDesigner
 
-                    designer = LibraryDesigner()
+                    designer = LibraryDesigner(parent_sequence=st.session_state.evolution_sequence)
 
                     if library_type == "Site-saturation mutagenesis" and target_positions:
                         positions = [int(p.strip()) - 1 for p in target_positions.split(",")]
@@ -764,19 +896,20 @@ with main_tabs[3]:
                         MutationLibrary,
                     )
 
-                    designer = LibraryDesigner()
                     seq = st.session_state.evolution_sequence
+                    designer = LibraryDesigner(parent_sequence=seq)
 
                     if library_type == "Site-saturation mutagenesis" and target_positions:
-                        positions = [int(p.strip()) - 1 for p in target_positions.split(",")]
+                        # target_positions from text_input are 1-indexed (human-readable)
+                        positions_1idx = [int(p.strip()) - 1 for p in target_positions.split(",")]
 
                         library = designer.create_saturation_library(
                             seq,
-                            positions=positions,
-                            max_variants=20
+                            positions=positions_1idx,
+                            max_variants=20,
                         )
 
-                        st.markdown("**Sample variants:**")
+                        st.markdown("**Sample variants (first 10):**")
                         for i, variant in enumerate(library.variants[:10]):
                             mutations = []
                             for j, (orig, mut) in enumerate(zip(seq, variant)):
@@ -794,14 +927,167 @@ with main_tabs[3]:
         # Export library
         st.markdown("#### Export Library")
 
-        export_format = st.selectbox("Format", ["FASTA", "CSV", "DNA (with primers)"])
+        _exp_col1, _exp_col2 = st.columns([2, 1])
+        with _exp_col1:
+            export_format = st.selectbox("Format", ["FASTA", "CSV", "DNA (with primers)"], key="lib_export_fmt")
+        with _exp_col2:
+            _biophys_filter = st.checkbox(
+                "Pre-filter: instability < 40 & GRAVY < 0",
+                value=True,
+                key="lib_biophys_filter",
+                help="Remove variants with high instability index or positive GRAVY before synthesis ordering",
+            )
 
-        if st.button("📥 Generate & Download Library", type="primary"):
-            st.info("Library generation would create variants for experimental testing")
-            st.code("""
-# Example library output (FASTA):
->variant_001
-MKFLILLFNILCLFPVLAADNHGVGPQGAS...
->variant_002
-MKFLILLFNILCLFPALAADNHGVGPQGAS...
-            """)
+        if st.button("📥 Generate & Download Library", type="primary", key="lib_export_btn"):
+            _lib_seq = st.session_state.evolution_sequence
+            _lib_variants: list = []
+
+            try:
+                from protein_design_hub.evolution.library_design import LibraryDesigner
+
+                _designer = LibraryDesigner(parent_sequence=_lib_seq)
+
+                if library_type == "Site-saturation mutagenesis" and target_positions:
+                    _positions_0 = [int(p.strip()) - 1 for p in target_positions.split(",")]
+                    _lib = _designer.create_saturation_library(
+                        _lib_seq, _positions_0, max_variants=1000
+                    )
+                    _lib_variants = _lib.variants
+
+                elif library_type == "Combinatorial":
+                    # Parse position:AAs entries from session state
+                    _comb_defs = [
+                        st.session_state.get("comb_pos1", ""),
+                        st.session_state.get("comb_pos2", ""),
+                        st.session_state.get("comb_pos3", ""),
+                    ]
+                    _comb_pos_aas: dict = {}
+                    for _cdef in _comb_defs:
+                        _cdef = (_cdef or "").strip()
+                        if ":" in _cdef:
+                            _cp, _caas = _cdef.split(":", 1)
+                            try:
+                                _comb_pos_aas[int(_cp.strip()) - 1] = list(_caas.strip().upper())
+                            except ValueError:
+                                pass
+                    if _comb_pos_aas:
+                        # Generate all combinations
+                        import itertools
+                        _positions_c = sorted(_comb_pos_aas.keys())
+                        _aa_choices = [_comb_pos_aas[p] for p in _positions_c]
+                        for _combo in itertools.product(*_aa_choices):
+                            _s = list(_lib_seq)
+                            for _pi, _aa in zip(_positions_c, _combo):
+                                if 0 <= _pi < len(_s):
+                                    _s[_pi] = _aa
+                            _lib_variants.append("".join(_s))
+                        # Cap at 2000 for performance
+                        if len(_lib_variants) > 2000:
+                            import random as _rnd
+                            _lib_variants = _rnd.sample(_lib_variants, 2000)
+                            st.warning("Library capped at 2000 variants (random sample from full combinatorial space).")
+                    else:
+                        st.warning("No valid combinatorial positions defined. Use format '42:AILVM'.")
+
+                elif library_type == "Error-prone PCR simulation":
+                    import random
+                    _AAs = "ACDEFGHIKLMNPQRSTVWY"
+                    for _ in range(int(num_variants)):
+                        _s = list(_lib_seq)
+                        _n_muts = max(1, int(len(_lib_seq) * error_rate / 100))
+                        for _ in range(_n_muts):
+                            _pos = random.randrange(len(_s))
+                            _s[_pos] = random.choice(_AAs)
+                        _lib_variants.append("".join(_s))
+
+            except Exception as _lib_err:
+                st.warning(f"Library generation error: {_lib_err}")
+
+            # Biophysical pre-filter
+            if _lib_variants and _biophys_filter:
+                try:
+                    from protein_design_hub.biophysics import (
+                        calculate_instability_index, calculate_gravy,
+                    )
+                    _n_before = len(_lib_variants)
+                    _lib_variants = [
+                        v for v in _lib_variants
+                        if calculate_instability_index(v) < 40 and calculate_gravy(v) < 0
+                    ]
+                    st.info(
+                        f"Biophysical filter: {len(_lib_variants)}/{_n_before} variants pass "
+                        f"(instability < 40 AND GRAVY < 0) — ready for gene synthesis ordering."
+                    )
+                except Exception:
+                    st.caption("Biophysical pre-filter skipped (biophysics module unavailable).")
+
+            if not _lib_variants:
+                st.info("No variants generated — check positions are valid for this sequence.")
+            else:
+                st.success(f"Generated {len(_lib_variants)} variants ready for export.")
+
+                if export_format == "FASTA":
+                    _content = "\n".join(
+                        f">variant_{i+1:04d}\n{v}"
+                        for i, v in enumerate(_lib_variants)
+                    )
+                    _fname = "library.fasta"
+                    _mime = "text/plain"
+
+                elif export_format == "CSV":
+                    import io as _io
+                    _buf = _io.StringIO()
+                    _buf.write("id,sequence,length\n")
+                    for i, v in enumerate(_lib_variants):
+                        _buf.write(f"variant_{i+1:04d},{v},{len(v)}\n")
+                    _content = _buf.getvalue()
+                    _fname = "library.csv"
+                    _mime = "text/csv"
+
+                else:  # DNA with primers
+                    _CODON: dict = {
+                        "A": "GCT", "C": "TGT", "D": "GAT", "E": "GAA", "F": "TTT",
+                        "G": "GGT", "H": "CAT", "I": "ATT", "K": "AAA", "L": "CTG",
+                        "M": "ATG", "N": "AAT", "P": "CCT", "Q": "CAA", "R": "CGT",
+                        "S": "TCT", "T": "ACT", "V": "GTT", "W": "TGG", "Y": "TAT",
+                    }
+                    lines = []
+                    for i, v in enumerate(_lib_variants[:200]):
+                        dna = "".join(_CODON.get(aa, "NNN") for aa in v)
+                        lines.append(f">variant_{i+1:04d}_dna\n{dna}")
+                    _content = "\n".join(lines)
+                    _fname = "library_dna.fasta"
+                    _mime = "text/plain"
+
+                st.download_button(
+                    f"📥 Download {export_format} ({len(_lib_variants)} variants)",
+                    data=_content,
+                    file_name=_fname,
+                    mime=_mime,
+                    use_container_width=True,
+                )
+
+st.divider()
+_evo_pymol_port = 0
+try:
+    from protein_design_hub.web.pymol_server import get_pymol_server as _gps_evo2
+    _srv_evo2 = _gps_evo2()
+    if _srv_evo2 is not None:
+        _evo_pymol_port = _srv_evo2.server_address[1]
+except Exception:
+    pass
+if _evo_pymol_port:
+    import time as _evt
+    _evts = int(_evt.time())
+    _evh = "localhost"
+    try:
+        _evh = st.context.headers.get("host", "localhost").split(":")[0]
+    except Exception:
+        pass
+    from protein_design_hub.web.ui import section_header as _evo_sh
+    _evo_sh("PyMolAI Chat", "Molecular-visualization AI with live PyMOL access", "🔬")
+    _ec1, _ev1 = st.columns([55, 45], gap="medium")
+    with _ec1:
+        render_pymolai_chatbot(key_prefix="evolution_pymolai", pymol_port=_evo_pymol_port)
+    with _ev1:
+        render_pymolai_viewer(_evo_pymol_port, "pdh-pymol-evolution", height=700)

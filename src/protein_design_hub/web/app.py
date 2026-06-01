@@ -236,6 +236,47 @@ with ct4:
         if st.button("Jobs", key="t_jobs", use_container_width=True):
             st.switch_page("pages/9_jobs.py")
 
+# ── Getting Started ──────────────────────────────────────────────────
+st.markdown("<br>", unsafe_allow_html=True)
+section_header("Getting Started", "New to the platform? Start here.", "📖")
+
+col_gs1, col_gs2, col_gs3 = st.columns(3)
+with col_gs1:
+    with st.container(border=True):
+        st.markdown("#### 📖 Full User Guide")
+        st.markdown(
+            '<p style="color:var(--pdhub-text-secondary);font-size:.88rem;margin-bottom:.75rem">'
+            "Step-by-step onboarding: installation, all workflows, use-case tracks "
+            "(antibody, plant/wheat, de novo design), metrics reference, and troubleshooting.</p>",
+            unsafe_allow_html=True,
+        )
+        if st.button("Open Guide", key="h_guide", type="primary", use_container_width=True):
+            st.switch_page("pages/13_guide.py")
+
+with col_gs2:
+    with st.container(border=True):
+        st.markdown("#### 🧫 Antibody Engineering")
+        st.markdown(
+            '<p style="color:var(--pdhub-text-secondary);font-size:.88rem;margin-bottom:.75rem">'
+            "CDR annotation (Chothia/IMGT/Kabat), immunogenicity profiling, "
+            "developability metrics, germline assignment, and wet-lab planning.</p>",
+            unsafe_allow_html=True,
+        )
+        if st.button("Antibody Workbench", key="h_antibody", use_container_width=True):
+            st.switch_page("pages/12_antibody.py")
+
+with col_gs3:
+    with st.container(border=True):
+        st.markdown("#### 🌾 Plant / Wheat Biology")
+        st.markdown(
+            '<p style="color:var(--pdhub-text-secondary);font-size:.88rem;margin-bottom:.75rem">'
+            "Transit peptide detection, NLR domain annotation (TIR/NBS/LRR), "
+            "wheat codon optimization (CAI), and NLR mutation impact flags.</p>",
+            unsafe_allow_html=True,
+        )
+        if st.button("Plant Biology Tools", key="h_plant", use_container_width=True):
+            st.switch_page("pages/10_mutation_scanner.py")
+
 # ── Recent Activity ──────────────────────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)
 section_header("Recent Activity", "Latest predictions and analyses", "📋")

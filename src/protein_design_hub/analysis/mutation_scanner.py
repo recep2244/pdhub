@@ -418,12 +418,14 @@ class MutationScanner:
             if line[12:16].strip() != "CA": continue
             try:
                 residue_id = (line[21], int(line[22:26]))
-            except: continue
+            except (ValueError, IndexError):
+                continue
             if residue_id in seen_residues: continue
             seen_residues.add(residue_id)
             try:
                 plddt_values.append(float(line[60:66]))
-            except: continue
+            except (ValueError, IndexError):
+                continue
         return plddt_values
 
     def _delta_score(self, mutated: float, base: float) -> float:
@@ -890,8 +892,35 @@ class MutationScanner:
         )
 
 def create_mutation_heatmap(result: SaturationMutagenesisResult) -> Dict[str, Any]:
-    """Helper to create heatmap data."""
-    # ... existing implementation or updated one ...
-    # For now, we can just reuse the one in the web page or this one.
-    # The one in web page does its own logic.
-    pass
+    """Build heatmap data from a SaturationMutagenesisResult.
+
+    Returns a dict with:
+        positions    – list of residue positions (int)
+        amino_acids  – list of mutant amino acids tested
+        scores       – 2-D list [position][aa] of improvement_score
+        wt_sequence  – the wild-type sequence string
+    """
+    if result is None:
+        return {"positions": [], "amino_acids": [], "scores": [], "wt_sequence": ""}
+
+    AA_ORDER = list("ACDEFGHIKLMNPQRSTVWY")
+    positions = sorted({m.position for m in result.mutations if m.position})
+    score_map: Dict[Any, Dict[str, float]] = {p: {} for p in positions}
+    for m in result.mutations:
+        if m.position in score_map:
+            score_map[m.position][m.mutant_aa] = getattr(m, "improvement_score", 0.0) or 0.0
+
+    aas_seen = sorted(
+        {m.mutant_aa for m in result.mutations if m.mutant_aa},
+        key=lambda aa: AA_ORDER.index(aa) if aa in AA_ORDER else 99,
+    )
+    scores_grid = [
+        [score_map[p].get(aa, 0.0) for aa in aas_seen]
+        for p in positions
+    ]
+    return {
+        "positions": positions,
+        "amino_acids": aas_seen,
+        "scores": scores_grid,
+        "wt_sequence": getattr(result, "sequence", ""),
+    }

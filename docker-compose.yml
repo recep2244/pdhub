@@ -7,6 +7,8 @@ services:
     ports:
       # Map container port 8501 to host port 8501
       - "8501:8501"
+      # PyMOL interactive viewer
+      - "8592:8592"
     volumes:
       # Persist outputs
       - ./outputs:/app/outputs

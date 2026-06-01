@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from protein_design_hub.analysis.protein_utils import format_mutation_three_letter
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -417,7 +418,7 @@ def _run_mutagenesis_pipeline(
             score_style = "green" if score > 0 else ("red" if score < -0.5 else "white")
             res_table.add_row(
                 str(i),
-                r.get("mutation_code", "?"),
+                format_mutation_three_letter(r.get("mutation_code", "?")),
                 f"[{score_style}]{score:.3f}[/{score_style}]",
                 f"{delta:+.2f}",
                 f"{rmsd:.2f}" if rmsd is not None else "-",
