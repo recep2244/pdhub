@@ -552,6 +552,46 @@ def parse_positions(text, max_len):
 
 _PARSE_VALID_AAS = set("ACDEFGHIKLMNPQRSTVWY")
 
+try:
+    from protein_design_hub.analysis.protein_utils import format_mutation_three_letter as _fmt3
+except Exception:  # pragma: no cover
+    def _fmt3(code):  # type: ignore
+        return code
+
+
+def _mut3(code: str) -> str:
+    """Three-letter mutation label (e.g. 'A42G' -> 'Ala42Gly') for display."""
+    return _fmt3(str(code or ""))
+
+
+def _effect_badge(delta, immunebuilder: bool = False) -> str:
+    """Human-readable effect label from a Δ-confidence value.
+
+    For pLDDT predictors higher Δ is better; for ImmuneBuilder the value is a
+    Δ-error (Å) where lower (negative) is better, so the sign is inverted.
+    """
+    try:
+        improvement = -float(delta) if immunebuilder else float(delta)
+    except (TypeError, ValueError):
+        return "—"
+    if improvement > 1.0:
+        return "🟢 Beneficial"
+    if improvement < -1.0:
+        return "🔴 Detrimental"
+    return "⚪ Neutral"
+
+
+def _render_interpretation_legend(immunebuilder: bool = False) -> None:
+    """Compact 'how to read these results' panel shown above results tables."""
+    metric = "Δ Error (Å) — **lower is better**" if immunebuilder else "Δ pLDDT — **higher is better**"
+    st.caption(
+        "ℹ️ How to read this — "
+        f"**Effect**: 🟢 Beneficial / ⚪ Neutral / 🔴 Detrimental (from {metric}). "
+        "**RMSD** to wild-type: smaller = fold better preserved (>~2 Å = structural drift). "
+        "**OST lDDT** (0–1): higher = fold preserved. **Clash score**: lower is better. "
+        "Mutations are shown in three-letter notation (e.g. Ala42Gly)."
+    )
+
 
 def _parse_approved_mutations(df: "pd.DataFrame", sequence: str) -> List[Dict[str, Any]]:
     """Convert the approved-mutations table into the orchestrator's input format.
@@ -2131,7 +2171,7 @@ with tab_manual:
                 best = variants[0]
                 st.markdown(f"""
                 <div style="background: linear-gradient(90deg, rgba(16,185,129,0.15) 0%, rgba(34,197,94,0.15) 100%); padding: 15px; border-radius: 10px; border: 1px solid rgba(16,185,129,0.35); margin-bottom: 20px;">
-                    <h3 style="margin:0; color: #10b981;">🏆 Best Multi-Mutation: {best.mutation_code}</h3>
+                    <h3 style="margin:0; color: #10b981;">🏆 Best Multi-Mutation: {_mut3(best.mutation_code)}</h3>
                     <p style="margin:5px 0 0 0; color: #e2e8f0;">
                         {delta_label}: <b>{best.delta_mean_plddt:+.2f}</b> ·
                         {local_label}: <b>{best.delta_local_plddt:+.2f}</b>
@@ -2247,7 +2287,8 @@ with tab_manual:
                     local_label_col = "Local error (Å)"
                     local_delta_label = "Δ Local"
                 data.append({
-                    "Variant": v.mutation_code,
+                    "Variant": _mut3(v.mutation_code),
+                    "Effect": _effect_badge(v.delta_mean_plddt, is_immunebuilder),
                     mean_label: f"{v.mean_plddt:.1f}",
                     mean_delta_label: f"{v.delta_mean_plddt:+.2f}",
                     local_label_col: f"{v.local_plddt_mean:.1f}",
@@ -2274,6 +2315,7 @@ with tab_manual:
                             data[-1][label] = f"{value:.2f}"
                         else:
                             data[-1][label] = f"{value:.3f}"
+            _render_interpretation_legend(is_immunebuilder)
             st.dataframe(pd.DataFrame(data), use_container_width=True)
 
         with tab3:
@@ -2467,7 +2509,7 @@ with tab_manual:
                 # Highlight Best Variant
                 st.markdown(f"""
                 <div style="background: linear-gradient(90deg, rgba(16,185,129,0.15) 0%, rgba(34,197,94,0.15) 100%); padding: 15px; border-radius: 10px; border: 1px solid rgba(16,185,129,0.35); margin-bottom: 20px;">
-                    <h3 style="margin:0; color: #10b981;">🏆 Best Candidate: {best_mut.mutation_code}</h3>
+                    <h3 style="margin:0; color: #10b981;">🏆 Best Candidate: {_mut3(best_mut.mutation_code)}</h3>
                     <p style="margin:5px 0 0 0; color: var(--pdhub-text, #e2e8f0);">
                         predicted to improve by <b>+{best_mut.delta_mean_plddt:.2f}</b> ({delta_label})
                     </p>
@@ -2629,7 +2671,8 @@ with tab_manual:
                         mean_label = "Mean error (Å)"
                         delta_label = "Δ Error (Å)"
                     data.append({
-                        "Mutation": m.mutation_code,
+                        "Mutation": _mut3(m.mutation_code),
+                        "Effect": _effect_badge(m.delta_mean_plddt, is_immunebuilder),
                         mean_label: f"{m.mean_plddt:.1f}",
                         delta_label: f"{m.delta_mean_plddt:+.2f}",
                         "RMSD (Å)": f"{m.rmsd_to_base:.2f}" if m.rmsd_to_base else "N/A",
@@ -2655,6 +2698,7 @@ with tab_manual:
                                 data[-1][label] = f"{value:.2f}"
                             else:
                                 data[-1][label] = f"{value:.3f}"
+            _render_interpretation_legend(is_immunebuilder)
             st.dataframe(pd.DataFrame(data), use_container_width=True)
 
         with tab3:
