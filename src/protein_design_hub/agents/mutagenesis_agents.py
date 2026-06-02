@@ -130,6 +130,31 @@ def _annotate_variant_effects(successful: list, sequence: str, context) -> None:
         except Exception as e:  # noqa: BLE001
             logger.warning("ESM-2 annotation skipped: %s", e)
 
+    # FoldX BuildModel ΔΔG (gold-standard stability) — opt-in (PDHUB_FOLDX=1),
+    # needs the FoldX binary + the WT structure. The composite prefers this over
+    # the heuristic ΔΔG when present. Graceful: skipped if FoldX/structure absent.
+    if os.environ.get("PDHUB_FOLDX") == "1":
+        try:
+            from protein_design_hub.energy.paths import find_foldx_executable
+            from protein_design_hub.energy.foldx import run_foldx_buildmodel
+            wt_path = (context.extra.get("mutation_wt_metrics") or {}).get("structure_path")
+            if find_foldx_executable() and wt_path and Path(wt_path).exists():
+                import tempfile
+                for r in successful:
+                    wt, pos, mt = r.get("original_aa"), r.get("position"), r.get("mutant_aa")
+                    if not (wt and pos and mt in _VALID_AAS):
+                        continue
+                    try:
+                        with tempfile.TemporaryDirectory() as td:
+                            mut_file = Path(td) / "individual_list.txt"
+                            mut_file.write_text(f"{wt}A{pos}{mt};\n")  # chain A
+                            res = run_foldx_buildmodel(Path(wt_path), mut_file, Path(td))
+                            r["foldx_ddg_kcal_mol"] = res.get("foldx_ddg_kcal_mol")
+                    except Exception as fe:  # noqa: BLE001
+                        logger.warning("FoldX ΔΔG failed for %s: %s", r.get("mutation_code"), fe)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("FoldX annotation skipped: %s", e)
+
     uniprot = (context.extra or {}).get("uniprot_id")
     if uniprot:
         try:
@@ -494,19 +519,30 @@ class MutationComparisonAgent(BaseAgent):
             )[:6]
             combinatorial_candidate = None
             if len(top_combo) >= 2:
+                # Build the actual combined mutant sequence so it can be folded /
+                # ordered directly (closes the "validate the multi-mutant" loop).
+                combo_seq = list(seq0)
+                applied = []
+                for r in top_combo:
+                    p, mt = r.get("position"), r.get("mutant_aa")
+                    if isinstance(p, int) and 1 <= p <= len(combo_seq) and mt in _VALID_AAS:
+                        combo_seq[p - 1] = mt
+                        applied.append(r.get("mutation_code"))
                 combinatorial_candidate = {
-                    "mutations": [r.get("mutation_code") for r in top_combo],
-                    "n_mutations": len(top_combo),
+                    "mutations": applied,
+                    "n_mutations": len(applied),
+                    "combined_sequence": "".join(combo_seq) if seq0 else None,
                     "additive_score": round(sum(r["improvement_score"] for r in top_combo), 3),
                     "additive_ddg_kcal": round(
                         sum(r.get("score_components", {}).get("ddg_kcal", 0.0) for r in top_combo), 2
                     ),
                     "note": (
                         "Additive estimate across distinct positions; epistasis is "
-                        "untested. Validate the combined variant experimentally or by "
-                        "predicting the multi-mutant structure."
+                        "untested. Fold the provided combined_sequence (multi-mutation "
+                        "scan) or validate experimentally to confirm."
                     ),
                 }
+                context.extra["combinatorial_sequence"] = combinatorial_candidate["combined_sequence"]
 
             # ── Recommended combinatorial library from the top hits ──────────
             recommended_library = None
@@ -681,9 +717,10 @@ class MutagenesisPipelineReportAgent(BaseAgent):
             if comp:
                 breakdown = (
                     f"- Score breakdown: ΔΔG={comp.get('ddg_kcal', 0):+.2f} kcal/mol "
-                    f"({comp.get('ddg_effect', '?')}), stability={comp.get('stability_term', 0):+.2f}, "
+                    f"[{comp.get('ddg_source', 'heuristic')}] ({comp.get('ddg_effect', '?')}), "
+                    f"stability={comp.get('stability_term', 0):+.2f}, "
                     f"fold={comp.get('fold_term', 0):+.2f}, clash={comp.get('clash_penalty', 0):+.2f}, "
-                    f"PTM={comp.get('ptm_penalty', 0):+.2f}"
+                    f"PTM={comp.get('ptm_penalty', 0):+.2f}, developability={comp.get('dev_penalty', 0):+.2f}"
                 )
                 if "esm2_delta_ll" in comp:
                     breakdown += f", ESM-2 Δ={comp['esm2_delta_ll']:+.2f} (term {comp.get('esm2_term', 0):+.2f})"

@@ -41,6 +41,12 @@ PTM_PENALTY = 0.75     # per newly-introduced high-risk PTM liability
 GBSA_PENALTY = 0.2     # sign-only nudge from ΔGBSA (noisy → small)
 W_ESM2 = 0.15          # per unit of ESM-2 Δlog-likelihood (fitness/conservation)
 W_AM = 2.0             # per unit of (AlphaMissense score − threshold), human only
+W_DEV = 0.4            # developability penalty weight (aggregation/charge)
+
+# Aromatic residues — the clearest single-residue aggregation liability for a
+# sequence-only screen. (Aliphatic swaps like A→V are common stabilising core
+# mutations and are NOT penalised without surface-exposure information.)
+_AGG_PRONE = set("FWY")
 
 LDDT_REF = 0.90        # lDDT at/above this = fold preserved
 RMSD_TOL = 1.0         # Å of CA-RMSD tolerated before penalising
@@ -106,6 +112,34 @@ def substitution_risk(wt_aa: str, mut_aa: str, exposure: str = "unknown") -> Dic
     }
 
 
+def developability_delta(wt_aa: str, mt_aa: str) -> Dict[str, object]:
+    """Sequence-based developability risk for a substitution (aggregation/charge).
+
+    Returns ``{risk: 0..1, flags: [...]}``. Captures the two cheap, robust
+    liabilities a protein engineer screens for when picking expressible
+    candidates: introducing an aggregation-prone hydrophobic residue, and large
+    surface-charge swings.
+    """
+    from protein_design_hub.analysis.protein_utils import AA_PROPERTIES
+
+    wt_aa, mt_aa = (wt_aa or "").upper(), (mt_aa or "").upper()
+    flags: list = []
+    risk = 0.0
+    if wt_aa not in AA_PROPERTIES or mt_aa not in AA_PROPERTIES or wt_aa == mt_aa:
+        return {"risk": 0.0, "flags": flags}
+
+    # Aggregation: introducing an aromatic where WT wasn't is a developability risk.
+    if mt_aa in _AGG_PRONE and wt_aa not in _AGG_PRONE:
+        risk += 0.3
+        flags.append("↑aggregation propensity (aromatic introduced)")
+    # Charge swing (affects solubility / pI).
+    dq = AA_PROPERTIES[mt_aa]["charge"] - AA_PROPERTIES[wt_aa]["charge"]
+    if abs(dq) >= 1:
+        risk += 0.2 * min(abs(dq), 2)
+        flags.append(f"charge change {dq:+.0f}")
+    return {"risk": round(min(risk, 1.0), 3), "flags": flags}
+
+
 def introduces_ptm_liability(
     wt_sequence: str,
     mutant_sequence: str,
@@ -152,13 +186,26 @@ def composite_mutation_score(
     wt_aa = str(mutant.get("original_aa", "") or "")
     mut_aa = str(mutant.get("mutant_aa", "") or "")
 
-    # ── stability (heuristic ΔΔG) ──────────────────────────────────────────
+    # ── stability (FoldX ΔΔG preferred; heuristic fallback) ────────────────
     sub = substitution_risk(wt_aa, mut_aa)
-    ddg = sub["ddg_kcal"]
+    foldx_ddg = mutant.get("foldx_ddg_kcal_mol")
+    if isinstance(foldx_ddg, (int, float)):
+        ddg = float(foldx_ddg)
+        comp["ddg_source"] = "foldx"
+        comp["ddg_effect"] = ("stabilising" if ddg < -1 else "destabilising" if ddg > 1 else "neutral")
+    else:
+        ddg = sub["ddg_kcal"]
+        comp["ddg_source"] = "heuristic"
+        comp["ddg_effect"] = sub["effect"]
     comp["ddg_kcal"] = ddg
-    comp["ddg_effect"] = sub["effect"]
     stability_term = W_STABILITY * (-ddg)
     flags.extend(sub["flags"])
+
+    # ── developability (aggregation / charge) ──────────────────────────────
+    dev = developability_delta(wt_aa, mut_aa)
+    dev_penalty = -W_DEV * float(dev["risk"])
+    if dev["flags"]:
+        flags.extend(dev["flags"])
 
     # ── fold agreement (OST lDDT preferred, else RMSD) ─────────────────────
     ost_lddt = mutant.get("ost_lddt")
@@ -238,7 +285,7 @@ def composite_mutation_score(
         flags.append(f"mutant fold low-confidence (pLDDT {float(mean_plddt):.0f}<{MIN_VIABLE_PLDDT:.0f})")
 
     score = (stability_term + fold_term + conf_term + clash_penalty
-             + ptm_penalty + gbsa_term + esm2_term + am_term)
+             + ptm_penalty + gbsa_term + esm2_term + am_term + dev_penalty)
     if not gate_ok:
         score -= 1.0  # heavy demotion — prediction unreliable
 
@@ -251,6 +298,7 @@ def composite_mutation_score(
         "gbsa_term": round(gbsa_term, 3),
         "esm2_term": round(esm2_term, 3),
         "am_term": round(am_term, 3),
+        "dev_penalty": round(dev_penalty, 3),
         "gate_ok": gate_ok,
         "flags": flags,
         "score": round(score, 3),

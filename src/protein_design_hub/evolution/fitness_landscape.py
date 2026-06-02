@@ -163,6 +163,42 @@ class SolubilityFitness(FitnessFunction):
         return max(0, min(1, (score + 2) / 4))
 
 
+class ESM2Fitness(FitnessFunction):
+    """Fitness based on ESM-2 zero-shot pseudo-log-likelihood (plausibility).
+
+    A fast, structure-free oracle: the protein language model's mean masked
+    log-likelihood of the sequence. Higher = more evolutionarily plausible.
+    Lets directed evolution screen thousands of variants without folding each.
+    Falls back to a neutral 0.0 if ESM-2 (fair-esm/torch) is unavailable.
+    """
+
+    def __init__(self, weight: float = 1.0, model_name: str = None):
+        self._weight = weight
+        self._model_name = model_name
+
+    @property
+    def name(self) -> str:
+        return "ESM2-PLL"
+
+    @property
+    def weight(self) -> float:
+        return self._weight
+
+    def evaluate(self, sequence: str, **kwargs) -> float:
+        try:
+            from protein_design_hub.analysis.esm2_zero_shot import (
+                ESM2VariantScorer, get_esm2_scorer,
+            )
+            if not ESM2VariantScorer.is_available():
+                return 0.0
+            scorer = get_esm2_scorer(model_name=self._model_name)
+            # PLL is negative; map to ~0..1 (≈ −4 poor … 0 excellent) for blending.
+            pll = scorer.sequence_pll(sequence)
+            return max(0.0, min(1.0, (pll + 4.0) / 4.0))
+        except Exception:
+            return 0.0
+
+
 class StabilityFitness(FitnessFunction):
     """Fitness based on predicted stability."""
 

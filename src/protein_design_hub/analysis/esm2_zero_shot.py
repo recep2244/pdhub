@@ -175,6 +175,31 @@ class ESM2VariantScorer:
         pos0 = position - 1
         return self._logprobs_at(sequence, pos0)[sequence[pos0].upper()]
 
+    def sequence_pll(self, sequence: str, max_positions: int = 200) -> float:
+        """Pseudo-log-likelihood: mean masked log-prob of the WT residue per position.
+
+        Higher = the sequence is more plausible under the protein language model.
+        A cheap, structure-free fitness/plausibility score for directed evolution.
+        For long sequences, positions are evenly subsampled to ``max_positions``
+        to bound cost.
+        """
+        n = len(sequence)
+        if n == 0:
+            return 0.0
+        if n <= max_positions:
+            idxs = range(n)
+        else:
+            step = n / max_positions
+            idxs = [int(i * step) for i in range(max_positions)]
+        total = 0.0
+        count = 0
+        for i in idxs:
+            aa = sequence[i].upper()
+            if aa in _AA20:
+                total += self._logprobs_at(sequence, i)[aa]
+                count += 1
+        return total / count if count else 0.0
+
 
 # ── process-wide singleton (model load is expensive) ───────────────────────
 _scorer: Optional[ESM2VariantScorer] = None
