@@ -1455,6 +1455,34 @@ class LLMMutationSuggestionAgent(BaseAgent, _LLMGuidedMixin):
                         + ", ".join(flagged) + "\n"
                     )
 
+                # ESM-2 zero-shot conservation: positions where few substitutions
+                # are tolerated are evolutionarily constrained → avoid mutating.
+                import os as _os
+                if _os.environ.get("PDHUB_ESM2", "1") != "0":
+                    try:
+                        from protein_design_hub.analysis.esm2_zero_shot import (
+                            ESM2VariantScorer, get_esm2_scorer,
+                        )
+                        if ESM2VariantScorer.is_available():
+                            sc = get_esm2_scorer()
+                            cons = []
+                            for p in cand_positions:
+                                if not (1 <= p <= len(sequence)):
+                                    continue
+                                deltas = sc.score_position(sequence, p)
+                                wt = sequence[p - 1].upper()
+                                tolerated = sum(1 for a, d in deltas.items() if a != wt and d >= -2.0)
+                                tag = "CONSERVED" if tolerated <= 3 else ("plastic" if tolerated >= 10 else "moderate")
+                                cons.append(f"{format_residue_three_letter(wt, p)}={tolerated} tolerated subs [{tag}]")
+                            if cons:
+                                risk_text += (
+                                    "\nESM-2 zero-shot tolerance per position (fewer tolerated "
+                                    "substitutions = more conserved, higher mutation risk): "
+                                    + ", ".join(cons) + "\n"
+                                )
+                    except Exception as _esm_err:  # noqa: BLE001
+                        logger.warning("ESM-2 suggestion annotation skipped: %s", _esm_err)
+
             agenda = (
                 "Based on the baseline structure review, suggest 3-8 specific "
                 "residue positions for mutation with target amino acids.\n\n"
@@ -1672,6 +1700,10 @@ class LLMMutationResultsAgent(BaseAgent, _LLMGuidedMixin):
                 _comp = r.get("score_components", {})
                 if _comp.get("ddg_kcal") is not None:
                     parts.append(f"ddG={_comp['ddg_kcal']:+.2f}kcal/mol")
+                if r.get("esm2_delta_ll") is not None:
+                    parts.append(f"ESM2_dLL={r['esm2_delta_ll']:+.2f}")
+                if r.get("am_score") is not None:
+                    parts.append(f"AlphaMissense={r['am_score']:.2f}")
                 if r.get("flags"):
                     parts.append(f"flags=[{'; '.join(r['flags'])}]")
                 parts.append(f"delta_mean_pLDDT={r.get('delta_mean_plddt', 0):+.2f}")

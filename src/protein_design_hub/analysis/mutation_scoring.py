@@ -39,6 +39,8 @@ W_CLASH = 0.05         # per clash-score unit introduced vs WT
 W_RMSD = 0.5           # per Å of CA-RMSD beyond RMSD_TOL (fallback when no lDDT)
 PTM_PENALTY = 0.75     # per newly-introduced high-risk PTM liability
 GBSA_PENALTY = 0.2     # sign-only nudge from ΔGBSA (noisy → small)
+W_ESM2 = 0.15          # per unit of ESM-2 Δlog-likelihood (fitness/conservation)
+W_AM = 2.0             # per unit of (AlphaMissense score − threshold), human only
 
 LDDT_REF = 0.90        # lDDT at/above this = fold preserved
 RMSD_TOL = 1.0         # Å of CA-RMSD tolerated before penalising
@@ -195,6 +197,27 @@ def composite_mutation_score(
             flags.append(f"introduces {new_liab} PTM liability(ies)")
         comp["ptm_liability_delta"] = new_liab
 
+    # ── ESM-2 zero-shot Δlog-likelihood (fitness/conservation; distinct from
+    # the ΔΔG stability term above) ─────────────────────────────────────────
+    esm2_term = 0.0
+    esm2_delta = mutant.get("esm2_delta_ll")
+    if isinstance(esm2_delta, (int, float)):
+        esm2_term = W_ESM2 * float(esm2_delta)   # negative Δ (deleterious) lowers score
+        comp["esm2_delta_ll"] = round(float(esm2_delta), 3)
+        verdict = mutant.get("esm2_verdict")
+        if verdict in ("strongly_deleterious", "likely_deleterious"):
+            flags.append(f"ESM-2 {verdict.replace('_', ' ')}")
+
+    # ── AlphaMissense pathogenicity (human canonical only) ─────────────────
+    am_term = 0.0
+    am_score = mutant.get("am_score")
+    if isinstance(am_score, (int, float)):
+        am_thr = mutant.get("am_threshold", 0.564)
+        am_term = -W_AM * (float(am_score) - float(am_thr))  # pathogenic → lowers score
+        comp["am_score"] = round(float(am_score), 3)
+        if float(am_score) >= float(am_thr):
+            flags.append(f"AlphaMissense likely pathogenic ({am_score:.2f})")
+
     # ── GBSA (noisy → small, sign-only nudge) ──────────────────────────────
     gbsa_term = 0.0
     mut_gbsa = _extract_gbsa(mutant.get("extra_metrics", {}))
@@ -214,7 +237,8 @@ def composite_mutation_score(
         gate_ok = False
         flags.append(f"mutant fold low-confidence (pLDDT {float(mean_plddt):.0f}<{MIN_VIABLE_PLDDT:.0f})")
 
-    score = stability_term + fold_term + conf_term + clash_penalty + ptm_penalty + gbsa_term
+    score = (stability_term + fold_term + conf_term + clash_penalty
+             + ptm_penalty + gbsa_term + esm2_term + am_term)
     if not gate_ok:
         score -= 1.0  # heavy demotion — prediction unreliable
 
@@ -225,6 +249,8 @@ def composite_mutation_score(
         "clash_penalty": round(clash_penalty, 3),
         "ptm_penalty": round(ptm_penalty, 3),
         "gbsa_term": round(gbsa_term, 3),
+        "esm2_term": round(esm2_term, 3),
+        "am_term": round(am_term, 3),
         "gate_ok": gate_ok,
         "flags": flags,
         "score": round(score, 3),

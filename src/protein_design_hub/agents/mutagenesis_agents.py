@@ -95,6 +95,58 @@ def _build_library_recommendation(sequence: str, best_per_pos: dict) -> dict:
     return out
 
 
+def _annotate_variant_effects(successful: list, sequence: str, context) -> None:
+    """Attach ESM-2 zero-shot Δlog-likelihood (and AlphaMissense if a human
+    UniProt id is known) to each successful mutant dict, in place.
+
+    ESM-2 is grouped by position so each position costs ONE masked forward pass
+    (all 19 substitutions at once). Disable with ``PDHUB_ESM2=0``. Both signals
+    degrade gracefully — any failure leaves the structure/energy score intact.
+    """
+    import os
+
+    if sequence and os.environ.get("PDHUB_ESM2", "1") != "0":
+        try:
+            from protein_design_hub.analysis.esm2_zero_shot import (
+                ESM2VariantScorer, get_esm2_scorer, verdict_for_delta,
+            )
+            if ESM2VariantScorer.is_available():
+                scorer = get_esm2_scorer()
+                positions = sorted({
+                    r["position"] for r in successful
+                    if r.get("mutant_aa") in _VALID_AAS and 1 <= r.get("position", 0) <= len(sequence)
+                })
+                pos_deltas: dict = {}
+                for p in positions:
+                    try:
+                        pos_deltas[p] = scorer.score_position(sequence, p)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("ESM-2 scoring failed at position %d: %s", p, e)
+                for r in successful:
+                    d = pos_deltas.get(r.get("position"), {}).get(r.get("mutant_aa"))
+                    if d is not None:
+                        r["esm2_delta_ll"] = d
+                        r["esm2_verdict"] = verdict_for_delta(d)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("ESM-2 annotation skipped: %s", e)
+
+    uniprot = (context.extra or {}).get("uniprot_id")
+    if uniprot:
+        try:
+            from protein_design_hub.analysis.alphamissense import get_alphamissense
+            am = get_alphamissense()
+            if am.is_available():
+                for r in successful:
+                    code = r.get("mutation_code")
+                    hit = am.score(uniprot, code) if code else None
+                    if hit:
+                        r["am_score"] = hit["am_score"]
+                        r["am_threshold"] = hit["am_threshold"]
+                        r["am_class"] = hit.get("am_class")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("AlphaMissense annotation skipped: %s", e)
+
+
 def _extract_ost_metrics(extra_metrics: dict) -> dict:
     """Pull key OpenStructure metrics from extra_metrics for summary."""
     ost = extra_metrics.get("ost_comprehensive")
@@ -362,6 +414,10 @@ class MutationComparisonAgent(BaseAgent):
             seq0 = context.sequences[0].sequence if context.sequences else ""
             wt_metrics = context.extra.get("mutation_wt_metrics", {})
 
+            # Variant-effect signals: ESM-2 zero-shot Δlog-likelihood (+ AlphaMissense
+            # for human targets) attached per mutant before composite scoring.
+            _annotate_variant_effects(successful, seq0, context)
+
             # Composite, physics-aware improvement score: stability (ΔΔG) +
             # fold agreement (OST lDDT/RMSD) + clash/PTM penalties, with pLDDT
             # demoted to a confidence gate. See analysis/mutation_scoring.py.
@@ -623,12 +679,17 @@ class MutagenesisPipelineReportAgent(BaseAgent):
             )
             comp = best.get("score_components", {})
             if comp:
-                lines.append(
+                breakdown = (
                     f"- Score breakdown: ΔΔG={comp.get('ddg_kcal', 0):+.2f} kcal/mol "
                     f"({comp.get('ddg_effect', '?')}), stability={comp.get('stability_term', 0):+.2f}, "
                     f"fold={comp.get('fold_term', 0):+.2f}, clash={comp.get('clash_penalty', 0):+.2f}, "
                     f"PTM={comp.get('ptm_penalty', 0):+.2f}"
                 )
+                if "esm2_delta_ll" in comp:
+                    breakdown += f", ESM-2 Δ={comp['esm2_delta_ll']:+.2f} (term {comp.get('esm2_term', 0):+.2f})"
+                if "am_score" in comp:
+                    breakdown += f", AlphaMissense={comp['am_score']:.2f} (term {comp.get('am_term', 0):+.2f})"
+                lines.append(breakdown)
             if best.get("flags"):
                 lines.append(f"- Flags: {', '.join(best['flags'])}")
             if best.get("ost_lddt") is not None:

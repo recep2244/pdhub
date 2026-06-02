@@ -508,6 +508,54 @@ def uninstall_tool(
         console.print(f"[red]Error: {e}[/red]")
 
 
+_ALPHAMISSENSE_URL = (
+    "https://storage.googleapis.com/dm_alphamissense/AlphaMissense_aa_substitutions.tsv.gz"
+)
+
+
+@app.command("alphamissense")
+def install_alphamissense(
+    tsv: Optional[str] = typer.Option(
+        None, "--tsv", help="Path to an already-downloaded AlphaMissense_aa_substitutions.tsv(.gz)"
+    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Rebuild even if the index exists"),
+):
+    """Download DeepMind's AlphaMissense table (~1 GB) and build a fast SQLite index.
+
+    Enables human-canonical missense pathogenicity lookups in the mutagenesis
+    pipeline. Without this, AlphaMissense falls back to a tiny built-in cache and
+    is simply skipped for variants it doesn't cover (ESM-2 remains the universal
+    signal). Use --tsv if you've downloaded the file yourself.
+    """
+    import urllib.request
+    from pathlib import Path
+    from protein_design_hub.analysis.alphamissense import build_index, _default_index_path
+
+    index_path = _default_index_path()
+    if index_path.exists() and not force:
+        console.print(f"[green]✓[/green] AlphaMissense index already present: {index_path}")
+        raise typer.Exit(0)
+
+    if tsv:
+        tsv_path = Path(tsv)
+        if not tsv_path.exists():
+            console.print(f"[red]File not found: {tsv_path}[/red]")
+            raise typer.Exit(1)
+    else:
+        tsv_path = index_path.parent / "AlphaMissense_aa_substitutions.tsv.gz"
+        tsv_path.parent.mkdir(parents=True, exist_ok=True)
+        console.print(f"Downloading AlphaMissense table (~1 GB) → {tsv_path} ...")
+        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
+                      console=console, transient=True) as p:
+            p.add_task("downloading", total=None)
+            urllib.request.urlretrieve(_ALPHAMISSENSE_URL, tsv_path)
+
+    console.print("Building SQLite index (one-time) ...")
+    out = build_index(tsv_path, index_path)
+    console.print(f"[green]✓[/green] AlphaMissense index built: {out}")
+    console.print("  Set context.extra['uniprot_id'] (human accession) to activate lookups.")
+
+
 @app.callback()
 def callback():
     """Installation management commands."""
