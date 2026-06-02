@@ -581,15 +581,55 @@ def _effect_badge(delta, immunebuilder: bool = False) -> str:
     return "⚪ Neutral"
 
 
+def _esm2_scan_deltas(sequence: str, position: int):
+    """ESM-2 zero-shot Δlog-likelihood for all substitutions at one position.
+
+    One masked forward pass covers all 19 substitutions; cached per
+    (sequence, position) in session state. Returns {aa: Δll} or None when
+    ESM-2 is unavailable / disabled (PDHUB_ESM2=0).
+    """
+    import os
+    if not sequence or os.environ.get("PDHUB_ESM2", "1") == "0":
+        return None
+    cache = st.session_state.setdefault("_esm2_scan_cache", {})
+    key = f"{hash(sequence)}:{position}"
+    if key in cache:
+        return cache[key]
+    try:
+        from protein_design_hub.analysis.esm2_zero_shot import ESM2VariantScorer, get_esm2_scorer
+        if not ESM2VariantScorer.is_available():
+            cache[key] = None
+            return None
+        with st.spinner("Scoring substitutions with ESM-2 zero-shot…"):
+            deltas = get_esm2_scorer().score_position(sequence, position)
+        cache[key] = deltas
+        return deltas
+    except Exception:
+        cache[key] = None
+        return None
+
+
+def _esm2_verdict(delta) -> str:
+    try:
+        from protein_design_hub.analysis.esm2_zero_shot import verdict_for_delta
+        return verdict_for_delta(float(delta)).replace("_", " ")
+    except Exception:
+        return ""
+
+
 def _render_interpretation_legend(immunebuilder: bool = False) -> None:
     """Compact 'how to read these results' panel shown above results tables."""
     metric = "Δ Error (Å) — **lower is better**" if immunebuilder else "Δ pLDDT — **higher is better**"
     st.caption(
         "ℹ️ How to read this — "
-        f"**Effect**: 🟢 Beneficial / ⚪ Neutral / 🔴 Detrimental (from {metric}). "
-        "**RMSD** to wild-type: smaller = fold better preserved (>~2 Å = structural drift). "
-        "**OST lDDT** (0–1): higher = fold preserved. **Clash score**: lower is better. "
-        "Mutations are shown in three-letter notation (e.g. Ala42Gly)."
+        f"**Effect** uses the per-residue **Site** change ({metric}). "
+        "**Site pLDDT (per-residue)** = confidence at the mutated residue — the signal that "
+        "actually moves for a point mutation; **Mean pLDDT** is the whole-chain average "
+        "(barely changes for one mutation). "
+        "**RMSD** to WT: smaller = fold preserved (>~2 Å = drift). "
+        "**OST lDDT** (0–1, needs OpenStructure): higher = fold preserved. "
+        "**ESM-2 ΔLL** (protein language model): Δ ≥ −2 tolerated, < −5 likely deleterious. "
+        "**Clash**: lower is better. Mutations shown in three-letter notation (Ala42Gly)."
     )
 
 
@@ -2504,14 +2544,22 @@ with tab_manual:
             st.markdown("### Top Variants")
         
             best_mut = res.ranked_mutations[0] if res.ranked_mutations else None
-        
+            _rec_esm2 = _esm2_scan_deltas(res.sequence, res.position)
+
             if best_mut:
+                _best_esm2 = _rec_esm2.get(best_mut.mutant_aa) if _rec_esm2 else None
+                _esm2_html = (
+                    f"&nbsp;·&nbsp; ESM-2 ΔLL: <b>{_best_esm2:+.2f}</b> ({_esm2_verdict(_best_esm2)})"
+                    if _best_esm2 is not None else ""
+                )
                 # Highlight Best Variant
                 st.markdown(f"""
                 <div style="background: linear-gradient(90deg, rgba(16,185,129,0.15) 0%, rgba(34,197,94,0.15) 100%); padding: 15px; border-radius: 10px; border: 1px solid rgba(16,185,129,0.35); margin-bottom: 20px;">
                     <h3 style="margin:0; color: #10b981;">🏆 Best Candidate: {_mut3(best_mut.mutation_code)}</h3>
                     <p style="margin:5px 0 0 0; color: var(--pdhub-text, #e2e8f0);">
-                        predicted to improve by <b>+{best_mut.delta_mean_plddt:.2f}</b> ({delta_label})
+                        Per-residue Δ at the mutated site: <b>{best_mut.delta_local_plddt:+.2f}</b>
+                        &nbsp;·&nbsp; whole-chain Δmean: {best_mut.delta_mean_plddt:+.2f} ({delta_label}){_esm2_html}
+                        <br><span style="font-size:12px;opacity:0.8;">(for a single point mutation the whole-chain mean barely moves — judge by the per-residue site change and ESM-2 plausibility)</span>
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
@@ -2561,18 +2609,25 @@ with tab_manual:
                     with col1:
                         _mcolor = "#22c55e" if mut.is_beneficial else "#ef4444"
                         st.markdown(
-                            f'<div style="font-weight:700;color:{_mcolor};">{mut.mutation_code}</div>'
-                            f'<div style="font-size:13px;color:{_mcolor};">Δ {mut.delta_mean_plddt:+.2f}</div>',
+                            f'<div style="font-weight:700;color:{_mcolor};">{_mut3(mut.mutation_code)}</div>'
+                            f'<div style="font-size:13px;color:{_mcolor};">Site Δ {mut.delta_local_plddt:+.2f}'
+                            f'<br><span style="font-size:11px;opacity:0.75;">mean Δ {mut.delta_mean_plddt:+.2f}</span></div>',
                             unsafe_allow_html=True,
                         )
                     with col2:
                         _rmsd = getattr(mut, "rmsd_to_base", None)
                         _clash = getattr(mut, "clash_score", None)
                         _sasa = getattr(mut, "sasa_total", None)
-                        _parts = []
+                        _parts = [f"Site pLDDT {getattr(mut, 'local_plddt', 0):.1f}"]
                         if _rmsd: _parts.append(f"RMSD {_rmsd:.2f} Å")
                         if _clash is not None: _parts.append(f"Clash {_clash}")
                         if _sasa: _parts.append(f"SASA {_sasa:.0f} Ų")
+                        _e = _rec_esm2.get(mut.mutant_aa) if _rec_esm2 else None
+                        if _e is not None:
+                            _parts.append(f"ESM-2 ΔLL {_e:+.2f}")
+                        _ost_l = get_ost_global_metric(mut, "lddt")
+                        if _ost_l is not None:
+                            _parts.append(f"OST lDDT {_ost_l:.3f}")
                         st.caption("  ·  ".join(_parts))
                         _mpath = getattr(mut, "structure_path", None)
                         if _mpath:
@@ -2658,10 +2713,17 @@ with tab_manual:
                 ("gdt_ts", "OST GDT-TS"),
                 ("gdt_ha", "OST GDT-HA"),
             ]
+            # Always surface OST lDDT and RMSD(CA) columns so they're visibly
+            # present (N/A when comprehensive scoring is off); the rest stay
+            # conditional to avoid clutter.
             include_ost = {
-                field: any(get_ost_global_metric(m, field) is not None for m in res.mutations)
+                field: (field in {"lddt", "rmsd_ca"})
+                or any(get_ost_global_metric(m, field) is not None for m in res.mutations)
                 for field, _ in ost_fields
             }
+            any_ost = any(get_ost_global_metric(m, "lddt") is not None for m in res.mutations)
+            site_label = "Site error (Å)" if is_immunebuilder else "Site pLDDT (per-residue)"
+            esm2_deltas = _esm2_scan_deltas(res.sequence, res.position)
             data = []
             for m in res.mutations:
                 if m.success:
@@ -2672,7 +2734,9 @@ with tab_manual:
                         delta_label = "Δ Error (Å)"
                     data.append({
                         "Mutation": _mut3(m.mutation_code),
-                        "Effect": _effect_badge(m.delta_mean_plddt, is_immunebuilder),
+                        "Effect": _effect_badge(m.delta_local_plddt if not is_immunebuilder else m.delta_mean_plddt, is_immunebuilder),
+                        site_label: f"{m.local_plddt:.1f}",
+                        "Δ Site": f"{m.delta_local_plddt:+.2f}",
                         mean_label: f"{m.mean_plddt:.1f}",
                         delta_label: f"{m.delta_mean_plddt:+.2f}",
                         "RMSD (Å)": f"{m.rmsd_to_base:.2f}" if m.rmsd_to_base else "N/A",
@@ -2680,6 +2744,10 @@ with tab_manual:
                         "SASA (Å²)": f"{m.sasa_total:.0f}" if m.sasa_total else "N/A",
                         "TM-score": f"{m.tm_score_to_base:.2f}" if m.tm_score_to_base else "N/A"
                     })
+                    if esm2_deltas is not None:
+                        _d = esm2_deltas.get(m.mutant_aa)
+                        data[-1]["ESM-2 ΔLL"] = f"{_d:+.2f}" if _d is not None else "N/A"
+                        data[-1]["ESM-2 verdict"] = _esm2_verdict(_d) if _d is not None else "N/A"
                     if include_cad:
                         cad = get_extra_metric(m, "cad_score", "cad_score")
                         data[-1]["CAD-score"] = f"{cad:.3f}" if cad is not None else "N/A"
@@ -2700,6 +2768,19 @@ with tab_manual:
                                 data[-1][label] = f"{value:.3f}"
             _render_interpretation_legend(is_immunebuilder)
             st.dataframe(pd.DataFrame(data), use_container_width=True)
+            if esm2_deltas is None:
+                st.caption(
+                    "ℹ️ **ESM-2 ΔLL** column is hidden because ESM-2 is disabled "
+                    "(PDHUB_ESM2=0) or fair-esm/torch isn't installed. It scores each "
+                    "substitution's evolutionary plausibility (Δ < −5 ≈ likely deleterious)."
+                )
+            if not any_ost:
+                st.caption(
+                    "ℹ️ **OST lDDT / RMSD(CA) vs WT show N/A** because OpenStructure "
+                    "comprehensive scoring is off (or not installed). Enable "
+                    "**'OpenStructure comprehensive'** in ⚙️ Advanced options and run "
+                    "a baseline structure first to populate lDDT vs wild-type."
+                )
 
         with tab3:
             if st.session_state.comparison_mutation:
