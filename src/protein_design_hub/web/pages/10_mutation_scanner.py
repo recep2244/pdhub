@@ -617,6 +617,73 @@ def _esm2_verdict(delta) -> str:
         return ""
 
 
+def _assess_candidate(m, sequence: str, esm2_delta=None) -> dict:
+    """Immunology/developability assessment for one mutation.
+
+    Returns ``{verdict, chips, liabilities}`` — a go/caution/no-go call plus the
+    specific liabilities a reviewer screens for (aggregation, new PTM sequon,
+    free Cys, fold drift, ESM-2 deleterious). Chips are (text, severity) with
+    severity in {"bad","warn"}.
+    """
+    chips = []
+    wt = (getattr(m, "original_aa", "") or "")
+    mt = (getattr(m, "mutant_aa", "") or "")
+    pos = getattr(m, "position", None)
+    try:
+        from protein_design_hub.analysis.mutation_scoring import (
+            developability_delta, introduces_ptm_liability, substitution_risk,
+        )
+        for f in developability_delta(wt, mt).get("flags", []):
+            chips.append((f, "warn"))
+        for f in substitution_risk(wt, mt).get("flags", []):
+            chips.append((f, "warn"))
+        if sequence and isinstance(pos, int) and 1 <= pos <= len(sequence) and mt in "ACDEFGHIKLMNPQRSTVWY":
+            mutseq = sequence[: pos - 1] + mt + sequence[pos:]
+            if introduces_ptm_liability(sequence, mutseq) > 0:
+                chips.append(("new PTM liability", "bad"))
+    except Exception:
+        pass
+    rmsd = getattr(m, "rmsd_to_base", None)
+    if isinstance(rmsd, (int, float)) and rmsd > 2.0:
+        chips.append((f"fold drift {rmsd:.1f}Å", "bad"))
+    if esm2_delta is not None:
+        if esm2_delta < -5:
+            chips.append(("ESM-2 deleterious", "bad"))
+        elif esm2_delta < -2:
+            chips.append(("ESM-2 ambiguous", "warn"))
+    n_bad = sum(1 for _, s in chips if s == "bad")
+    n_warn = sum(1 for _, s in chips if s == "warn")
+    if n_bad:
+        verdict = "🔴 High-risk"
+    elif n_warn:
+        verdict = "🟡 Caution"
+    else:
+        verdict = "🟢 Developable"
+    return {"verdict": verdict, "chips": chips, "liabilities": n_bad + n_warn}
+
+
+def _chips_text(chips) -> str:
+    """Compact one-cell summary of liability chips for a dataframe."""
+    if not chips:
+        return "—"
+    return "; ".join(("🔴 " if s == "bad" else "🟡 ") + t for t, s in chips)
+
+
+def _render_chips_html(chips) -> str:
+    """Colored pill chips for hero/card display."""
+    if not chips:
+        return '<span style="color:#22c55e;font-weight:600;">no liabilities flagged</span>'
+    pills = []
+    for text, sev in chips:
+        bg = "rgba(239,68,68,0.18)" if sev == "bad" else "rgba(234,179,8,0.18)"
+        bd = "#ef4444" if sev == "bad" else "#eab308"
+        pills.append(
+            f'<span style="display:inline-block;margin:2px;padding:2px 8px;border-radius:10px;'
+            f'background:{bg};border:1px solid {bd};font-size:12px;">{text}</span>'
+        )
+    return "".join(pills)
+
+
 def _render_interpretation_legend(immunebuilder: bool = False) -> None:
     """Compact 'how to read these results' panel shown above results tables."""
     metric = "Δ Error (Å) — **lower is better**" if immunebuilder else "Δ pLDDT — **higher is better**"
@@ -2564,6 +2631,25 @@ with tab_manual:
                 </div>
                 """, unsafe_allow_html=True)
 
+                # At-a-glance metric tiles + developability verdict for the best candidate.
+                _ba = _assess_candidate(best_mut, res.sequence, _best_esm2)
+                _mt1, _mt2, _mt3c, _mt4 = st.columns(4)
+                _mt1.metric(
+                    "Site pLDDT" if not is_immunebuilder else "Site error (Å)",
+                    f"{best_mut.local_plddt:.1f}", f"{best_mut.delta_local_plddt:+.2f}",
+                    delta_color="normal" if not is_immunebuilder else "inverse",
+                )
+                _mt2.metric("ESM-2 ΔLL", f"{_best_esm2:+.2f}" if _best_esm2 is not None else "N/A",
+                            _esm2_verdict(_best_esm2) if _best_esm2 is not None else None,
+                            delta_color="off")
+                _mt3c.metric("RMSD vs WT", f"{best_mut.rmsd_to_base:.2f} Å" if getattr(best_mut, "rmsd_to_base", None) else "N/A")
+                _mt4.metric("Liabilities", _ba["liabilities"], _ba["verdict"], delta_color="off")
+                st.markdown(
+                    f'<div style="margin:-6px 0 14px 0;"><b>Developability:</b> {_ba["verdict"]}'
+                    f'&nbsp; {_render_chips_html(_ba["chips"])}</div>',
+                    unsafe_allow_html=True,
+                )
+
                 # Integration Controls
                 c1, c2 = st.columns([1, 1])
                 with c1:
@@ -2732,22 +2818,22 @@ with tab_manual:
                     if is_immunebuilder:
                         mean_label = "Mean error (Å)"
                         delta_label = "Δ Error (Å)"
+                    _e = esm2_deltas.get(m.mutant_aa) if esm2_deltas else None
+                    _assess = _assess_candidate(m, res.sequence, _e)
                     data.append({
                         "Mutation": _mut3(m.mutation_code),
+                        "Verdict": _assess["verdict"],
                         "Effect": _effect_badge(m.delta_local_plddt if not is_immunebuilder else m.delta_mean_plddt, is_immunebuilder),
-                        site_label: f"{m.local_plddt:.1f}",
+                        site_label: round(float(m.local_plddt), 1),
                         "Δ Site": f"{m.delta_local_plddt:+.2f}",
+                        "ESM-2 ΔLL": (round(float(_e), 2) if _e is not None else None),
+                        "RMSD (Å)": f"{m.rmsd_to_base:.2f}" if m.rmsd_to_base else "N/A",
                         mean_label: f"{m.mean_plddt:.1f}",
                         delta_label: f"{m.delta_mean_plddt:+.2f}",
-                        "RMSD (Å)": f"{m.rmsd_to_base:.2f}" if m.rmsd_to_base else "N/A",
                         "Clash Score": f"{m.clash_score:.2f}" if m.clash_score else "N/A",
                         "SASA (Å²)": f"{m.sasa_total:.0f}" if m.sasa_total else "N/A",
-                        "TM-score": f"{m.tm_score_to_base:.2f}" if m.tm_score_to_base else "N/A"
+                        "TM-score": f"{m.tm_score_to_base:.2f}" if m.tm_score_to_base else "N/A",
                     })
-                    if esm2_deltas is not None:
-                        _d = esm2_deltas.get(m.mutant_aa)
-                        data[-1]["ESM-2 ΔLL"] = f"{_d:+.2f}" if _d is not None else "N/A"
-                        data[-1]["ESM-2 verdict"] = _esm2_verdict(_d) if _d is not None else "N/A"
                     if include_cad:
                         cad = get_extra_metric(m, "cad_score", "cad_score")
                         data[-1]["CAD-score"] = f"{cad:.3f}" if cad is not None else "N/A"
@@ -2766,8 +2852,23 @@ with tab_manual:
                                 data[-1][label] = f"{value:.2f}"
                             else:
                                 data[-1][label] = f"{value:.3f}"
+                    data[-1]["Liabilities"] = _chips_text(_assess["chips"])
             _render_interpretation_legend(is_immunebuilder)
-            st.dataframe(pd.DataFrame(data), use_container_width=True)
+            _col_cfg = {
+                "Verdict": st.column_config.TextColumn("Verdict", help="Developability call: 🟢 Developable / 🟡 Caution / 🔴 High-risk"),
+                "ESM-2 ΔLL": st.column_config.NumberColumn(
+                    "ESM-2 ΔLL", format="%+.2f",
+                    help="ESM-2 zero-shot Δlog-likelihood; ≥−2 tolerated, <−5 likely deleterious"),
+                "Liabilities": st.column_config.TextColumn("Liabilities", width="large"),
+            }
+            if not is_immunebuilder:
+                _col_cfg[site_label] = st.column_config.ProgressColumn(
+                    site_label, help="Per-residue confidence at the mutated site (0–100)",
+                    min_value=0, max_value=100, format="%.1f")
+            st.dataframe(
+                pd.DataFrame(data), use_container_width=True, hide_index=True,
+                column_config=_col_cfg,
+            )
             if esm2_deltas is None:
                 st.caption(
                     "ℹ️ **ESM-2 ΔLL** column is hidden because ESM-2 is disabled "
