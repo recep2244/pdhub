@@ -684,6 +684,153 @@ def _render_chips_html(chips) -> str:
     return "".join(pills)
 
 
+def _ost_for(m, field: str):
+    """OST metric for a mutant: from its own extra_metrics, else the on-demand
+    'vs WT' cache populated by the Compute-OST button."""
+    v = get_ost_global_metric(m, field)
+    if v is not None:
+        return v
+    cache = st.session_state.get("ost_vs_wt_cache", {})
+    rec = cache.get(getattr(m, "mutation_code", ""))
+    if isinstance(rec, dict):
+        return rec.get(field)
+    return None
+
+
+def _compute_ost_vs_wt(res, wt_path) -> int:
+    """Compute OST lDDT/RMSD(CA)/TM of every successful mutant vs the WT
+    structure and cache by mutation_code. Returns the count scored."""
+    from protein_design_hub.web.agent_helpers import score_mutant_with_ost_molprobity
+    cache = st.session_state.setdefault("ost_vs_wt_cache", {})
+    muts = [m for m in res.mutations if m.success and getattr(m, "structure_path", None)]
+    if not muts:
+        return 0
+    prog = st.progress(0.0, text="Scoring mutants vs wild-type with OpenStructure…")
+    done = 0
+    for i, m in enumerate(muts):
+        try:
+            out = score_mutant_with_ost_molprobity(
+                Path(m.structure_path), Path(wt_path),
+                getattr(m, "position", 1), m.mutation_code,
+            )
+            sr = (out or {}).get("result")
+            om = getattr(sr, "ost_metrics", {}) if sr else {}
+            cache[m.mutation_code] = {
+                "lddt": om.get("ost.lddt"),
+                "rmsd_ca": om.get("ost.rmsd"),
+                "tm_score": om.get("ost.tm_score"),
+            }
+            if om.get("ost.lddt") is not None:
+                done += 1
+        except Exception:
+            pass
+        prog.progress((i + 1) / len(muts))
+    prog.empty()
+    return done
+
+
+def _immunologist_brief(best_mut, res, esm2_delta, assessment) -> str:
+    """Immunologist-style interpretation + layered recommendations (markdown).
+
+    Synthesises confidence / fold / evolutionary / liability signals into a
+    go-caution-no-go narrative with concrete mitigations, assays, combination
+    strategy and (for antibodies) CDR + immunogenicity context.
+    """
+    wt = getattr(best_mut, "original_aa", "?")
+    mt = getattr(best_mut, "mutant_aa", "?")
+    pos = getattr(best_mut, "position", "?")
+    site = getattr(best_mut, "local_plddt", None)
+    rmsd = getattr(best_mut, "rmsd_to_base", None)
+    ost_l = _ost_for(best_mut, "lddt")
+    chips = assessment.get("chips", [])
+    chip_labels = [t for t, _ in chips]
+    seq = getattr(res, "sequence", "") or ""
+
+    # ── optional antibody/immunogenicity enrichment ──
+    cdr_note = ""
+    immuno_note = ""
+    is_ab = getattr(res, "predictor", "") == "immunebuilder"
+    try:
+        from protein_design_hub.analysis.antibody_numbering import detect_chain_type, annotate_antibody
+        ctype, conf = detect_chain_type(seq)
+        if ctype and conf and conf > 0.5:
+            is_ab = True
+            ann = annotate_antibody(seq)
+            in_cdr = next((c.name for c in getattr(ann, "cdrs", []) if c.start <= pos <= c.end), None)
+            cdr_note = (f"Position {pos} lies in **{in_cdr}** — mutations here drive binding *and* "
+                        f"immunogenicity; prioritise an SPR/BLI affinity check."
+                        if in_cdr else
+                        f"Position {pos} is in framework — lower binding risk, but still screen for new T-cell epitopes.")
+    except Exception:
+        pass
+    try:
+        if seq and isinstance(pos, int) and 1 <= pos <= len(seq) and mt in "ACDEFGHIKLMNPQRSTVWY":
+            from protein_design_hub.analysis.immunogenicity import analyze_immunogenicity
+            mutseq = seq[: pos - 1] + mt + seq[pos:]
+            wt_im = analyze_immunogenicity(seq).immunogenicity_score
+            mt_im = analyze_immunogenicity(mutseq).immunogenicity_score
+            d = mt_im - wt_im
+            if abs(d) >= 1:
+                immuno_note = (f"MHC-II immunogenicity score {wt_im:.0f}→{mt_im:.0f} "
+                               f"({'+' if d>=0 else ''}{d:.0f}) — "
+                               f"{'⚠️ introduces/strengthens a T-cell epitope; consider a deimmunising alternative' if d>0 else 'reduces predicted T-cell epitope risk'}.")
+    except Exception:
+        pass
+
+    # ── interpretation ──
+    lines = ["#### 🧬 Immunologist's assessment", ""]
+    verdict = assessment.get("verdict", "")
+    lines.append(f"**Call: {verdict}** for `{_mut3(getattr(best_mut,'mutation_code',''))}` "
+                 f"({wt}{pos}{mt}).")
+    interp = []
+    if site is not None:
+        interp.append(f"the predictor is {'confident' if site>=70 else 'uncertain'} at the site "
+                      f"(per-residue pLDDT {site:.0f})")
+    if esm2_delta is not None:
+        interp.append(f"ESM-2 rates the substitution "
+                      f"{'evolutionarily plausible' if esm2_delta>=-2 else 'unlikely (low evolutionary support)'} "
+                      f"(ΔLL {esm2_delta:+.2f})")
+    if ost_l is not None:
+        interp.append(f"the fold is {'preserved' if ost_l>=0.9 else 'perturbed'} vs WT (OST lDDT {ost_l:.3f})")
+    elif rmsd is not None:
+        interp.append(f"backbone {'stays close to' if rmsd<2 else 'drifts from'} WT (RMSD {rmsd:.2f} Å)")
+    if interp:
+        lines.append("Interpretation: " + "; ".join(interp) + ".")
+    if cdr_note:
+        lines.append(cdr_note)
+    if immuno_note:
+        lines.append(immuno_note)
+
+    # ── layered recommendations ──
+    recs = []
+    low = " ".join(chip_labels).lower()
+    if "aggregation" in low:
+        recs.append("**Aggregation:** confirm by SEC-HPLC/SEC-MALS + DLS; consider pairing with a "
+                    "surface charge/polar mutation, or revert if expression titre drops.")
+    if "ptm" in low:
+        recs.append("**PTM liability:** map by peptide LC-MS/MS; mitigate site-specifically "
+                    "(deamidation N→Q, isomerisation D→E, N-glycosylation: break the N-x-S/T sequon). "
+                    "Treat as a release-spec risk if in a CDR.")
+    if "free cys" in low:
+        recs.append("**Free cysteine:** risk of mispairing/covalent dimers — verify by non-reducing "
+                    "SDS-PAGE/LC-MS; pair or revert unless a disulfide is intended.")
+    if "fold drift" in low or (site is not None and site < 70):
+        recs.append("**Fold uncertainty:** re-predict with an orthogonal model (ColabFold/Boltz-2) and "
+                    "measure thermostability by nanoDSF/DSF (ΔTm vs WT) before committing.")
+    if esm2_delta is not None and esm2_delta < -5:
+        recs.append("**Low evolutionary support (ESM-2):** down-prioritise unless a specific mechanistic "
+                    "rationale exists; favour higher-ΔLL alternatives at the same position.")
+    if is_ab:
+        recs.append("**Immunogenicity:** run an MHC-II epitope scan + humanness check on the variant; "
+                    "prefer germline-consistent substitutions; for lead candidates, plan an MAPPs/EpiScreen assay.")
+    recs.append("**Validation ladder:** (1) express (E. coli/HEK293), (2) nanoDSF Tm + SEC purity, "
+                "(3) SPR/BLI binding if functional, (4) developability panel (PSR, HIC, self-interaction) for leads.")
+    lines.append("")
+    lines.append("**Recommendations (prioritised):**")
+    lines.extend(f"- {r}" for r in recs)
+    return "\n".join(lines)
+
+
 def _render_interpretation_legend(immunebuilder: bool = False) -> None:
     """Compact 'how to read these results' panel shown above results tables."""
     metric = "Δ Error (Å) — **lower is better**" if immunebuilder else "Δ pLDDT — **higher is better**"
@@ -2649,6 +2796,9 @@ with tab_manual:
                     f'&nbsp; {_render_chips_html(_ba["chips"])}</div>',
                     unsafe_allow_html=True,
                 )
+                # Immunologist interpretation + layered recommendations for the best candidate.
+                with st.container(border=True):
+                    st.markdown(_immunologist_brief(best_mut, res, _best_esm2, _ba))
 
                 # Integration Controls
                 c1, c2 = st.columns([1, 1])
@@ -2804,10 +2954,18 @@ with tab_manual:
             # conditional to avoid clutter.
             include_ost = {
                 field: (field in {"lddt", "rmsd_ca"})
-                or any(get_ost_global_metric(m, field) is not None for m in res.mutations)
+                or any(_ost_for(m, field) is not None for m in res.mutations)
                 for field, _ in ost_fields
             }
-            any_ost = any(get_ost_global_metric(m, "lddt") is not None for m in res.mutations)
+            any_ost = any(_ost_for(m, "lddt") is not None for m in res.mutations)
+            # On-demand: compute OST lDDT / RMSD(CA) of every mutant vs the WT structure.
+            _wt_struct = st.session_state.get("base_structure_path")
+            if _wt_struct and Path(_wt_struct).exists():
+                if st.button("🔬 Compute OST lDDT / RMSD(CA) vs wild-type (all candidates)",
+                             key="compute_ost_all", help="Runs OpenStructure compare-structures for each mutant against the WT structure"):
+                    n = _compute_ost_vs_wt(res, _wt_struct)
+                    st.success(f"Computed OST metrics vs WT for {n} mutant(s).")
+                    any_ost = any(_ost_for(m, "lddt") is not None for m in res.mutations)
             site_label = "Site error (Å)" if is_immunebuilder else "Site pLDDT (per-residue)"
             esm2_deltas = _esm2_scan_deltas(res.sequence, res.position)
             data = []
@@ -2845,7 +3003,7 @@ with tab_manual:
                         data[-1]["OpenMM (kJ/mol)"] = f"{openmm:.1f}" if openmm is not None else "N/A"
                     for field, label in ost_fields:
                         if include_ost[field]:
-                            value = get_ost_global_metric(m, field)
+                            value = _ost_for(m, field)
                             if value is None:
                                 data[-1][label] = "N/A"
                             elif field in {"rmsd_ca"}:
@@ -2877,10 +3035,9 @@ with tab_manual:
                 )
             if not any_ost:
                 st.caption(
-                    "ℹ️ **OST lDDT / RMSD(CA) vs WT show N/A** because OpenStructure "
-                    "comprehensive scoring is off (or not installed). Enable "
-                    "**'OpenStructure comprehensive'** in ⚙️ Advanced options and run "
-                    "a baseline structure first to populate lDDT vs wild-type."
+                    "ℹ️ **OST lDDT / RMSD(CA) vs WT show N/A** until computed. Click "
+                    "**'Compute OST lDDT / RMSD(CA) vs wild-type'** above (needs a WT/base "
+                    "structure and OpenStructure) to populate them against wild-type."
                 )
 
         with tab3:
