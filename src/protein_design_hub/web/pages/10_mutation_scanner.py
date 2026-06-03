@@ -741,6 +741,61 @@ def _ost_compare(mut_path, wt_path, position) -> dict:
     }
 
 
+def _foldx_available() -> bool:
+    try:
+        from protein_design_hub.energy.paths import find_foldx_executable
+        return find_foldx_executable() is not None
+    except Exception:
+        return False
+
+
+def _foldx_ddg_for(m):
+    """FoldX Stability ΔΔG (mutant − WT, kcal/mol) from the on-demand cache."""
+    rec = st.session_state.get("foldx_ddg_cache", {}).get(getattr(m, "mutation_code", ""))
+    return rec if isinstance(rec, (int, float)) else None
+
+
+def _compute_foldx_ddg_vs_wt(res, wt_path, mutants=None) -> int:
+    """FoldX Stability ΔΔG = total_energy(mutant) − total_energy(WT), per mutant.
+
+    Mirrors the reference foldx.sh Stability workflow (each predicted mutant
+    structure scored, differenced against WT). Cached by mutation_code; returns
+    the count scored. No-op/graceful if FoldX is unavailable or its license is
+    expired (the per-mutant call raises, leaving N/A).
+    """
+    import tempfile
+    from protein_design_hub.energy.foldx import run_foldx_stability
+    cache = st.session_state.setdefault("foldx_ddg_cache", {})
+    wt_cache_key = "_foldx_wt_total"
+    pool = mutants if mutants is not None else getattr(res, "mutations", [])
+    muts = [m for m in pool if getattr(m, "success", False) and getattr(m, "structure_path", None)
+            and m.mutation_code not in cache]
+    if not muts:
+        return 0
+    prog = st.progress(0.0, text="Scoring FoldX Stability vs wild-type…")
+    done = 0
+    with tempfile.TemporaryDirectory(prefix="foldx_ddg_") as td:
+        # WT total energy (once).
+        wt_total = st.session_state.get(wt_cache_key)
+        if wt_total is None:
+            try:
+                wt_total = run_foldx_stability(Path(wt_path), Path(td) / "wt").get("foldx_total_energy_kcal_mol")
+                st.session_state[wt_cache_key] = wt_total
+            except Exception:
+                wt_total = None
+        for i, m in enumerate(muts):
+            try:
+                mt = run_foldx_stability(Path(m.structure_path), Path(td) / m.mutation_code).get("foldx_total_energy_kcal_mol")
+                cache[m.mutation_code] = (mt - wt_total) if (mt is not None and wt_total is not None) else None
+                if cache[m.mutation_code] is not None:
+                    done += 1
+            except Exception:
+                cache[m.mutation_code] = None
+            prog.progress((i + 1) / len(muts))
+    prog.empty()
+    return done
+
+
 def _ost_for(m, field: str):
     """OST metric for a mutant: from its own extra_metrics, else the on-demand
     'vs WT' cache populated by the Compute-OST button."""
@@ -1012,12 +1067,20 @@ def _render_ds_insights(res, esm2_deltas) -> None:
                "formal charge, BLOSUM62).")
 
 
-def _biophysicist_verdict(m, esm2_delta, ost_lddt) -> tuple:
-    """Biophysicist call: is the variant folded + stable? Returns (verdict, info)."""
+def _biophysicist_verdict(m, esm2_delta, ost_lddt, foldx_ddg=None) -> tuple:
+    """Biophysicist call: is the variant folded + stable? Returns (verdict, info).
+
+    Stability uses FoldX ΔΔG (gold standard) when available, else the
+    sequence-based heuristic ΔΔG.
+    """
     from protein_design_hub.analysis.mutation_scoring import substitution_risk
     rmsd = getattr(m, "rmsd_to_base", None)
     clash = getattr(m, "clash_score", None)
-    ddg = substitution_risk(getattr(m, "original_aa", ""), getattr(m, "mutant_aa", "")).get("ddg_kcal", 0.0)
+    if isinstance(foldx_ddg, (int, float)):
+        ddg, ddg_src = float(foldx_ddg), "foldx"
+    else:
+        ddg = substitution_risk(getattr(m, "original_aa", ""), getattr(m, "mutant_aa", "")).get("ddg_kcal", 0.0)
+        ddg_src = "heuristic"
     fold_ok = (ost_lddt is not None and ost_lddt >= 0.9) or \
               (ost_lddt is None and isinstance(rmsd, (int, float)) and rmsd < 2.0)
     fold_bad = (ost_lddt is not None and ost_lddt < 0.8) or \
@@ -1030,7 +1093,7 @@ def _biophysicist_verdict(m, esm2_delta, ost_lddt) -> tuple:
         v = "🟢 Stable & folded"
     else:
         v = "🟡 Marginal"
-    return v, {"ddg": ddg, "ost_lddt": ost_lddt, "rmsd": rmsd, "clash": clash}
+    return v, {"ddg": ddg, "ddg_src": ddg_src, "ost_lddt": ost_lddt, "rmsd": rmsd, "clash": clash}
 
 
 def _consensus_recommendation(res, esm2_deltas):
@@ -1065,7 +1128,7 @@ def _consensus_recommendation(res, esm2_deltas):
     for i, m in enumerate(muts):
         ds = 0.4 * zs[i] + 0.3 * ze[i] + 0.2 * zl[i] - 0.1 * zr[i]
         immuno = _assess_candidate(m, seq, esm[i])
-        bio_v, bio = _biophysicist_verdict(m, esm[i], lddt[i])
+        bio_v, bio = _biophysicist_verdict(m, esm[i], lddt[i], foldx_ddg=_foldx_ddg_for(m))
         rows.append({
             "m": m, "code": getattr(m, "mutation_code", ""), "ds": ds,
             "immuno_verdict": immuno["verdict"], "immuno_ok": "High-risk" not in immuno["verdict"],
@@ -3010,14 +3073,22 @@ with tab_manual:
         # only the top-ranked candidates (what the recommendations/consensus need);
         # the Detailed Metrics tab offers a button to score the rest.
         _OST_AUTO_TOP_N = 12
+        _ranked = getattr(res, "ranked_mutations", None) or [
+            m for m in res.mutations if getattr(m, "success", False)]
         if _ost_ready:
-            _ranked = getattr(res, "ranked_mutations", None) or [
-                m for m in res.mutations if getattr(m, "success", False)]
             _auto = [m for m in _ranked
                      if getattr(m, "structure_path", None)
                      and m.mutation_code not in st.session_state.get("ost_vs_wt_cache", {})][:_OST_AUTO_TOP_N]
             if _auto:
                 _compute_ost_vs_wt(res, _wt_path, mutants=_auto)
+        # FoldX Stability ΔΔG (mutant − WT) — fast (~0.25 s/structure); auto-score
+        # the top candidates when a valid FoldX binary + WT structure are present.
+        if _wt_path and _foldx_available():
+            _fauto = [m for m in _ranked
+                      if getattr(m, "structure_path", None)
+                      and m.mutation_code not in st.session_state.get("foldx_ddg_cache", {})][:_OST_AUTO_TOP_N]
+            if _fauto:
+                _compute_foldx_ddg_vs_wt(res, _wt_path, mutants=_fauto)
 
         # Auto-insight on scan results
         scan_insight_data: Dict[str, Any] = {
@@ -3307,6 +3378,7 @@ with tab_manual:
                         site_label: round(float(m.local_plddt), 1),
                         "Δ Site": f"{m.delta_local_plddt:+.2f}",
                         "ESM-2 ΔLL": (round(float(_e), 2) if _e is not None else None),
+                        "FoldX ΔΔG": (round(float(_foldx_ddg_for(m)), 2) if _foldx_ddg_for(m) is not None else None),
                         "RMSD (Å)": f"{m.rmsd_to_base:.2f}" if m.rmsd_to_base else "N/A",
                         mean_label: f"{m.mean_plddt:.1f}",
                         delta_label: f"{m.delta_mean_plddt:+.2f}",
@@ -3339,6 +3411,9 @@ with tab_manual:
                 "ESM-2 ΔLL": st.column_config.NumberColumn(
                     "ESM-2 ΔLL", format="%+.2f",
                     help="ESM-2 zero-shot Δlog-likelihood; ≥−2 tolerated, <−5 likely deleterious"),
+                "FoldX ΔΔG": st.column_config.NumberColumn(
+                    "FoldX ΔΔG", format="%+.2f",
+                    help="FoldX Stability ΔΔG vs WT (kcal/mol); <0 stabilising, >0 destabilising"),
                 "Liabilities": st.column_config.TextColumn("Liabilities", width="large"),
             }
             if not is_immunebuilder:

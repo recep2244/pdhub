@@ -61,24 +61,64 @@ def find_rosetta_executable(
     return None
 
 
+_FOLDX_NAMES = ("foldx", "FoldX", "foldxLinux64", "FoldXLinux64")
+# FoldX 5.x ships a dated binary (e.g. foldx_20251231); match those too.
+_FOLDX_GLOBS = ("foldx_*", "foldx5*", "foldx")
+
+
+def _project_foldx_dir() -> Path:
+    """Vendored FoldX directory inside the project (``<repo>/tools/foldx``)."""
+    return Path(__file__).resolve().parents[3] / "tools" / "foldx"
+
+
+def _scan_dir_for_foldx(d: Path) -> Optional[Path]:
+    if not d.is_dir():
+        return None
+    for name in _FOLDX_NAMES:
+        cand = d / name
+        if cand.exists() and os.access(cand, os.X_OK):
+            return cand
+    for pat in _FOLDX_GLOBS:
+        for cand in sorted(d.glob(pat)):
+            if cand.is_file() and os.access(cand, os.X_OK):
+                return cand
+    return None
+
+
 def find_foldx_executable() -> Optional[Path]:
-    """
-    FoldX is distributed as a binary and is not freely redistributable.
-    We only locate it if already installed.
+    """Locate the FoldX binary.
+
+    Search order: ``$FOLDX_BIN``/``$FOLDX`` (file or dir) → project-vendored
+    ``tools/foldx`` → PATH. Matches both classic names and FoldX 5's dated
+    binaries (``foldx_YYYYMMDD``).
     """
     env = os.environ.get("FOLDX_BIN") or os.environ.get("FOLDX")
     if env:
         p = Path(env).expanduser()
-        if p.is_dir():
-            for name in ("foldx", "FoldX", "foldxLinux64", "FoldXLinux64"):
-                cand = p / name
-                if cand.exists() and os.access(cand, os.X_OK):
-                    return cand
-        if p.exists() and os.access(p, os.X_OK):
+        if p.is_file() and os.access(p, os.X_OK):
             return p
+        hit = _scan_dir_for_foldx(p)
+        if hit:
+            return hit
 
-    for name in ("foldx", "FoldX", "foldxLinux64", "FoldXLinux64"):
+    hit = _scan_dir_for_foldx(_project_foldx_dir())
+    if hit:
+        return hit
+
+    for name in _FOLDX_NAMES:
         p = which(name)
         if p:
             return p
+    return None
+
+
+def get_foldx_molecules_dir() -> Optional[Path]:
+    """Return the FoldX ``molecules/`` library dir (needed in the run cwd).
+
+    Looks next to the resolved binary, then in the vendored project dir.
+    """
+    exe = find_foldx_executable()
+    for base in [exe.parent if exe else None, _project_foldx_dir()]:
+        if base and (base / "molecules").is_dir():
+            return base / "molecules"
     return None

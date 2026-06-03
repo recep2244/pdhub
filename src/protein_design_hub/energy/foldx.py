@@ -7,12 +7,33 @@ predicted) input structure. ``run_foldx_buildmodel`` repairs by default.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from protein_design_hub.core.exceptions import EvaluationError
-from protein_design_hub.energy.paths import find_foldx_executable
+from protein_design_hub.energy.paths import find_foldx_executable, get_foldx_molecules_dir
+
+
+def _stage_molecules(out_dir: Path) -> None:
+    """FoldX 5 reads its rotamer library from ``molecules/`` in the working
+    directory. Symlink (or copy) the library into ``out_dir`` so the wrappers,
+    which run in ``out_dir``, can find it."""
+    target = out_dir / "molecules"
+    if target.exists():
+        return
+    mol = get_foldx_molecules_dir()
+    if mol is None:
+        return
+    try:
+        os.symlink(mol, target)
+    except OSError:
+        try:
+            import shutil
+            shutil.copytree(mol, target)
+        except Exception:
+            pass
 
 
 def run_foldx_repair(
@@ -32,6 +53,7 @@ def run_foldx_repair(
     exe = foldx_path or find_foldx_executable()
     if exe is None:
         raise EvaluationError("foldx", "FoldX executable not found (set FOLDX_BIN or add to PATH)")
+    _stage_molecules(out_dir)
 
     work_pdb = out_dir / pdb_path.name
     if work_pdb.resolve() != pdb_path.resolve():
@@ -256,3 +278,86 @@ def _is_float(s: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def run_foldx_stability(
+    pdb_path: Path,
+    out_dir: Path,
+    foldx_path: Optional[Path] = None,
+) -> Dict[str, float]:
+    """Run FoldX ``Stability`` (monomer total folding energy) on one structure.
+
+    Mirrors the reference ``foldx.sh`` workflow. Returns the total energy parsed
+    from the ``<stem>_0_ST.fxout`` report (column 2). Lower = more stable.
+
+    Returns ``{"foldx_total_energy_kcal_mol": <float>}``.
+    """
+    pdb_path = Path(pdb_path)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    exe = foldx_path or find_foldx_executable()
+    if exe is None:
+        raise EvaluationError("foldx", "FoldX executable not found (set FOLDX_BIN or add to PATH)")
+    _stage_molecules(out_dir)
+
+    work_pdb = out_dir / pdb_path.name
+    work_pdb.write_bytes(pdb_path.read_bytes())
+
+    cmd = [str(exe), "--command=Stability", f"--pdb={work_pdb.name}"]
+    result = subprocess.run(cmd, cwd=str(out_dir), capture_output=True, text=True, timeout=3600)
+
+    total = _find_stability_total(out_dir, work_pdb.stem)
+    if total is None:
+        raise EvaluationError(
+            "foldx",
+            (result.stderr or result.stdout or "Stability produced no _ST.fxout").strip()[:400],
+        )
+    return {"foldx_total_energy_kcal_mol": float(total)}
+
+
+def _find_stability_total(out_dir: Path, stem: str) -> Optional[float]:
+    """Parse the total folding energy (column 2) from a FoldX ``*_ST.fxout``."""
+    candidates = sorted(out_dir.glob(f"{stem}*_ST.fxout"), key=lambda p: p.stat().st_mtime, reverse=True)
+    candidates += sorted(out_dir.glob("*_ST.fxout"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for path in candidates:
+        try:
+            for line in path.read_text(errors="ignore").splitlines():
+                parts = line.split("\t") if "\t" in line else line.split()
+                # Row format: <pdb>\t<TotalEnergy>\t<...>
+                if len(parts) >= 2 and _is_float(parts[1]):
+                    return float(parts[1])
+        except OSError:
+            continue
+    return None
+
+
+def summarize_stability(values: List[float]) -> Dict[str, float]:
+    """Descriptive stats over a set of FoldX stability energies (e.g. across a
+    mutant library). Ports the reference ``foldx_extraction.py`` summary:
+    mean/median/min/max, skewness, kurtosis, max-negative-gradient, overall slope.
+    """
+    import numpy as np
+    arr = np.asarray([v for v in values if isinstance(v, (int, float))], dtype=float)
+    if arr.size == 0:
+        return {}
+    out: Dict[str, float] = {
+        "mean": float(np.mean(arr)),
+        "median": float(np.median(arr)),
+        "min": float(np.min(arr)),
+        "max": float(np.max(arr)),
+    }
+    if arr.size > 2:
+        try:
+            from scipy.stats import kurtosis, skew
+            out["skewness"] = float(skew(arr))
+            if arr.size > 3:
+                out["kurtosis"] = float(kurtosis(arr))
+        except Exception:
+            pass
+    diffs = np.diff(arr)
+    if diffs.size:
+        out["max_negative_gradient"] = float(np.min(diffs))
+    if arr.size > 1:
+        out["overall_slope"] = float((arr[-1] - arr[0]) / (arr.size - 1))
+    return out

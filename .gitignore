@@ -181,3 +181,7 @@ colabfold_envdb/
 
 # Claude Code local settings (machine-specific)
 .claude/
+
+# Vendored FoldX (non-redistributable; license must be renewed)
+tools/foldx/foldx_*
+tools/foldx/molecules/
