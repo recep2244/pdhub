@@ -49,8 +49,8 @@ EVALUATE_CSS = """
 <style>
 /* Evaluation Panel Styling */
 .evaluation-panel {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.05));
-    border: 1px solid rgba(99, 102, 241, 0.2);
+    background: linear-gradient(135deg, rgba(63, 224, 197, 0.08), rgba(76, 201, 240, 0.05));
+    border: 1px solid rgba(63, 224, 197, 0.2);
     border-radius: 12px;
     padding: 1.25rem;
     margin-bottom: 1rem;
@@ -59,7 +59,7 @@ EVALUATE_CSS = """
 .evaluation-panel-title {
     font-size: 0.85rem;
     font-weight: 600;
-    color: var(--pdhub-primary-light, #818cf8);
+    color: var(--pdhub-primary-light, #6bf0d8);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-bottom: 1rem;
@@ -180,12 +180,12 @@ EVALUATE_CSS = """
 }
 
 .metric-tile:hover {
-    border-color: var(--pdhub-primary, #6366f1);
+    border-color: var(--pdhub-primary, #3fe0c5);
     transform: translateY(-2px);
 }
 
 .metric-tile-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 1.4rem;
     font-weight: 600;
     color: var(--pdhub-text-heading, #e5e7eb);
@@ -277,7 +277,7 @@ EVALUATE_CSS = """
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    background: var(--pdhub-primary, #6366f1);
+    background: var(--pdhub-primary, #3fe0c5);
     color: var(--pdhub-text-heading);
     display: flex;
     align-items: center;
@@ -342,7 +342,7 @@ EVALUATE_CSS = """
 }
 
 .file-status-name {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 0.85rem;
     color: var(--pdhub-text, #f1f5f9);
     flex: 1;
@@ -364,8 +364,8 @@ EVALUATE_CSS = """
 }
 
 .file-status-badge-optional {
-    background: rgba(99, 102, 241, 0.15);
-    color: #818cf8;
+    background: rgba(63, 224, 197, 0.15);
+    color: #6bf0d8;
 }
 
 /* Visual Placeholder */
@@ -2606,5 +2606,21 @@ with st.expander("ℹ️ Metric Descriptions"):
     Chain mapping and interface quality for protein-protein interfaces.
     """
     )
+
+# ── Research-backed Design QC (composite · liabilities · ipSAE) ───────────────
+try:
+    from protein_design_hub.web.qc_panel import render_research_qc
+    _qc_results = st.session_state.get("eval_results") or {}
+    _qc_global = _qc_results.get("global", {}) if isinstance(_qc_results, dict) else {}
+    _qc_job = None
+    try:
+        _qc_model = get_selected_model()
+        if _qc_model:
+            _qc_job = Path(_qc_model).parent.parent
+    except Exception:
+        _qc_job = None
+    render_research_qc(_qc_global, _qc_job)
+except Exception:
+    pass
 
 # OpenStructure status is shown in the sidebar "Tool Status" expander above

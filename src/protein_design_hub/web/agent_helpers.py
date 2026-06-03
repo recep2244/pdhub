@@ -331,7 +331,7 @@ def render_agent_advice_panel(
     reply_key = f"_agent_reply_{key_prefix}"
     adv_tool_key = f"_agent_tools_{key_prefix}"
     icon = AGENT_ICONS.get(expert, "🧬")
-    color = AGENT_COLORS.get(expert, "#6366f1")
+    color = AGENT_COLORS.get(expert, "#3fe0c5")
 
     with st.expander(f"{icon} Consult Domain Expert", expanded=False):
         col_q, col_e = st.columns([3, 1])
@@ -352,7 +352,7 @@ def render_agent_advice_panel(
                 key=f"{key_prefix}_expert",
                 label_visibility="collapsed",
             )
-            _acolor = AGENT_COLORS.get(agent_choice, "#6366f1")
+            _acolor = AGENT_COLORS.get(agent_choice, "#3fe0c5")
             _arole = AGENT_ROLES.get(agent_choice, "")
             st.markdown(
                 f'<div style="font-size:.7rem;color:{_acolor};padding:2px 0">'
@@ -631,7 +631,7 @@ def render_contextual_insight(
             break
 
     _exp_icon = AGENT_ICONS.get(expert, "🔬")
-    _exp_color = AGENT_COLORS.get(expert, "#6366f1")
+    _exp_color = AGENT_COLORS.get(expert, "#3fe0c5")
     with st.expander(f"{_exp_icon} Scientific Analysis — {expert}", expanded=False):
         st.markdown(
             f'<div style="font-size:.78rem;color:{_exp_color};margin-bottom:8px">'
@@ -930,7 +930,7 @@ AGENT_COLORS: Dict[str, str] = {
     "Principal Investigator": "#fbbf24",
     "Structural Biologist": "#60a5fa",
     "Computational Biologist": "#34d399",
-    "Machine Learning Specialist": "#818cf8",
+    "Machine Learning Specialist": "#6bf0d8",
     "Protein Engineer": "#fb923c",
     "Biophysicist": "#f472b6",
     "Digital Recep": "#a78bfa",
@@ -956,7 +956,7 @@ AGENT_ROLES: Dict[str, str] = {
 def _render_agent_response_card(agent_name: str, text: str) -> None:
     """Render a professional styled response card with agent identity header."""
     icon = AGENT_ICONS.get(agent_name, "🧬")
-    color = AGENT_COLORS.get(agent_name, "#6366f1")
+    color = AGENT_COLORS.get(agent_name, "#3fe0c5")
     role = AGENT_ROLES.get(agent_name, "Domain Expert")
     esc_name = _html.escape(agent_name)
     esc_role = _html.escape(role)
@@ -1062,8 +1062,8 @@ def render_all_experts_panel(
         st.markdown(
             '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">'
             + "".join(
-                f'<span style="background:rgba(30,36,51,0.9);border:1px solid {AGENT_COLORS.get(a,"#6366f1")}33;'
-                f'color:{AGENT_COLORS.get(a,"#6366f1")};border-radius:20px;padding:2px 10px;font-size:.7rem">'
+                f'<span style="background:rgba(30,36,51,0.9);border:1px solid {AGENT_COLORS.get(a,"#3fe0c5")}33;'
+                f'color:{AGENT_COLORS.get(a,"#3fe0c5")};border-radius:20px;padding:2px 10px;font-size:.7rem">'
                 f'{AGENT_ICONS.get(a,"🧬")} {_html.escape(a)}</span>'
                 for a in ["Principal Investigator", "Structural Biologist", "Computational Biologist",
                           "Machine Learning Specialist", "Protein Engineer", "Biophysicist",
@@ -1580,8 +1580,8 @@ _CHAT_CSS = """
     flex-shrink: 0;
 }
 .chat-avatar-user {
-    background: rgba(99, 102, 241, 0.18);
-    border: 1px solid rgba(99, 102, 241, 0.35);
+    background: rgba(63, 224, 197, 0.18);
+    border: 1px solid rgba(63, 224, 197, 0.35);
 }
 .chat-avatar-agent {
     background: rgba(168, 85, 247, 0.18);
@@ -1597,8 +1597,8 @@ _CHAT_CSS = """
     word-break: break-word;
 }
 .chat-bubble-user {
-    background: rgba(99, 102, 241, 0.13);
-    border: 1px solid rgba(99, 102, 241, 0.25);
+    background: rgba(63, 224, 197, 0.13);
+    border: 1px solid rgba(63, 224, 197, 0.25);
     border-bottom-right-radius: 4px;
     color: var(--pdhub-text, #e2e8f0);
 }
@@ -1900,7 +1900,7 @@ def render_pymolai_chatbot(key_prefix: str = "pymolai_chat", pymol_port: int = 0
                 text = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
                 text = _re.sub(
                     r'`([^`]+)`',
-                    r'<code style="background:rgba(99,102,241,0.15);padding:1px 5px;'
+                    r'<code style="background:rgba(63, 224, 197,0.15);padding:1px 5px;'
                     r'border-radius:4px;font-size:.82em">\1</code>',
                     text,
                 )
@@ -2169,7 +2169,7 @@ def render_agent_chatbot(key_prefix: str = "chatbot", pymol_port: int = 0) -> No
                 text = _html.escape(raw)
                 text = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
                 text = _re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<i>\1</i>', text)
-                text = _re.sub(r'`([^`]+)`', r'<code style="background:rgba(99,102,241,0.15);padding:1px 5px;border-radius:4px;font-size:.82em">\1</code>', text)
+                text = _re.sub(r'`([^`]+)`', r'<code style="background:rgba(63, 224, 197,0.15);padding:1px 5px;border-radius:4px;font-size:.82em">\1</code>', text)
                 text = _re.sub(r'^[\-\*]\s+', '• ', text, flags=_re.MULTILINE)
                 text = text.replace('\n', '<br>')
             chat_html_parts.append(

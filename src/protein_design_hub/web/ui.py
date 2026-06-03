@@ -88,8 +88,8 @@ def get_gpu_status_html() -> str:
         short_name = gpu["name"].split()[-1] if gpu["name"] else "GPU"
         mem_gb = gpu["memory_total_gb"]
         return f"""
-        <div style="font-size: 0.8rem; color: #22c55e; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
-            <span style="width: 8px; height: 8px; background: #22c55e; border-radius: 50%;"></span>
+        <div style="font-size: 0.8rem; color: #56d364; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+            <span class="pdhub-pulse" style="width: 8px; height: 8px; background: #56d364;"></span>
             GPU: {short_name} ({mem_gb:.0f}GB)
         </div>
         """
@@ -107,65 +107,80 @@ def get_gpu_status_html() -> str:
 
 THEME_CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
 
 /* ============================================
-   PDHUB PRO - Professional Design System v2
-   Refined for Readability & User Experience
+   PDHUB — "Phosphor Lab" Design System v3
+   Precision-instrument dark UI for protein
+   design. Cool ink base · single aquamarine
+   signal accent · hairline rules · mono labels.
    ============================================ */
 :root {
-    /* Deep Professional Dark */
-    --pdhub-bg: #0a0b0f;
-    --pdhub-canvas: #0f1015;
-    --pdhub-glass: rgba(22, 24, 32, 0.85);
-    --pdhub-border: rgba(255, 255, 255, 0.10);
-    --pdhub-border-strong: rgba(255, 255, 255, 0.18);
-    --pdhub-border-focus: rgba(99, 102, 241, 0.5);
+    /* Cool Ink Base */
+    --pdhub-bg: #080b0f;
+    --pdhub-canvas: #0d1217;
+    --pdhub-glass: rgba(16, 24, 31, 0.82);
+    --pdhub-border: rgba(126, 166, 178, 0.14);
+    --pdhub-border-strong: rgba(126, 166, 178, 0.26);
+    --pdhub-border-focus: rgba(63, 224, 197, 0.55);
 
-    /* Typography - Enhanced Readability */
-    --pdhub-text: #f1f5f9;
-    --pdhub-text-secondary: #a1a9b8;
-    --pdhub-text-muted: #6b7280;
-    --pdhub-text-heading: #e5e7eb;
+    /* Typography - Cool, high legibility */
+    --pdhub-text: #e7eef2;
+    --pdhub-text-secondary: #9bafbb;
+    --pdhub-text-muted: #8193a3;      /* WCAG AA: ~5.6:1 on card ink (was #62788a ≈2.3:1) */
+    --pdhub-text-heading: #f2f7f9;
 
-    /* Primary Brand Colors */
-    --pdhub-primary: #6366f1;
-    --pdhub-primary-light: #818cf8;
-    --pdhub-primary-dark: #4f46e5;
-    --pdhub-primary-glow: rgba(99, 102, 241, 0.25);
-    --pdhub-accent: #8b5cf6;
-    --pdhub-cyan: #06b6d4;
+    /* Signal Accent (aquamarine phosphor) */
+    --pdhub-primary: #3fe0c5;
+    --pdhub-primary-light: #6bf0d8;
+    --pdhub-primary-dark: #16b89c;
+    --pdhub-primary-glow: rgba(63, 224, 197, 0.22);
+    --pdhub-accent: #4cc9f0;
+    --pdhub-cyan: #4cc9f0;
+    --pdhub-on-signal: #04140f;          /* ink text on a filled signal surface */
 
-    /* Button Palette (Neutral Grey) */
-    --pdhub-button-bg: #1f2430;
-    --pdhub-button-bg-hover: #2a3242;
-    --pdhub-button-bg-strong: #323a4b;
-    --pdhub-button-border: #3a4257;
+    /* Canonical confidence ramp (mirrors web/science_viz.py — keep in sync).
+       Fill colours map plDDT/confidence bands; *-text is the legible on-ink variant
+       of the very-high band (the #0053d6 fill is too dark for text on cool ink). */
+    --pdhub-conf-veryhigh: #0053d6;       /* fill only */
+    --pdhub-conf-high: #65cbf3;
+    --pdhub-conf-med: #ffdb13;
+    --pdhub-conf-low: #ff7d45;
+    --pdhub-conf-veryhigh-text: #5a9cf0;  /* text variant of very-high band */
 
-    /* Status Colors - Refined */
-    --pdhub-success: #22c55e;
-    --pdhub-warning: #f59e0b;
-    --pdhub-error: #ef4444;
-    --pdhub-info: #3b82f6;
-    --pdhub-success-light: rgba(34, 197, 94, 0.15);
-    --pdhub-warning-light: rgba(245, 158, 11, 0.15);
-    --pdhub-error-light: rgba(239, 68, 68, 0.15);
-    --pdhub-info-light: rgba(59, 130, 246, 0.15);
+    /* Button Palette (ghost on ink) */
+    --pdhub-button-bg: #111921;
+    --pdhub-button-bg-hover: #18242d;
+    --pdhub-button-bg-strong: #1e2d37;
+    --pdhub-button-border: rgba(126, 166, 178, 0.22);
 
-    /* Gradients - Subtle & Professional */
-    --pdhub-grad-glow: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-    --pdhub-grad-glass: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%);
+    /* Status Colors */
+    --pdhub-success: #56d364;
+    --pdhub-warning: #ffb454;
+    --pdhub-error: #ff5d6c;
+    --pdhub-info: #4cc9f0;
+    --pdhub-success-light: rgba(86, 211, 100, 0.14);
+    --pdhub-warning-light: rgba(255, 180, 84, 0.14);
+    --pdhub-error-light: rgba(255, 93, 108, 0.14);
+    --pdhub-info-light: rgba(76, 201, 240, 0.14);
+
+    /* Gradients - signal, used sparingly */
+    --pdhub-grad-glow: linear-gradient(135deg, #3fe0c5 0%, #4cc9f0 100%);
+    --pdhub-grad-glass: linear-gradient(135deg, rgba(126,166,178,0.06) 0%, rgba(126,166,178,0.02) 100%);
     --pdhub-gradient: var(--pdhub-grad-glow);
     --pdhub-gradient-primary: var(--pdhub-grad-glow);
-    --pdhub-gradient-dark: linear-gradient(180deg, rgba(15, 17, 23, 0.95) 0%, rgba(10, 11, 15, 1) 100%);
-    --pdhub-gradient-card: linear-gradient(145deg, rgba(30, 32, 45, 0.5) 0%, rgba(20, 22, 30, 0.5) 100%);
+    --pdhub-gradient-dark: linear-gradient(180deg, rgba(13, 18, 23, 0.95) 0%, rgba(8, 11, 15, 1) 100%);
+    --pdhub-gradient-card: linear-gradient(145deg, rgba(18, 27, 34, 0.6) 0%, rgba(12, 18, 24, 0.6) 100%);
 
-    /* Surfaces - Better Contrast */
-    --pdhub-bg-card: rgba(18, 20, 28, 0.9);
-    --pdhub-bg-light: rgba(255, 255, 255, 0.05);
-    --pdhub-bg-elevated: rgba(28, 30, 42, 0.95);
-    --pdhub-bg-gradient: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(139, 92, 246, 0.06) 100%);
+    /* Surfaces - solid ink so the grid never bleeds through text */
+    --pdhub-bg-card: #0e151b;
+    --pdhub-bg-light: rgba(126, 166, 178, 0.05);
+    --pdhub-bg-elevated: #121b22;
+    --pdhub-bg-gradient: linear-gradient(135deg, rgba(63, 224, 197, 0.06) 0%, rgba(76, 201, 240, 0.05) 100%);
+
+    /* Blueprint grid (lab graph-paper texture) */
+    --pdhub-grid-line: rgba(126, 166, 178, 0.035);
 
     /* Refined Spacing Scale */
     --pdhub-space-2xs: 4px;
@@ -198,14 +213,18 @@ THEME_CSS = """
     --pdhub-transition-fast: all 0.15s var(--pdhub-ease);
 }
 
-/* Global Atmosphere - Clean & Professional */
+/* Global Atmosphere - blueprint grid + corner phosphor glow */
 [data-testid="stAppViewContainer"] {
     background-color: var(--pdhub-bg);
     background-image:
-        radial-gradient(ellipse at 0% 0%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
-        radial-gradient(ellipse at 100% 100%, rgba(139, 92, 246, 0.05) 0%, transparent 50%);
+        linear-gradient(var(--pdhub-grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--pdhub-grid-line) 1px, transparent 1px),
+        radial-gradient(ellipse 90% 55% at 100% 0%, rgba(63, 224, 197, 0.07) 0%, transparent 60%),
+        radial-gradient(ellipse 70% 50% at 0% 100%, rgba(76, 201, 240, 0.04) 0%, transparent 55%);
+    background-size: 44px 44px, 44px 44px, 100% 100%, 100% 100%;
+    background-attachment: fixed;
     color: var(--pdhub-text);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -219,7 +238,7 @@ THEME_CSS = """
 
 /* Base Typography */
 p, span:not([data-testid="stIconMaterial"]), div {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
 }
 
 /* Restore Material Symbols font for Streamlit icons */
@@ -230,7 +249,7 @@ p, span:not([data-testid="stIconMaterial"]), div {
 }
 
 code, pre, .stCode {
-    font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+    font-family: 'IBM Plex Mono', 'IBM Plex Mono', monospace !important;
 }
 
 /* ============================================
@@ -284,10 +303,11 @@ div.stDownloadButton > button:hover,
 div.stDownloadButton button:hover,
 div.stFormSubmitButton > button:hover,
 div.stFormSubmitButton button:hover {
-    transform: translateY(-2px) !important;
-    border-color: var(--pdhub-button-border) !important;
+    transform: translateY(-1px) !important;
+    border-color: var(--pdhub-border-focus) !important;
     box-shadow: var(--pdhub-shadow-md) !important;
     background: var(--pdhub-button-bg-hover) !important;
+    color: var(--pdhub-text-heading) !important;
 }
 
 div.stButton > button:active,
@@ -305,11 +325,12 @@ div.stDownloadButton > button[kind="primary"],
 div.stDownloadButton button[kind="primary"],
 div.stFormSubmitButton > button[kind="primary"],
 div.stFormSubmitButton button[kind="primary"] {
-    background: var(--pdhub-button-bg-strong) !important;
-    border: 1px solid var(--pdhub-button-border) !important;
-    color: var(--pdhub-text-heading) !important;
-    font-weight: 600 !important;
-    box-shadow: var(--pdhub-shadow-sm) !important;
+    background: var(--pdhub-primary) !important;
+    border: 1px solid var(--pdhub-primary) !important;
+    color: var(--pdhub-on-signal) !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
+    box-shadow: 0 0 0 1px rgba(63,224,197,0.15), 0 6px 18px rgba(63,224,197,0.16) !important;
 }
 
 div.stButton > button[kind="primary"]:hover,
@@ -318,8 +339,11 @@ div.stDownloadButton > button[kind="primary"]:hover,
 div.stDownloadButton button[kind="primary"]:hover,
 div.stFormSubmitButton > button[kind="primary"]:hover,
 div.stFormSubmitButton button[kind="primary"]:hover {
-    box-shadow: var(--pdhub-shadow-md) !important;
-    transform: translateY(-2px) !important;
+    background: var(--pdhub-primary-light) !important;
+    border-color: var(--pdhub-primary-light) !important;
+    color: var(--pdhub-on-signal) !important;
+    box-shadow: 0 0 0 1px rgba(63,224,197,0.25), 0 8px 24px rgba(63,224,197,0.28) !important;
+    transform: translateY(-1px) !important;
 }
 
 div.stButton > button[kind="secondary"],
@@ -345,27 +369,56 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 /* ============================================
    Page Header & Hero
    ============================================ */
+/* Editorial masthead — instrument label + crisp title + signal rule */
 .pdhub-hero {
-    background: var(--pdhub-gradient-card);
-    backdrop-filter: blur(20px);
+    background:
+        linear-gradient(90deg, rgba(63,224,197,0.05) 0%, transparent 45%),
+        var(--pdhub-gradient-card);
     border: 1px solid var(--pdhub-border);
-    padding: 3rem 2.5rem;
-    border-radius: var(--pdhub-border-radius-xl);
-    margin-bottom: 2.5rem;
-    text-align: center;
+    border-left: 2px solid var(--pdhub-primary);
+    padding: 2rem 2.25rem 2.1rem;
+    border-radius: var(--pdhub-border-radius-md);
+    margin-bottom: 2.25rem;
+    text-align: left;
     position: relative;
+    overflow: hidden;
+}
+.pdhub-hero::after {
+    content: "";
+    position: absolute;
+    top: -40%; right: -10%;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(63,224,197,0.10) 0%, transparent 62%);
+    pointer-events: none;
+}
+
+.pdhub-hero-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.22em;
+    color: var(--pdhub-primary);
+    margin-bottom: 0.7rem;
+}
+.pdhub-hero-kicker::before {
+    content: "";
+    width: 22px; height: 2px;
+    background: var(--pdhub-primary);
+    display: inline-block;
 }
 
 .pdhub-hero-title {
-    font-size: 3rem;
-    font-weight: 700;
-    letter-spacing: -0.03em;
-    background: var(--pdhub-grad-glow);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    line-height: 1.1;
-    margin-bottom: 0.75rem;
+    font-size: 2.6rem;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    color: var(--pdhub-text-heading);
+    line-height: 1.05;
+    margin-bottom: 0.6rem;
+    text-shadow: 0 0 28px rgba(63,224,197,0.10);
 }
 
 .pdhub-hero-with-image {
@@ -374,18 +427,18 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 }
 
 .pdhub-hero-icon {
-    color: var(--pdhub-text);
-    font-size: 2.5rem !important;
-    margin-bottom: 0.75rem !important;
+    font-size: 1.6rem !important;
+    margin-bottom: 0.4rem !important;
+    opacity: 0.85;
 }
 
 .pdhub-hero-subtitle {
     color: var(--pdhub-text-secondary);
-    font-size: 1.05rem;
+    font-size: 1.0rem;
     font-weight: 400;
-    max-width: 600px;
-    margin: 0 auto;
-    line-height: 1.5;
+    max-width: 720px;
+    margin: 0;
+    line-height: 1.55;
 }
 
 /* ============================================
@@ -401,9 +454,7 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 }
 
 .pdhub-card:hover {
-    transform: translateY(-4px);
-    border-color: rgba(99, 102, 241, 0.3);
-    box-shadow: var(--pdhub-shadow-lg), var(--pdhub-shadow-glow);
+    border-color: var(--pdhub-border-strong);
 }
 
 /* ============================================
@@ -422,11 +473,10 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 
 .pdhub-metric:hover {
     border-color: var(--pdhub-border-strong);
-    box-shadow: var(--pdhub-shadow-sm);
 }
 
 .pdhub-metric-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 1.75rem;
     font-weight: 600;
     color: var(--pdhub-text-heading);
@@ -434,15 +484,17 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-feature-settings: "tnum" 1, "zero" 1;   /* tabular figures, slashed zero */
 }
 
 .pdhub-metric-label {
-    color: var(--pdhub-text-secondary);
-    font-size: 0.75rem;
+    color: var(--pdhub-text-muted);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
     font-weight: 500;
-    margin-top: 0.25rem;
+    margin-top: 0.4rem;
     text-transform: uppercase;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.13em;
     line-height: 1.3;
     word-break: break-word;
 }
@@ -460,8 +512,8 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
    Sidebar - Clean Professional
    ============================================ */
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0c0d12 0%, #08090c 100%);
-    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    background: linear-gradient(180deg, #0b1116 0%, #070a0d 100%);
+    border-right: 1px solid var(--pdhub-border);
 }
 
 [data-testid="stSidebar"] > div:first-child {
@@ -469,7 +521,7 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 }
 
 .pdhub-sidebar-header {
-    background: linear-gradient(180deg, rgba(99, 102, 241, 0.08) 0%, transparent 100%);
+    background: linear-gradient(180deg, rgba(63, 224, 197, 0.08) 0%, transparent 100%);
     padding: 2rem 1.5rem 1.5rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     margin: 0 !important;
@@ -477,30 +529,44 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 }
 
 .pdhub-sidebar-logo {
-    font-size: 1.5rem;
-    font-weight: 700;
-    background: var(--pdhub-grad-glow);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 1.32rem;
+    font-weight: 800;
+    color: var(--pdhub-text-heading);
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+}
+.pdhub-sidebar-logo::before {
+    content: "";
+    width: 10px; height: 10px;
+    border-radius: 2px;
+    background: var(--pdhub-primary);
+    box-shadow: 0 0 12px var(--pdhub-primary-glow);
+    flex-shrink: 0;
 }
 
 .pdhub-sidebar-tagline {
     color: var(--pdhub-text-muted);
-    font-size: 0.75rem;
-    margin-top: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.66rem;
+    margin-top: 7px;
+    margin-left: 20px;
     font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
 }
 
 /* Navigation Groups */
 .pdhub-nav-group-title {
     padding: 1.5rem 1.25rem 0.5rem;
     color: var(--pdhub-text-muted);
-    font-size: 0.7rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.64rem;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.2em;
 }
 
 /* ============================================
@@ -585,9 +651,9 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 }
 
 .pdhub-badge-primary {
-    background: rgba(99, 102, 241, 0.15);
+    background: rgba(63, 224, 197, 0.15);
     color: var(--pdhub-primary-light);
-    border-color: rgba(99, 102, 241, 0.25);
+    border-color: rgba(63, 224, 197, 0.25);
 }
 
 /* ============================================
@@ -643,7 +709,7 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 
 .pdhub-info-box-tip {
     border-left: 4px solid var(--pdhub-primary);
-    background: linear-gradient(90deg, rgba(99, 102, 241, 0.08) 0%, var(--pdhub-bg-card) 100%);
+    background: linear-gradient(90deg, rgba(63, 224, 197, 0.08) 0%, var(--pdhub-bg-card) 100%);
 }
 
 /* ============================================
@@ -652,21 +718,32 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 .pdhub-section-header {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 11px;
     margin: 2rem 0 1.25rem;
-    padding-bottom: 0.75rem;
+    padding: 0 0 0.7rem 14px;
     border-bottom: 1px solid var(--pdhub-border);
+    position: relative;
+}
+.pdhub-section-header::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 1px;
+    width: 3px; height: 1.05rem;
+    border-radius: 2px;
+    background: var(--pdhub-primary);
+    box-shadow: 0 0 10px var(--pdhub-primary-glow);
 }
 
 .pdhub-section-icon {
-    font-size: 1.25rem;
+    font-size: 1.15rem;
+    opacity: 0.9;
 }
 
 .pdhub-section-title {
-    font-size: 1.2rem;
-    font-weight: 600;
+    font-size: 1.18rem;
+    font-weight: 700;
     color: var(--pdhub-text-heading);
-    letter-spacing: -0.01em;
+    letter-spacing: -0.015em;
 }
 
 .pdhub-section-subtitle {
@@ -835,7 +912,7 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 .pdhub-data-value {
     color: var(--pdhub-text);
     font-weight: 600;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 0.9rem;
 }
 
@@ -915,7 +992,7 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 .pdhub-text-secondary { color: var(--pdhub-text-secondary) !important; }
 
 .pdhub-font-mono {
-    font-family: 'JetBrains Mono', monospace !important;
+    font-family: 'IBM Plex Mono', monospace !important;
 }
 
 .pdhub-font-semibold { font-weight: 600 !important; }
@@ -947,18 +1024,19 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 }
 
 .pdhub-stat-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 1.5rem;
     font-weight: 600;
     color: var(--pdhub-text-heading);
 }
 
 .pdhub-stat-label {
-    font-size: 0.75rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.66rem;
     color: var(--pdhub-text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-top: 0.25rem;
+    letter-spacing: 0.14em;
+    margin-top: 0.35rem;
 }
 
 /* Result highlight boxes */
@@ -981,7 +1059,7 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 
 /* Sequence display */
 .pdhub-sequence {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 0.85rem;
     background: var(--pdhub-bg-elevated);
     border: 1px solid var(--pdhub-border);
@@ -1102,7 +1180,7 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 
 [data-testid="stFileUploader"] > div:hover {
     border-color: var(--pdhub-primary) !important;
-    background: rgba(99, 102, 241, 0.05) !important;
+    background: rgba(63, 224, 197, 0.05) !important;
 }
 
 /* ============================================
@@ -1118,7 +1196,7 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
 }
 
 [data-testid="stRadio"] label:hover {
-    background: rgba(99, 102, 241, 0.08) !important;
+    background: rgba(63, 224, 197, 0.08) !important;
     border-color: var(--pdhub-primary) !important;
 }
 
@@ -1168,7 +1246,7 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
    Metrics
    ============================================ */
 [data-testid="stMetricValue"] {
-    font-family: 'JetBrains Mono', monospace !important;
+    font-family: 'IBM Plex Mono', monospace !important;
     font-weight: 600 !important;
 }
 
@@ -1187,7 +1265,7 @@ div.stFormSubmitButton button[kind="secondary"]:hover {
    Typography
    ============================================ */
 h1, h2, h3, h4, h5, h6 {
-    font-family: 'Inter', -apple-system, sans-serif !important;
+    font-family: 'Hanken Grotesk', -apple-system, sans-serif !important;
     letter-spacing: -0.02em;
     color: var(--pdhub-text-heading) !important;
 }
@@ -1211,14 +1289,14 @@ h4 { font-size: 1.1rem !important; font-weight: 600 !important; }
 }
 
 ::-webkit-scrollbar-thumb {
-    background: rgba(99, 102, 241, 0.35);
+    background: rgba(63, 224, 197, 0.35);
     border-radius: 5px;
     border: 2px solid transparent;
     background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: rgba(99, 102, 241, 0.5);
+    background: rgba(63, 224, 197, 0.5);
     border: 2px solid transparent;
     background-clip: padding-box;
 }
@@ -1237,13 +1315,15 @@ h4 { font-size: 1.1rem !important; font-weight: 600 !important; }
 }
 
 [data-testid="stDataFrame"] th {
-    background: rgba(99, 102, 241, 0.12) !important;
+    background: rgba(63, 224, 197, 0.08) !important;
+    font-family: 'IBM Plex Mono', monospace !important;
     font-weight: 600 !important;
     text-transform: uppercase !important;
-    font-size: 0.75rem !important;
-    letter-spacing: 0.04em !important;
+    font-size: 0.68rem !important;
+    letter-spacing: 0.1em !important;
     padding: 12px 16px !important;
-    color: var(--pdhub-text) !important;
+    color: var(--pdhub-text-secondary) !important;
+    border-bottom: 1px solid var(--pdhub-border-strong) !important;
 }
 
 [data-testid="stDataFrame"] td {
@@ -1325,8 +1405,8 @@ hr {
    Selection Banner (Jobs Page)
    ============================================ */
 .selection-banner {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.08) 100%);
-    border: 1px solid rgba(99, 102, 241, 0.25);
+    background: linear-gradient(135deg, rgba(63, 224, 197, 0.1) 0%, rgba(76, 201, 240, 0.08) 100%);
+    border: 1px solid rgba(63, 224, 197, 0.25);
     border-radius: var(--pdhub-border-radius-md);
     padding: 16px 20px;
     margin: 1rem 0;
@@ -1355,12 +1435,259 @@ hr {
     flex-shrink: 0;
 }
 
+/* ============================================
+   Scientific Motion Layer
+   Tasteful, restrained micro-motion. Everything
+   here is neutralised by prefers-reduced-motion
+   (block below), so it's a11y-safe by construction.
+   ============================================ */
+@keyframes pdhub-fade-up {
+    from { opacity: 0; transform: translateY(7px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pdhub-sheen {
+    from { background-position: -180% 0; }
+    to   { background-position: 220% 0; }
+}
+@keyframes pdhub-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 var(--pdhub-primary-glow); opacity: 1; }
+    50%      { box-shadow: 0 0 0 5px rgba(63,224,197,0); opacity: 0.78; }
+}
+@keyframes pdhub-bar-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes pdhub-tick-grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes pdhub-shimmer {
+    0% { background-position: -468px 0; } 100% { background-position: 468px 0; }
+}
+
+/* Gentle settle on key surfaces each render (short, so reruns read as a refresh) */
+.pdhub-metric, .pdhub-card, .metric-card,
+[data-testid="stVerticalBlockBorderWrapper"],
+.pdhub-info-box, .pdhub-hero {
+    animation: pdhub-fade-up 0.34s var(--pdhub-ease-out) both;
+}
+/* Staggered reveal across a row of columns */
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+    animation: pdhub-fade-up 0.40s var(--pdhub-ease-out) both;
+}
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(2) { animation-delay: 0.05s; }
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(3) { animation-delay: 0.10s; }
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(4) { animation-delay: 0.15s; }
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(5) { animation-delay: 0.20s; }
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(n+6) { animation-delay: 0.24s; }
+
+/* Metric value gets a one-time signal sheen sweep as it appears */
+.pdhub-metric-value {
+    background: linear-gradient(100deg, currentColor 38%, var(--pdhub-primary-light) 50%, currentColor 62%);
+    background-size: 220% 100%;
+    -webkit-background-clip: text; background-clip: text;
+    animation: pdhub-sheen 1.1s var(--pdhub-ease) 0.15s 1 both;
+}
+/* Section tick draws in */
+.pdhub-section-header::before { transform-origin: top; animation: pdhub-tick-grow 0.4s var(--pdhub-bounce) both; }
+/* Hero kicker rule grows in */
+.pdhub-hero-kicker::before { transform-origin: left; animation: pdhub-bar-grow 0.5s var(--pdhub-ease-out) 0.1s both; }
+
+/* Card hover: subtle border-color shift only — no lift, no ambient glow
+   (instrument, not toy). Glow is reserved for :focus-visible and the primary CTA. */
+.pdhub-card:hover, .pdhub-metric:hover {
+    border-color: var(--pdhub-border-strong);
+}
+
+/* Live/active status dot pulse (add class .pdhub-pulse to a dot) */
+.pdhub-pulse { border-radius: 50%; animation: pdhub-pulse 2s var(--pdhub-ease) infinite; }
+
+/* Animated scientific data-bar (confidence/score) — fills from 0 */
+.pdhub-bar {
+    position: relative; height: 7px; border-radius: 4px;
+    background: var(--pdhub-bg-light); overflow: hidden; margin: 6px 0;
+}
+.pdhub-bar > span {
+    position: absolute; inset: 0; transform-origin: left;
+    border-radius: 4px; animation: pdhub-bar-grow 0.7s var(--pdhub-ease-out) both;
+}
+
+/* Skeleton shimmer for loading placeholders */
+.pdhub-skeleton {
+    background: linear-gradient(90deg, var(--pdhub-bg-light) 25%, rgba(126,166,178,0.14) 37%, var(--pdhub-bg-light) 63%);
+    background-size: 936px 100%;
+    animation: pdhub-shimmer 1.4s linear infinite;
+    border-radius: var(--pdhub-border-radius-sm);
+}
+
+/* Scientific insight callout */
+.pdhub-insight {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 14px 16px; margin: 10px 0;
+    border: 1px solid var(--pdhub-border);
+    border-left: 3px solid var(--pdhub-primary);
+    border-radius: var(--pdhub-border-radius-md);
+    background: linear-gradient(100deg, rgba(63,224,197,0.06), var(--pdhub-bg-card) 40%);
+    animation: pdhub-fade-up 0.4s var(--pdhub-ease-out) both;
+}
+.pdhub-insight-icon { font-size: 1.1rem; line-height: 1.4; flex-shrink: 0; }
+.pdhub-insight-title {
+    font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.14em; color: var(--pdhub-primary);
+    margin-bottom: 3px;
+}
+.pdhub-insight-body { color: var(--pdhub-text-secondary); font-size: 0.9rem; line-height: 1.55; }
+.pdhub-insight-body b { color: var(--pdhub-text); }
+
+/* Primary CTA keeps its static signal fill + focus glow; no breathing pulse
+   on hover (too toy-like). Glow lives on :focus-visible and the CTA's static box-shadow. */
+
+/* ============================================
+   Accessibility — keyboard focus & motion
+   ============================================ */
+*:focus-visible {
+    outline: 2px solid var(--pdhub-primary) !important;
+    outline-offset: 2px !important;
+    border-radius: 3px;
+}
+/* Buttons/inputs get a signal focus ring instead of the default browser ring */
+div.stButton button:focus-visible,
+div.stDownloadButton button:focus-visible,
+div.stFormSubmitButton button:focus-visible,
+[data-testid="stTextInput"] input:focus-visible,
+[data-testid="stTextArea"] textarea:focus-visible,
+[data-testid="stNumberInput"] input:focus-visible {
+    outline: 2px solid var(--pdhub-primary) !important;
+    outline-offset: 2px !important;
+    box-shadow: 0 0 0 4px var(--pdhub-primary-glow) !important;
+}
+/* Skip-link target & screen-reader-only helper */
+.pdhub-sr-only {
+    position: absolute !important;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0);
+    white-space: nowrap; border: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* ============================================
+   Responsive — reflow on narrow viewports
+   ============================================ */
+@media (max-width: 820px) {
+    .main .block-container { padding-top: 1.5rem !important; padding-left: 1rem !important; padding-right: 1rem !important; }
+    /* Let Streamlit horizontal column blocks wrap instead of squishing */
+    [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { flex: 1 1 240px !important; min-width: 200px !important; }
+    .pdhub-hero { padding: 1.5rem 1.25rem !important; }
+    .pdhub-hero-title { font-size: 1.9rem !important; }
+    .pdhub-metric-value { font-size: 1.4rem !important; }
+}
+@media (max-width: 520px) {
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { flex: 1 1 100% !important; }
+    .pdhub-hero-title { font-size: 1.6rem !important; }
+}
+
 </style>
 """
 
+# Light "publication" palette — re-tints the same --pdhub-* variables for clean
+# figures / screenshots (white paper, ink text, darkened signal for AA on white).
+# Applied as an override AFTER THEME_CSS when light mode is active. Note: Streamlit's
+# native popovers stay dark (config base), so this targets the content area.
+LIGHT_THEME_CSS = """
+<style>
+:root {
+    --pdhub-bg: #f6f8f9;
+    --pdhub-canvas: #ffffff;
+    --pdhub-glass: rgba(255,255,255,0.92);
+    --pdhub-border: rgba(18,40,50,0.14);
+    --pdhub-border-strong: rgba(18,40,50,0.26);
+    --pdhub-border-focus: rgba(14,140,120,0.55);
+    --pdhub-text: #122027;
+    --pdhub-text-secondary: #3b4d57;
+    --pdhub-text-muted: #51636e;        /* AA on white */
+    --pdhub-text-heading: #0a1519;
+    --pdhub-primary: #0e8c78;
+    --pdhub-primary-light: #12a98f;
+    --pdhub-primary-dark: #0a6c5d;
+    --pdhub-primary-glow: rgba(14,140,120,0.16);
+    --pdhub-accent: #1f8fb5;
+    --pdhub-cyan: #1f8fb5;
+    --pdhub-on-signal: #ffffff;
+    --pdhub-button-bg: #ffffff;
+    --pdhub-button-bg-hover: #eef3f5;
+    --pdhub-button-bg-strong: #e3eaed;
+    --pdhub-button-border: rgba(18,40,50,0.20);
+    --pdhub-success: #0f9d58;
+    --pdhub-warning: #b9770a;
+    --pdhub-error: #c5283d;
+    --pdhub-info: #1f8fb5;
+    --pdhub-success-light: rgba(15,157,88,0.12);
+    --pdhub-warning-light: rgba(185,119,10,0.12);
+    --pdhub-error-light: rgba(197,40,61,0.12);
+    --pdhub-info-light: rgba(31,143,181,0.12);
+    --pdhub-bg-card: #ffffff;
+    --pdhub-bg-light: rgba(18,40,50,0.04);
+    --pdhub-bg-elevated: #ffffff;
+    --pdhub-grid-line: rgba(18,40,50,0.045);
+    --pdhub-gradient-card: linear-gradient(145deg, #ffffff 0%, #f3f6f7 100%);
+}
+[data-testid="stAppViewContainer"] { color: var(--pdhub-text); }
+[data-testid="stSidebar"] { background: linear-gradient(180deg,#eef3f5 0%,#e6edef 100%); }
+
+/* Publication theme also applies when printing — re-tint the same --pdhub-*
+   tokens to the light palette so exported/printed figures use ink-on-white
+   regardless of the active on-screen mode. */
+@media print {
+    :root {
+        --pdhub-bg: #f6f8f9;
+        --pdhub-canvas: #ffffff;
+        --pdhub-glass: rgba(255,255,255,0.92);
+        --pdhub-border: rgba(18,40,50,0.14);
+        --pdhub-border-strong: rgba(18,40,50,0.26);
+        --pdhub-border-focus: rgba(14,140,120,0.55);
+        --pdhub-text: #122027;
+        --pdhub-text-secondary: #3b4d57;
+        --pdhub-text-muted: #51636e;
+        --pdhub-text-heading: #0a1519;
+        --pdhub-primary: #0e8c78;
+        --pdhub-primary-light: #12a98f;
+        --pdhub-primary-dark: #0a6c5d;
+        --pdhub-primary-glow: rgba(14,140,120,0.16);
+        --pdhub-accent: #1f8fb5;
+        --pdhub-cyan: #1f8fb5;
+        --pdhub-on-signal: #ffffff;
+        --pdhub-button-bg: #ffffff;
+        --pdhub-button-bg-hover: #eef3f5;
+        --pdhub-button-bg-strong: #e3eaed;
+        --pdhub-button-border: rgba(18,40,50,0.20);
+        --pdhub-success: #0f9d58;
+        --pdhub-warning: #b9770a;
+        --pdhub-error: #c5283d;
+        --pdhub-info: #1f8fb5;
+        --pdhub-success-light: rgba(15,157,88,0.12);
+        --pdhub-warning-light: rgba(185,119,10,0.12);
+        --pdhub-error-light: rgba(197,40,61,0.12);
+        --pdhub-info-light: rgba(31,143,181,0.12);
+        --pdhub-bg-card: #ffffff;
+        --pdhub-bg-light: rgba(18,40,50,0.04);
+        --pdhub-bg-elevated: #ffffff;
+        --pdhub-grid-line: rgba(18,40,50,0.045);
+        --pdhub-gradient-card: linear-gradient(145deg, #ffffff 0%, #f3f6f7 100%);
+    }
+    [data-testid="stAppViewContainer"] { color: var(--pdhub-text); background: var(--pdhub-bg) !important; }
+}
+</style>
+"""
+
+
 def inject_base_css() -> None:
-    """Inject the comprehensive CSS theme."""
+    """Inject the comprehensive CSS theme (+ light override if publication mode is on)."""
     st.markdown(THEME_CSS, unsafe_allow_html=True)
+    if st.session_state.get("pdhub_theme_mode") == "light":
+        st.markdown(LIGHT_THEME_CSS, unsafe_allow_html=True)
 
 
 # =============================================================================
@@ -1373,12 +1700,18 @@ def page_header(
     icon: str = "",
     image_url: Optional[str] = None
 ) -> None:
-    """Render a consistent page header with professional styling."""
-    style = f'background-image: linear-gradient(to right, rgba(10,11,15,0.9), rgba(10,11,15,0.7)), url("{image_url}");' if image_url else ""
+    """Render the page masthead: mono kicker, crisp title, signal rule, subtitle."""
+    style = f'background-image: linear-gradient(to right, rgba(8,11,15,0.92), rgba(8,11,15,0.7)), url("{image_url}");' if image_url else ""
     extra_class = "pdhub-hero-with-image" if image_url else ""
-    icon_html = f'<div class="pdhub-hero-icon">{icon}</div>' if icon and not image_url else ""
+    glyph = f'<span class="pdhub-hero-icon">{icon}</span> ' if icon else ""
+    subtitle_html = f'<p class="pdhub-hero-subtitle">{subtitle}</p>' if subtitle else ""
 
-    hero_html = f'<div class="pdhub-hero {extra_class}" style="{style}">{icon_html}<h1 class="pdhub-hero-title">{title}</h1><p class="pdhub-hero-subtitle">{subtitle}</p></div>'
+    hero_html = (
+        f'<div class="pdhub-hero {extra_class}" style="{style}">'
+        f'<div class="pdhub-hero-kicker">Computational Platform</div>'
+        f'<h1 class="pdhub-hero-title">{glyph}{title}</h1>'
+        f'{subtitle_html}</div>'
+    )
 
     st.markdown(hero_html, unsafe_allow_html=True)
 
@@ -1406,21 +1739,22 @@ def metric_card(
         "warning": "#f59e0b",
         "error": "#ef4444",
         "info": "#3b82f6",
-        "gradient": "#6366f1",
+        "gradient": "#3fe0c5",
     }
 
     border_style = f"border-left: 3px solid {border_colors.get(variant, 'transparent')};" if variant != "default" else ""
 
     if variant == "gradient":
-        bg_style = "background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.1) 100%);"
+        bg_style = "background: linear-gradient(135deg, rgba(63, 224, 197, 0.15) 0%, rgba(76, 201, 240, 0.1) 100%);"
     else:
         bg_style = ""
 
-    icon_html = f'<div style="font-size: 1.25rem; margin-bottom: 0.5rem; opacity: 0.8;">{icon}</div>' if icon else ""
+    icon_html = f'<div style="font-size: 1.25rem; margin-bottom: 0.5rem; opacity: 0.8;" aria-hidden="true">{icon}</div>' if icon else ""
     delta_html = f'<div style="font-size: 0.8rem; font-weight: 600; margin-top: 0.5rem; color: var(--pdhub-text-secondary);">{delta}</div>' if delta else ""
+    aria = f"{label}: {value}" + (f", {delta}" if delta else "")
 
     st.markdown(
-        f'<div class="pdhub-metric pdhub-animate-fade-in" style="{border_style} {bg_style}">'
+        f'<div class="pdhub-metric pdhub-animate-fade-in" role="group" aria-label="{aria}" style="{border_style} {bg_style}">'
         f'{icon_html}<div class="pdhub-metric-value">{value}</div>'
         f'<div class="pdhub-metric-label">{label}</div>{delta_html}</div>',
         unsafe_allow_html=True,
@@ -1447,7 +1781,8 @@ def status_badge(text: str, status: str = "ok") -> str:
         "primary": "pdhub-badge pdhub-badge-primary",
     }.get(status, "pdhub-badge pdhub-badge-info")
 
-    return f'<span class="{badge_class}">{text}</span>'
+    # role=status so assistive tech announces the state; aria-label carries the semantic
+    return f'<span class="{badge_class}" role="status" aria-label="{status}: {text}">{text}</span>'
 
 
 def render_badge(text: str, status: str = "ok") -> None:
@@ -1482,9 +1817,13 @@ def info_box(
     box_class = f"pdhub-info-box pdhub-info-box-{variant}"
     title_html = f'<div class="pdhub-info-box-title">{title}</div>' if title else ""
 
+    # errors/warnings are assertive alerts; the rest are polite status notes
+    role = "alert" if variant in ("error", "warning") else "status"
+    aria_live = "assertive" if variant == "error" else "polite"
+
     _html = f"""
-    <div class="{box_class}">
-        <div class="pdhub-info-box-icon">{icon}</div>
+    <div class="{box_class}" role="{role}" aria-live="{aria_live}">
+        <div class="pdhub-info-box-icon" aria-hidden="true">{icon}</div>
         <div class="pdhub-info-box-content">
             {title_html}
             <div>{message}</div>
@@ -1495,6 +1834,48 @@ def info_box(
         st.html(_html)
     except AttributeError:
         st.markdown(_html, unsafe_allow_html=True)
+
+
+def scientific_insight(body: str, title: str = "Scientific insight", icon: str = "🔬") -> None:
+    """Render an animated scientific-interpretation callout.
+
+    Use to surface the *takeaway* from a result ("what does this number mean?"),
+    not just the number. ``body`` may contain <b> for emphasis.
+    """
+    st.markdown(
+        f'<div class="pdhub-insight" role="note">'
+        f'<span class="pdhub-insight-icon" aria-hidden="true">{icon}</span>'
+        f'<div><div class="pdhub-insight-title">{title}</div>'
+        f'<div class="pdhub-insight-body">{body}</div></div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def insight_bar(value: float, vmin: float = 0.0, vmax: float = 1.0,
+                label: str = "", color: Optional[str] = None,
+                higher_is_better: bool = True) -> None:
+    """Render an animated scientific data-bar (confidence/score) that fills from 0.
+
+    Colour auto-maps to a traffic-light zone unless *color* is given.
+    """
+    try:
+        frac = (float(value) - vmin) / (vmax - vmin) if vmax != vmin else 0.0
+    except (TypeError, ValueError):
+        return
+    frac = max(0.0, min(1.0, frac))
+    score = frac if higher_is_better else (1.0 - frac)
+    if color is None:
+        color = ("var(--pdhub-success)" if score >= 0.66
+                 else "var(--pdhub-warning)" if score >= 0.33
+                 else "var(--pdhub-error)")
+    label_html = (f'<div style="display:flex;justify-content:space-between;'
+                  f'font-size:.74rem;color:var(--pdhub-text-secondary);margin-bottom:2px">'
+                  f'<span>{label}</span><span class="pdhub-font-mono">{value}</span></div>') if label else ""
+    st.markdown(
+        f'{label_html}<div class="pdhub-bar" role="img" aria-label="{label}: {value}">'
+        f'<span style="width:{frac*100:.1f}%;background:{color}"></span></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def section_header(
@@ -1560,7 +1941,8 @@ def progress_steps(
 def show_loading(message: str = "Loading...") -> None:
     """Display a loading spinner with message."""
     st.markdown(
-        f'<div class="pdhub-loading"><div class="pdhub-spinner"></div>'
+        f'<div class="pdhub-loading" role="status" aria-live="polite">'
+        f'<div class="pdhub-spinner" aria-hidden="true"></div>'
         f'<div class="pdhub-loading-text">{message}</div></div>',
         unsafe_allow_html=True,
     )
@@ -1582,7 +1964,8 @@ def empty_state(
     message_html = f'<div class="pdhub-empty-message">{message}</div>' if message else ""
 
     st.markdown(
-        f'<div class="pdhub-empty-state"><div class="pdhub-empty-icon">{icon}</div>'
+        f'<div class="pdhub-empty-state" role="status">'
+        f'<div class="pdhub-empty-icon" aria-hidden="true">{icon}</div>'
         f'<div class="pdhub-empty-title">{title}</div>{message_html}</div>',
         unsafe_allow_html=True,
     )
@@ -1624,7 +2007,7 @@ def sidebar_nav(current: str | None = None) -> None:
         padding: 10px 14px;
         margin: 3px 10px;
         border-radius: 8px;
-        color: #a1a9b8;
+        color: #9bafbb;
         text-decoration: none;
         font-weight: 500;
         font-size: 0.875rem;
@@ -1634,15 +2017,15 @@ def sidebar_nav(current: str | None = None) -> None:
     }
 
     .pdhub-nav-link:hover {
-        background: rgba(99, 102, 241, 0.08);
-        color: #f1f5f9;
-        border-color: rgba(99, 102, 241, 0.15);
+        background: rgba(63, 224, 197, 0.08);
+        color: #f2f7f9;
+        border-color: rgba(63, 224, 197, 0.15);
     }
 
     .pdhub-nav-link-active {
-        background: rgba(99, 102, 241, 0.15);
-        color: #f1f5f9;
-        border-color: rgba(99, 102, 241, 0.3);
+        background: rgba(63, 224, 197, 0.15);
+        color: #f2f7f9;
+        border-color: rgba(63, 224, 197, 0.3);
         font-weight: 600;
     }
 
@@ -1669,7 +2052,7 @@ def sidebar_nav(current: str | None = None) -> None:
         text-align: left !important;
         justify-content: flex-start !important;
         box-shadow: none !important;
-        color: #a1a9b8 !important;
+        color: #9bafbb !important;
     }
 
     [data-testid="stSidebar"] div.stButton > button:hover,
@@ -1678,9 +2061,9 @@ def sidebar_nav(current: str | None = None) -> None:
     [data-testid="stSidebar"] div.stDownloadButton button:hover,
     [data-testid="stSidebar"] div.stFormSubmitButton > button:hover,
     [data-testid="stSidebar"] div.stFormSubmitButton button:hover {
-        background: rgba(99, 102, 241, 0.08) !important;
-        border-color: rgba(99, 102, 241, 0.15) !important;
-        color: #f1f5f9 !important;
+        background: rgba(63, 224, 197, 0.08) !important;
+        border-color: rgba(63, 224, 197, 0.15) !important;
+        color: #f2f7f9 !important;
         transform: none !important;
     }
 
@@ -1690,9 +2073,9 @@ def sidebar_nav(current: str | None = None) -> None:
     [data-testid="stSidebar"] div.stDownloadButton button[kind="primary"],
     [data-testid="stSidebar"] div.stFormSubmitButton > button[kind="primary"],
     [data-testid="stSidebar"] div.stFormSubmitButton button[kind="primary"] {
-        background: rgba(99, 102, 241, 0.15) !important;
-        border-color: rgba(99, 102, 241, 0.3) !important;
-        color: #f1f5f9 !important;
+        background: rgba(63, 224, 197, 0.15) !important;
+        border-color: rgba(63, 224, 197, 0.3) !important;
+        color: #f2f7f9 !important;
         font-weight: 600 !important;
     }
     </style>
@@ -1705,24 +2088,33 @@ def sidebar_nav(current: str | None = None) -> None:
     </div>
     """, unsafe_allow_html=True)
 
+    # Goal-driven IA (blueprint decision #1): organise by what the user is trying
+    # to achieve (Tracks) rather than by tool type. Launchpad → Design Tracks →
+    # Modeling → Lab → AI & Tools. Every existing page is still reachable.
     nav_groups = {
-        "Analysis": [
+        "Launchpad": [
             ("Home", "app.py", "🏠"),
+        ],
+        "Design Tracks": [
+            ("Binder Design", "pages/14_binder.py", "🔗"),
+            ("Antibody", "pages/12_antibody.py", "🧫"),
+            ("Plant / Wheat", "pages/15_plant.py", "🌾"),
+            ("Mutagenesis", "pages/10_mutation_scanner.py", "🧬"),
+        ],
+        "Modeling": [
             ("Predict", "pages/1_predict.py", "🔮"),
             ("Evaluate", "pages/2_evaluate.py", "📊"),
             ("Compare", "pages/3_compare.py", "⚖️"),
-            ("Agents", "pages/11_agents.py", "🤖"),
         ],
-        "Design": [
+        "Design Lab": [
             ("Editor", "pages/0_design.py", "✏️"),
-            ("Antibody", "pages/12_antibody.py", "🧫"),
-            ("Mutagenesis", "pages/10_mutation_scanner.py", "🧬"),
-            ("Evolution", "pages/4_evolution.py", "📈"),
             ("MPNN Lab", "pages/8_mpnn.py", "🎯"),
-        ],
-        "Tools": [
-            ("Batch", "pages/5_batch.py", "📦"),
+            ("Evolution", "pages/4_evolution.py", "📈"),
             ("MSA", "pages/7_msa.py", "🧬"),
+        ],
+        "AI & Tools": [
+            ("Agents", "pages/11_agents.py", "🤖"),
+            ("Batch", "pages/5_batch.py", "📦"),
             ("Jobs", "pages/9_jobs.py", "📁"),
             ("Settings", "pages/6_settings.py", "⚙️"),
             ("Guide", "pages/13_guide.py", "📖"),
@@ -1739,7 +2131,7 @@ def sidebar_nav(current: str | None = None) -> None:
             with col_ind:
                 if is_active:
                     st.markdown(
-                        '<div style="width: 3px; height: 32px; background: linear-gradient(180deg, #6366f1, #8b5cf6); border-radius: 2px; margin-top: 4px;"></div>',
+                        '<div style="width: 3px; height: 32px; background: linear-gradient(180deg, #3fe0c5, #4cc9f0); border-radius: 2px; margin-top: 4px;"></div>',
                         unsafe_allow_html=True
                     )
 
@@ -1759,17 +2151,27 @@ def sidebar_system_status() -> None:
     """Render system status in sidebar."""
     st.sidebar.markdown("---")
 
+    # Publication (light) theme toggle — for clean figures/screenshots.
+    _light = st.session_state.get("pdhub_theme_mode") == "light"
+    if st.sidebar.toggle("☀ Publication theme", value=_light, key="pdhub_light_toggle",
+                         help="Light palette for paper figures & screenshots"):
+        if not _light:
+            st.session_state["pdhub_theme_mode"] = "light"
+            st.rerun()
+    elif _light:
+        st.session_state["pdhub_theme_mode"] = "dark"
+        st.rerun()
+
     with st.sidebar.expander("⚡ System Status", expanded=False):
         # GPU Status (using robust detection)
         st.markdown(get_gpu_status_html(), unsafe_allow_html=True)
 
-        # Registry Check
+        # Registry Check (cached)
         try:
-            from protein_design_hub.predictors.registry import PredictorRegistry
-            preds = PredictorRegistry.list_available()
+            preds = get_available_predictors()
             st.markdown(
-                f'<div style="font-size:0.8rem;color:#a1a9b8;display:flex;align-items:center;gap:8px;">'
-                f'<span style="width:8px;height:8px;background:#6366f1;border-radius:50%;"></span>'
+                f'<div style="font-size:0.8rem;color:#9bafbb;display:flex;align-items:center;gap:8px;">'
+                f'<span style="width:8px;height:8px;background:#3fe0c5;border-radius:50%;"></span>'
                 f'Predictors: {len(preds)} available</div>',
                 unsafe_allow_html=True,
             )
@@ -1780,6 +2182,17 @@ def sidebar_system_status() -> None:
 # =============================================================================
 # Utility Functions
 # =============================================================================
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_available_predictors() -> List[str]:
+    """Predictor names from the registry, cached 5 min (registry scan is not free
+    and runs on every page rerun otherwise)."""
+    try:
+        from protein_design_hub.predictors.registry import PredictorRegistry
+        return list(PredictorRegistry.list_available())
+    except Exception:
+        return []
+
 
 @st.cache_data(ttl=30, show_spinner=False)
 def list_output_structures(base_dir: Path, limit: int = 200) -> List[Path]:

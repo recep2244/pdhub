@@ -647,7 +647,7 @@ def _plot_regression(data: dict) -> None:
         if r2_vals:
             fig = go.Figure(go.Bar(
                 x=labels, y=r2_vals,
-                marker_color=["#6366f1", "#f59e0b", "#22c55e"][:len(r2_vals)],
+                marker_color=["#3fe0c5", "#f59e0b", "#22c55e"][:len(r2_vals)],
                 text=[f"{v:.4f}" for v in r2_vals],
                 textposition="outside",
             ))
@@ -668,7 +668,7 @@ def _plot_regression(data: dict) -> None:
             ridge_c = [float(str(v).replace("+", "")) for v in coefs_df["Ridge coef"]]
 
             fig2 = go.Figure()
-            fig2.add_trace(go.Bar(name="OLS", x=features, y=ols_c, marker_color="#6366f1"))
+            fig2.add_trace(go.Bar(name="OLS", x=features, y=ols_c, marker_color="#3fe0c5"))
             fig2.add_trace(go.Bar(name="Lasso", x=features, y=lasso_c, marker_color="#f59e0b"))
             fig2.add_trace(go.Bar(name="Ridge", x=features, y=ridge_c, marker_color="#22c55e"))
             fig2.update_layout(
@@ -690,7 +690,7 @@ def _plot_regression(data: dict) -> None:
             fig3 = go.Figure()
             fig3.add_trace(go.Scatter(
                 x=y_act, y=y_pred, mode="markers",
-                marker=dict(color="#6366f1", size=7, opacity=0.75),
+                marker=dict(color="#3fe0c5", size=7, opacity=0.75),
                 name="OLS predictions",
             ))
             fig3.add_trace(go.Scatter(
@@ -758,7 +758,7 @@ def _plot_pca(data: dict) -> None:
         fig = go.Figure()
         fig.add_trace(go.Bar(
             x=labels, y=ve_str.tolist(), name="Variance explained",
-            marker_color="#6366f1",
+            marker_color="#3fe0c5",
         ))
         fig.add_trace(go.Scatter(
             x=labels, y=cum_str.tolist(), mode="lines+markers",

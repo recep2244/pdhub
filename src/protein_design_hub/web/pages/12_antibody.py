@@ -135,7 +135,7 @@ def _run_sequence_metrics(sequence: str):
 # ---------------------------------------------------------------------------
 
 _CHAIN_COLORS = {
-    "VH": "#4f46e5",
+    "VH": "#16b89c",
     "VL_kappa": "#0891b2",
     "VL_lambda": "#0d9488",
     "VHH": "#7c3aed",
@@ -650,7 +650,7 @@ with tab_imm:
                             y0=-0.5,
                             y1=0.5,
                             line=dict(
-                                color=shape_colors.get(cdr.name, "rgba(99,102,241,0.4)"),
+                                color=shape_colors.get(cdr.name, "rgba(63, 224, 197,0.4)"),
                                 width=2,
                                 dash="dash",
                             ),

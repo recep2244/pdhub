@@ -84,15 +84,15 @@ PREDICT_CSS = """
 }
 
 .predictor-card:hover {
-    border-color: var(--pdhub-primary, #6366f1);
+    border-color: var(--pdhub-primary, #3fe0c5);
     transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.15);
+    box-shadow: 0 8px 24px rgba(63, 224, 197, 0.15);
 }
 
 .predictor-card.selected {
-    border-color: var(--pdhub-primary, #6366f1);
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.1));
-    box-shadow: 0 0 0 1px var(--pdhub-primary, #6366f1), 0 8px 24px rgba(99, 102, 241, 0.2);
+    border-color: var(--pdhub-primary, #3fe0c5);
+    background: linear-gradient(135deg, rgba(63, 224, 197, 0.15), rgba(76, 201, 240, 0.1));
+    box-shadow: 0 0 0 1px var(--pdhub-primary, #3fe0c5), 0 8px 24px rgba(63, 224, 197, 0.2);
 }
 
 .predictor-card.selected::after {
@@ -100,7 +100,7 @@ PREDICT_CSS = """
     position: absolute;
     top: 8px;
     right: 10px;
-    background: var(--pdhub-primary, #6366f1);
+    background: var(--pdhub-primary, #3fe0c5);
     color: var(--pdhub-text-heading);
     width: 20px;
     height: 20px;
@@ -159,8 +159,8 @@ PREDICT_CSS = """
 
 /* Analysis Panel */
 .analysis-panel {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.05));
-    border: 1px solid rgba(99, 102, 241, 0.2);
+    background: linear-gradient(135deg, rgba(63, 224, 197, 0.08), rgba(76, 201, 240, 0.05));
+    border: 1px solid rgba(63, 224, 197, 0.2);
     border-radius: 12px;
     padding: 1.25rem;
 }
@@ -168,7 +168,7 @@ PREDICT_CSS = """
 .analysis-title {
     font-size: 0.85rem;
     font-weight: 600;
-    color: var(--pdhub-primary-light, #818cf8);
+    color: var(--pdhub-primary-light, #6bf0d8);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-bottom: 1rem;
@@ -192,7 +192,7 @@ PREDICT_CSS = """
 }
 
 .analysis-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 0.9rem;
     font-weight: 600;
     color: var(--pdhub-text, #f1f5f9);

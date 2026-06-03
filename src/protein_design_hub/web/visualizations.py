@@ -473,7 +473,7 @@ def create_structure_viewer(
         _score_overlay_html = (
             '<div style="position:absolute;top:46px;right:14px;'
             'background:rgba(5,5,8,0.88);color:#e2e8f0;padding:8px 12px;'
-            'border-radius:8px;font-size:11px;font-family:\'JetBrains Mono\',monospace;'
+            'border-radius:8px;font-size:11px;font-family:\'IBM Plex Mono\',monospace;'
             'z-index:100;line-height:1.75;border:1px solid rgba(255,255,255,0.1);'
             'pointer-events:none;">'
             + "".join(_lines)
@@ -517,7 +517,7 @@ def create_structure_viewer(
             <!-- Style buttons -->
             <div style="display:flex;gap:4px;background:rgba(255,255,255,0.05);border-radius:8px;padding:3px;">
                 <button onclick="setMolStyle_{vid}('cartoon')" id="{vid}_btn_cartoon"
-                    style="background:rgba(99,102,241,0.3);color:#c7d2fe;border:none;border-radius:6px;
+                    style="background:rgba(63, 224, 197,0.3);color:#bfeee4;border:none;border-radius:6px;
                     padding:3px 10px;font-size:11px;cursor:pointer;font-family:sans-serif;" title="Cartoon ribbon">Cartoon</button>
                 <button onclick="setMolStyle_{vid}('surface')" id="{vid}_btn_surface"
                     style="background:transparent;color:#94a3b8;border:none;border-radius:6px;
@@ -564,7 +564,7 @@ def create_structure_viewer(
         <div id="{vid}_info" style="
             position: absolute; bottom: 14px; left: 14px;
             background: rgba(5,5,8,0.85); color: #94a3b8;
-            font-family: 'JetBrains Mono', monospace; font-size: 10px;
+            font-family: 'IBM Plex Mono', monospace; font-size: 10px;
             padding: 4px 10px; border-radius: 6px;
             border: 1px solid rgba(255,255,255,0.08);
             pointer-events: none; display: none;
@@ -572,7 +572,7 @@ def create_structure_viewer(
         <!-- File label -->
         <div style="
             position: absolute; bottom: 14px; right: 14px;
-            font-family: 'JetBrains Mono', monospace; font-size: 0.58rem;
+            font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem;
             color: #334155; letter-spacing: 0.08em; pointer-events: none;
         ">{display_name[:32].upper()}</div>
         {_score_overlay_html}
@@ -647,8 +647,8 @@ def create_structure_viewer(
                 ['cartoon','surface','stick','sphere','ribbon'].forEach(function(n) {{
                     var btn = document.getElementById("{vid}_btn_" + n);
                     if (btn) {{
-                        btn.style.background = (n === s) ? 'rgba(99,102,241,0.3)' : 'transparent';
-                        btn.style.color = (n === s) ? '#c7d2fe' : '#94a3b8';
+                        btn.style.background = (n === s) ? 'rgba(63, 224, 197,0.3)' : 'transparent';
+                        btn.style.color = (n === s) ? '#bfeee4' : '#94a3b8';
                     }}
                 }});
                 applyStyle_{vid}();
@@ -671,7 +671,7 @@ def create_structure_viewer(
                 var btn = document.getElementById("{vid}_btn_spin");
                 if (spinning) {{
                     viewer.spin('y', 0.5);
-                    if (btn) {{ btn.style.color = '#6366f1'; btn.style.borderColor = 'rgba(99,102,241,0.4)'; }}
+                    if (btn) {{ btn.style.color = '#3fe0c5'; btn.style.borderColor = 'rgba(63, 224, 197,0.4)'; }}
                 }} else {{
                     viewer.spin(false);
                     if (btn) {{ btn.style.color = '#94a3b8'; btn.style.borderColor = 'rgba(255,255,255,0.1)'; }}
@@ -890,7 +890,7 @@ def create_structure_comparison_3d(
             padding:10px 14px 20px;display:flex;align-items:center;gap:8px;z-index:100;">
             <div style="display:flex;gap:4px;background:rgba(255,255,255,0.05);border-radius:8px;padding:3px;">
                 <button onclick="setCmpStyle_{vid}('cartoon')"
-                    style="background:rgba(99,102,241,0.3);color:#c7d2fe;border:none;border-radius:6px;
+                    style="background:rgba(63, 224, 197,0.3);color:#bfeee4;border:none;border-radius:6px;
                     padding:3px 10px;font-size:11px;cursor:pointer;" title="Cartoon">Cartoon</button>
                 <button onclick="setCmpStyle_{vid}('stick')"
                     style="background:transparent;color:#94a3b8;border:none;border-radius:6px;
@@ -916,8 +916,8 @@ def create_structure_comparison_3d(
         <!-- Legend -->
         <div style="position:absolute;bottom:14px;left:14px;
             display:flex;flex-direction:column;gap:5px;pointer-events:none;">
-            <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#c7d2fe;">
-                <span style="width:12px;height:3px;background:#6366f1;display:inline-block;border-radius:2px;"></span>
+            <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#bfeee4;">
+                <span style="width:12px;height:3px;background:#3fe0c5;display:inline-block;border-radius:2px;"></span>
                 {model_name} (model)
             </div>
             {ref_legend}
@@ -925,7 +925,7 @@ def create_structure_comparison_3d(
 
         <!-- Filename -->
         <div style="position:absolute;bottom:14px;right:14px;
-            font-family:'JetBrains Mono',monospace;font-size:0.58rem;
+            font-family:'IBM Plex Mono',monospace;font-size:0.58rem;
             color:#334155;letter-spacing:0.08em;pointer-events:none;">
             STRUCTURAL COMPARISON
         </div>
@@ -1890,7 +1890,7 @@ def create_plddt_sequence_viewer(
     css = """
     <style>
     .plddt-viewer {
-        font-family: 'JetBrains Mono', 'Courier New', monospace;
+        font-family: 'IBM Plex Mono', 'Courier New', monospace;
         background: #1a1f2e;
         border-radius: 12px;
         padding: 16px;

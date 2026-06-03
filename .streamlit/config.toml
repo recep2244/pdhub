@@ -1,24 +1,27 @@
-# Professional theme for Protein Design Hub.
-# Applied via the developing-with-streamlit skill (theme.md guidance).
+# Protein Design Hub — "Phosphor Lab" theme.
+# Precision-instrument dark UI: cool ink base, single aquamarine signal accent,
+# Hanken Grotesk (UI) + IBM Plex Mono (data). Fonts are loaded via the @import
+# in web/ui.py THEME_CSS; these names just point Streamlit's native chrome at them.
 [theme]
 base = "dark"
-primaryColor = "#10b981"                 # emerald — buttons, links, active elements, GO accent
-backgroundColor = "#0e1117"              # main content background
-secondaryBackgroundColor = "#192231"     # widgets, sidebar, tables, cards
-textColor = "#e6edf3"                    # body text
-linkColor = "#34d399"                    # markdown links (lighter emerald for contrast)
-borderColor = "#2b3648"                  # widget/card borders — subtle, cohesive
-codeBackgroundColor = "#11161f"
-font = "sans serif"
-headingFont = "sans serif"
-baseRadius = "0.6rem"                     # softer corners → modern, polished
+primaryColor = "#3fe0c5"                 # signal aquamarine — primary action, focus, active state
+backgroundColor = "#080b0f"              # app ink
+secondaryBackgroundColor = "#0e151b"     # cards, sidebar, inputs, tables
+textColor = "#e7eef2"                    # body text
+linkColor = "#6bf0d8"                    # links — lighter signal for contrast
+borderColor = "#1d2730"                  # hairline widget/card borders
+codeBackgroundColor = "#0c1218"
+font = "Hanken Grotesk, sans-serif"
+headingFont = "Hanken Grotesk, sans-serif"
+codeFont = "IBM Plex Mono, monospace"
+baseRadius = "0.4rem"                     # tighter corners → precise / instrument-like
 
-# Semantic palette — used by status text, st.metric deltas, sparklines.
-redColor = "#ef4444"
-orangeColor = "#f59e0b"
-yellowColor = "#eab308"
-greenColor = "#10b981"
-blueColor = "#3b82f6"
+# Semantic palette — status text, st.metric deltas, sparklines.
+redColor = "#ff5d6c"
+orangeColor = "#ffb454"
+yellowColor = "#f5c451"
+greenColor = "#56d364"
+blueColor = "#4cc9f0"
 
 [client]
 showErrorDetails = true

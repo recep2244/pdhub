@@ -144,8 +144,8 @@ COMPARE_CSS = """
 
 /* Analysis Panel */
 .analysis-panel {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.05));
-    border: 1px solid rgba(99, 102, 241, 0.2);
+    background: linear-gradient(135deg, rgba(63, 224, 197, 0.08), rgba(76, 201, 240, 0.05));
+    border: 1px solid rgba(63, 224, 197, 0.2);
     border-radius: 12px;
     padding: 1.25rem;
 }
@@ -153,7 +153,7 @@ COMPARE_CSS = """
 .analysis-title {
     font-size: 0.85rem;
     font-weight: 600;
-    color: var(--pdhub-primary-light, #818cf8);
+    color: var(--pdhub-primary-light, #6bf0d8);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-bottom: 1rem;
@@ -177,7 +177,7 @@ COMPARE_CSS = """
 }
 
 .analysis-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 0.9rem;
     font-weight: 600;
     color: var(--pdhub-text, #f1f5f9);
@@ -185,8 +185,8 @@ COMPARE_CSS = """
 
 /* Run Section */
 .run-section {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.08));
-    border: 1px solid rgba(99, 102, 241, 0.25);
+    background: linear-gradient(135deg, rgba(63, 224, 197, 0.1), rgba(76, 201, 240, 0.08));
+    border: 1px solid rgba(63, 224, 197, 0.25);
     border-radius: 16px;
     padding: 1.5rem;
     margin: 1.5rem 0;
@@ -305,7 +305,7 @@ COMPARE_CSS = """
 }
 
 .ranking-item:hover {
-    border-color: var(--pdhub-primary, #6366f1);
+    border-color: var(--pdhub-primary, #3fe0c5);
     transform: translateX(4px);
 }
 
@@ -341,10 +341,10 @@ COMPARE_CSS = """
 }
 
 .ranking-score {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 1.25rem;
     font-weight: 700;
-    color: var(--pdhub-primary-light, #818cf8);
+    color: var(--pdhub-primary-light, #6bf0d8);
 }
 
 /* Viewer Panel */
@@ -367,8 +367,8 @@ COMPARE_CSS = """
 
 /* Reference Panel */
 .reference-panel {
-    background: linear-gradient(135deg, rgba(139, 92, 246, 0.08), rgba(99, 102, 241, 0.05));
-    border: 1px solid rgba(139, 92, 246, 0.2);
+    background: linear-gradient(135deg, rgba(76, 201, 240, 0.08), rgba(63, 224, 197, 0.05));
+    border: 1px solid rgba(76, 201, 240, 0.2);
     border-radius: 12px;
     padding: 1.25rem;
 }
@@ -394,7 +394,7 @@ COMPARE_CSS = """
 }
 
 .setting-tag-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     color: var(--pdhub-text, #f1f5f9);
     font-weight: 600;
 }

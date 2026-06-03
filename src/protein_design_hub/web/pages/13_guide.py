@@ -55,7 +55,7 @@ st.markdown("""
   border-radius: 10px; padding: 10px 16px; margin: 8px 0; font-size: 0.88rem; }
 .guide-warn { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25);
   border-radius: 10px; padding: 10px 16px; margin: 8px 0; font-size: 0.88rem; }
-.guide-code { font-family: 'JetBrains Mono', monospace; background: var(--pdhub-bg-light);
+.guide-code { font-family: 'IBM Plex Mono', monospace; background: var(--pdhub-bg-light);
   padding: 2px 6px; border-radius: 4px; font-size: 0.84rem; color: var(--pdhub-primary-light); }
 .track-card { background: var(--pdhub-bg-card); border: 1px solid var(--pdhub-border);
   border-radius: 14px; padding: 18px 20px; height: 100%; }

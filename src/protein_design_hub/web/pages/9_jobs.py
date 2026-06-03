@@ -166,7 +166,7 @@ for i in range(0, len(jobs), cols_per_row):
                 if job.get('has_evolution'):
                     badge_html.append('<span style="background:#f59e0b;color:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Evo</span>')
                 if job.get('has_scan'):
-                    badge_html.append('<span style="background:#8b5cf6;color:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Scan</span>')
+                    badge_html.append('<span style="background:#4cc9f0;color:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Scan</span>')
                 if job.get('has_meetings'):
                     badge_html.append(
                         f'<span style="background:#ec4899;color:#e5e7eb;padding:2px 8px;border-radius:4px;'

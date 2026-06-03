@@ -622,7 +622,7 @@ if seq:
             if len(st.session_state.selected_positions) == 1:
                 scan_pos = list(st.session_state.selected_positions)[0] + 1
                 st.markdown(f"""
-                <div style="background: var(--pdhub-bg-card, rgba(18,20,28,0.9)); padding: 10px; border-radius: 8px; border: 1px solid var(--pdhub-primary, #6366f1); margin-bottom: 15px; color: var(--pdhub-text, #f1f5f9);">
+                <div style="background: var(--pdhub-bg-card, rgba(18,20,28,0.9)); padding: 10px; border-radius: 8px; border: 1px solid var(--pdhub-primary, #3fe0c5); margin-bottom: 15px; color: var(--pdhub-text, #f1f5f9);">
                     <strong>🚀 Deep Analysis:</strong> Want to find the best mutation for position {scan_pos}?
                 </div>
                 """, unsafe_allow_html=True)

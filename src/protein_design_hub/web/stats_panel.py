@@ -278,7 +278,7 @@ def render_stats_panel(
                         [dist_col],
                         show_rug=True,
                         show_hist=True,
-                        colors=["#6366f1"],
+                        colors=["#3fe0c5"],
                     )
                     # Add normal reference
                     x_range = np.linspace(s.min(), s.max(), 200)
@@ -569,7 +569,7 @@ def render_stats_panel(
                             fig2 = go.Figure()
                             fig2.add_trace(go.Scatter(
                                 x=y, y=y_pred, mode="markers",
-                                marker=dict(color="#6366f1", size=8, opacity=0.7),
+                                marker=dict(color="#3fe0c5", size=8, opacity=0.7),
                                 name="Samples",
                             ))
                             mn, mx = min(y.min(), y_pred.min()), max(y.max(), y_pred.max())

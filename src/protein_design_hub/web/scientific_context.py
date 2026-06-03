@@ -354,7 +354,7 @@ def metric_context_html(name: str, value: float) -> str:
     ctx = interpret_metric(name, value)
     formatted = format_metric(name, value)
     return (
-        f'<span style="color:{ctx["color"]};font-weight:600;font-family:\'JetBrains Mono\',monospace">'
+        f'<span style="color:{ctx["color"]};font-weight:600;font-family:\'IBM Plex Mono\',monospace">'
         f'{formatted}</span> '
         f'<span style="color:{ctx["color"]};font-size:.78rem;font-weight:500">'
         f'{ctx["label"]}</span>'
@@ -433,7 +433,7 @@ PREDICTOR_INFO = {
     "intfold7": {
         "name": "IntFOLD7",
         "icon": "🏗️",
-        "color": "#8b5cf6",
+        "color": "#4cc9f0",
         "desc": "Integrated prediction + QA + function (Reading)",
         "speed": "Medium",
         "accuracy": "Excellent",
@@ -498,7 +498,7 @@ def get_predictor_info(predictor_id: str) -> Dict[str, Any]:
     return PREDICTOR_INFO.get(predictor_id.lower(), {
         "name": predictor_id,
         "icon": "🔮",
-        "color": "#6366f1",
+        "color": "#3fe0c5",
         "desc": predictor_id,
         "speed": "Unknown",
         "accuracy": "Unknown",

@@ -18,6 +18,7 @@ from protein_design_hub.web.ui import (
     section_header,
     metric_card,
     info_box,
+    scientific_insight,
     detect_gpu,
     workflow_breadcrumb,
 )
@@ -48,8 +49,8 @@ gpu_info = detect_gpu()
 gpu_available = gpu_info["available"]
 
 try:
-    from protein_design_hub.predictors.registry import PredictorRegistry
-    num_predictors = len(PredictorRegistry.list_available())
+    from protein_design_hub.web.ui import get_available_predictors
+    num_predictors = len(get_available_predictors())
 except Exception:
     num_predictors = 0
 
@@ -84,6 +85,49 @@ with c4:
     metric_card("GPU" if gpu_available else "CPU", "Compute Mode", "gradient" if gpu_available else "warning", "⚡")
 with c5:
     metric_card("v0.3", "Platform Version", "default", "📦")
+
+# Contextual scientific insight (adapts to the compute environment)
+if gpu_available:
+    _gpu_name = gpu_info.get("name", "GPU")
+    _vram = gpu_info.get("memory_total_gb", 0)
+    scientific_insight(
+        f"Running on <b>{_gpu_name}</b> ({_vram:.0f} GB VRAM). This supports "
+        "GPU structure prediction (ESMFold/Chai-1/Boltz-2), ESM-2 zero-shot variant "
+        "scoring, and ProteinMPNN design locally. For complexes, prefer <b>Chai-1/Boltz-2</b> "
+        "— they emit PAE, which unlocks <b>ipSAE</b> interface ranking (a stronger binder "
+        "signal than ipTM).",
+        title="Environment · capability",
+    )
+else:
+    scientific_insight(
+        "No GPU detected — predictions run on CPU (slower) or via remote APIs. "
+        "ESMFold is single-chain and emits no PAE, so <b>ipSAE</b> interface scoring "
+        "needs a ≥2-chain predictor (Chai-1/Boltz-2). Sequence-level analyses "
+        "(ESM-2, AlphaMissense, QC liabilities) run fine on CPU.",
+        title="Environment · capability", icon="🧪",
+    )
+
+# ── Launchpad: route intent → goal-driven Track ──────────────────────
+st.markdown("<br>", unsafe_allow_html=True)
+section_header("Start by goal", "Pick what you're trying to achieve — each Track guides you end-to-end", "🚀")
+
+_tracks = [
+    ("🔗", "Design a binder", "De novo binder to a target surface", "pages/14_binder.py"),
+    ("🧫", "Engineer an antibody", "CDR annotation, developability, humanness", "pages/12_antibody.py"),
+    ("🌾", "Engineer a plant protein", "Targeting, NLR architecture, codon optimisation", "pages/15_plant.py"),
+    ("🧬", "Optimise a variant", "Mutagenesis ranked by ΔΔG + ESM-2 + conservation", "pages/10_mutation_scanner.py"),
+]
+_lc = st.columns(4)
+for _col, (_ic, _t, _d, _pg) in zip(_lc, _tracks):
+    with _col:
+        with st.container(border=True):
+            st.markdown(
+                f'<div style="font-size:1.6rem">{_ic}</div>'
+                f'<div style="font-weight:700;margin:2px 0 3px;color:var(--pdhub-text-heading)">{_t}</div>'
+                f'<div style="color:var(--pdhub-text-secondary);font-size:.82rem;min-height:2.4em">{_d}</div>',
+                unsafe_allow_html=True)
+            if st.button("Open Track", key=f"lp_{_pg}", type="primary", width="stretch"):
+                st.switch_page(_pg)
 
 # ── Workflow Hub ─────────────────────────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)
@@ -281,14 +325,21 @@ with col_gs3:
 st.markdown("<br>", unsafe_allow_html=True)
 section_header("Recent Activity", "Latest predictions and analyses", "📋")
 
-if num_jobs == 0:
-    info_box(
-        "No jobs yet. Start a prediction to see activity here.",
-        variant="info",
-        icon="📭",
-    )
-else:
-    recent_jobs = sorted(job_dirs, key=lambda p: p.stat().st_mtime, reverse=True)[:6]
+
+# Isolated fragment: its refresh re-scans the jobs dir WITHOUT a full-page rerun
+# (so it skips the GPU/registry/structure scans the rest of the page runs).
+@st.fragment
+def _recent_activity(base_job_dir: Path) -> None:
+    jdirs = [d for d in base_job_dir.iterdir() if d.is_dir()] if base_job_dir.exists() else []
+    head, refresh = st.columns([0.8, 0.2])
+    with refresh:
+        if st.button("↻ Refresh", key="refresh_activity", width="stretch"):
+            pass  # fragment-local rerun only
+    if not jdirs:
+        info_box("No jobs yet. Start a prediction to see activity here.",
+                 variant="info", icon="📭")
+        return
+    recent_jobs = sorted(jdirs, key=lambda p: p.stat().st_mtime, reverse=True)[:6]
     cols = st.columns(3)
     for i, jdir in enumerate(recent_jobs):
         with cols[i % 3]:
@@ -301,14 +352,12 @@ else:
             else:
                 age_str = f"{age.seconds // 60}m ago"
 
-            has_pred = (jdir / "prediction_summary.json").exists()
-            has_eval = (jdir / "evaluation").exists()
             tags = []
-            if has_pred:
+            if (jdir / "prediction_summary.json").exists():
                 tags.append("prediction")
-            if has_eval:
+            if (jdir / "evaluation").exists():
                 tags.append("evaluation")
-            tag_str = " ".join(f'<span style="background:rgba(99,102,241,.12);color:var(--pdhub-primary-light);padding:2px 8px;border-radius:8px;font-size:.7rem;font-weight:600">{t}</span>' for t in tags)
+            tag_str = " ".join(f'<span style="background:rgba(63, 224, 197,.12);color:var(--pdhub-primary-light);padding:2px 8px;border-radius:8px;font-size:.7rem;font-weight:600">{t}</span>' for t in tags)
 
             st.markdown(
                 f'<div style="background:var(--pdhub-bg-card);border:1px solid var(--pdhub-border);'
@@ -320,6 +369,9 @@ else:
                 unsafe_allow_html=True,
             )
 
+
+_recent_activity(job_dir)
+
 # ── System Status Footer ─────────────────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -330,7 +382,7 @@ st.markdown(
     f'<div style="background:var(--pdhub-bg-card);border:1px solid var(--pdhub-border);'
     f'padding:.75rem 1.25rem;border-radius:12px;display:flex;align-items:center;justify-content:center;gap:12px">'
     f'<span style="width:10px;height:10px;background:{status_color};border-radius:50%"></span>'
-    f'<span style="font-family:\'JetBrains Mono\',monospace;font-size:.82rem;color:var(--pdhub-text-secondary)">{status_text}</span>'
+    f'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:.82rem;color:var(--pdhub-text-secondary)">{status_text}</span>'
     f'<span style="color:var(--pdhub-text-muted);font-size:.75rem;margin-left:auto">Protein Design Hub v0.3</span></div>',
     unsafe_allow_html=True,
 )

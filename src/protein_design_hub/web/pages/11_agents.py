@@ -171,12 +171,12 @@ st.markdown("""<style>
 .ps-llm{border-left:3px solid #a855f7;background:rgba(168,85,247,.06)}
 .ps-comp{border-left:3px solid #06b6d4;background:rgba(6,182,212,.04)}
 .ps-done{border-left-color:#22c55e!important;opacity:.85}
-.ps-num{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:.82rem;min-width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,255,255,.08);color:var(--pdhub-text-secondary)}
+.ps-num{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:.82rem;min-width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,255,255,.08);color:var(--pdhub-text-secondary)}
 .ps-lbl{flex:1;font-weight:500;font-size:.87rem;color:var(--pdhub-text)}
 .ps-bdg{font-size:.68rem;font-weight:600;padding:2px 9px;border-radius:12px;text-transform:uppercase;letter-spacing:.03em}
 .bdg-l{background:rgba(168,85,247,.14);color:#a855f7}
 .bdg-c{background:rgba(6,182,212,.14);color:#06b6d4}
-.ps-t{font-family:'JetBrains Mono',monospace;font-size:.76rem;color:var(--pdhub-text-muted)}
+.ps-t{font-family:'IBM Plex Mono',monospace;font-size:.76rem;color:var(--pdhub-text-muted)}
 .ac{background:var(--pdhub-bg-card);border:1px solid var(--pdhub-border);border-radius:12px;padding:1rem 1.2rem;margin-bottom:.6rem}
 .ac:hover{border-color:var(--pdhub-border-strong)}
 .trn{background:var(--pdhub-bg-card);border:1px solid var(--pdhub-border);border-radius:10px;padding:.9rem 1.1rem;margin-bottom:.55rem}
@@ -184,7 +184,7 @@ st.markdown("""<style>
 .trn-ai{color:#a855f7}.trn-u{color:#06b6d4}
 .trn-b{color:var(--pdhub-text-secondary);font-size:.83rem;line-height:1.6;white-space:pre-wrap}
 .pvc{background:var(--pdhub-bg-card);border:1px solid var(--pdhub-border);border-radius:10px;padding:11px 14px;margin-bottom:7px;font-size:.83rem}
-.pvc-on{border-color:var(--pdhub-primary);background:rgba(99,102,241,.06)}
+.pvc-on{border-color:var(--pdhub-primary);background:rgba(63, 224, 197,.06)}
 </style>""", unsafe_allow_html=True)
 
 # ── header ───────────────────────────────────────────────────────────
@@ -926,7 +926,7 @@ with tabs[3]:
             ("👑", S.PRINCIPAL_INVESTIGATOR, "Team Lead",  "#f59e0b"),
             ("🔬", S.STRUCTURAL_BIOLOGIST,   "Expert",     "#3b82f6"),
             ("💻", S.COMPUTATIONAL_BIOLOGIST, "Expert",     "#06b6d4"),
-            ("🤖", S.MACHINE_LEARNING_SPECIALIST, "Expert","#8b5cf6"),
+            ("🤖", S.MACHINE_LEARNING_SPECIALIST, "Expert","#4cc9f0"),
             ("🧬", S.IMMUNOLOGIST,           "Expert",     "#22c55e"),
             ("🔧", S.PROTEIN_ENGINEER,       "Expert",     "#f97316"),
             ("⚡", S.BIOPHYSICIST,           "Expert",     "#eab308"),
@@ -945,7 +945,7 @@ with tabs[3]:
                         f'<div style="font-weight:700;font-size:1rem;color:{color}">{_esc(agent.title)}</div>'
                         f'<div style="font-size:.7rem;font-weight:600;text-transform:uppercase;'
                         f'letter-spacing:.05em;color:var(--pdhub-text-muted);margin-top:2px">{role}</div>'
-                        f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:.7rem;'
+                        f'<div style="font-family:\'IBM Plex Mono\',monospace;font-size:.7rem;'
                         f'color:var(--pdhub-text-muted);margin-top:5px">{_esc(agent.resolved_model)}</div>'
                         f'</div>',
                         unsafe_allow_html=True,
