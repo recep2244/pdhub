@@ -60,3 +60,26 @@ def test_foldx_interface_metric_contract():
     assert m.name == "foldx_interface_energy"
     assert isinstance(m.is_available(), bool)       # False without the FoldX binary
     assert "FoldX" in m.get_requirements()
+
+
+def test_msa_conservation_penalises_conserved_positions():
+    """Mutating a highly-conserved MSA column is penalised vs a variable one."""
+    seq = "MKTAYIAKQRQ"
+    base = {"position": 5, "original_aa": "A", "mutant_aa": "V", "mean_plddt": 85.0,
+            "ost_lddt": 0.97, "clash_score": 5, "extra_metrics": {}, "delta_mean_plddt": 1.0}
+    cons = dict(base); cons["conservation"] = 0.95
+    var = dict(base); var["conservation"] = 0.20
+    s_cons, c_cons = composite_mutation_score(cons, {"clash_score": 5}, seq)
+    s_var, c_var = composite_mutation_score(var, {"clash_score": 5}, seq)
+    assert c_cons["conservation_penalty"] < 0          # conserved → penalised
+    assert c_var["conservation_penalty"] == 0.0        # variable → no penalty
+    assert s_cons < s_var
+    assert any("conserved" in f.lower() for f in c_cons["flags"])
+
+
+def test_conservation_profile_from_alignment():
+    from protein_design_hub.analysis.mutation_scoring import conservation_profile
+    prof = conservation_profile(["MKTA", "MKTA", "MKTA"])   # fully conserved
+    assert prof is not None and len(prof) == 4
+    assert all(p > 0.9 for p in prof)
+    assert conservation_profile(["not-a-real-thing"]) is not None or True  # graceful

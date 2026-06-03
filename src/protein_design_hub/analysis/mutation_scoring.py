@@ -42,6 +42,8 @@ GBSA_PENALTY = 0.2     # sign-only nudge from ΔGBSA (noisy → small)
 W_ESM2 = 0.15          # per unit of ESM-2 Δlog-likelihood (fitness/conservation)
 W_AM = 2.0             # per unit of (AlphaMissense score − threshold), human only
 W_DEV = 0.4            # developability penalty weight (aggregation/charge)
+W_CONSERV = 1.5        # MSA family-conservation penalty (mutating conserved sites)
+CONSERV_FLOOR = 0.6    # conservation above this starts to penalise
 
 # Aromatic residues — the clearest single-residue aggregation liability for a
 # sequence-only screen. (Aliphatic swaps like A→V are common stabilising core
@@ -138,6 +140,22 @@ def developability_delta(wt_aa: str, mt_aa: str) -> Dict[str, object]:
         risk += 0.2 * min(abs(dq), 2)
         flags.append(f"charge change {dq:+.0f}")
     return {"risk": round(min(risk, 1.0), 3), "flags": flags}
+
+
+def conservation_profile(alignment, method: str = "composite"):
+    """Per-position MSA conservation (0–1, higher = more conserved).
+
+    Thin wrapper over ``msa.conservation.calculate_conservation`` so the
+    mutagenesis scorer can consume an alignment (list of aligned sequences, or a
+    FASTA/A3M path) without importing the MSA package directly. Returns ``None``
+    on any failure (graceful — the composite simply omits the conservation term).
+    """
+    try:
+        from protein_design_hub.msa.conservation import calculate_conservation
+        scores = calculate_conservation(alignment, method=method)
+        return [float(s) for s in scores] if scores else None
+    except Exception:
+        return None
 
 
 def introduces_ptm_liability(
@@ -265,6 +283,17 @@ def composite_mutation_score(
         if float(am_score) >= float(am_thr):
             flags.append(f"AlphaMissense likely pathogenic ({am_score:.2f})")
 
+    # ── MSA family conservation: mutating a highly-conserved column is risky ──
+    # Complementary to ESM-2 (single-sequence): this is alignment-derived, so it
+    # flags positions conserved across homologues (often functional/structural).
+    conserv_penalty = 0.0
+    conserv = mutant.get("conservation")
+    if isinstance(conserv, (int, float)):
+        comp["conservation"] = round(float(conserv), 3)
+        if conserv > CONSERV_FLOOR:
+            conserv_penalty = -W_CONSERV * (float(conserv) - CONSERV_FLOOR)
+            flags.append(f"MSA-conserved position ({conserv:.2f})")
+
     # ── GBSA (noisy → small, sign-only nudge) ──────────────────────────────
     gbsa_term = 0.0
     mut_gbsa = _extract_gbsa(mutant.get("extra_metrics", {}))
@@ -285,7 +314,7 @@ def composite_mutation_score(
         flags.append(f"mutant fold low-confidence (pLDDT {float(mean_plddt):.0f}<{MIN_VIABLE_PLDDT:.0f})")
 
     score = (stability_term + fold_term + conf_term + clash_penalty
-             + ptm_penalty + gbsa_term + esm2_term + am_term + dev_penalty)
+             + ptm_penalty + gbsa_term + esm2_term + am_term + dev_penalty + conserv_penalty)
     if not gate_ok:
         score -= 1.0  # heavy demotion — prediction unreliable
 
@@ -299,6 +328,7 @@ def composite_mutation_score(
         "esm2_term": round(esm2_term, 3),
         "am_term": round(am_term, 3),
         "dev_penalty": round(dev_penalty, 3),
+        "conservation_penalty": round(conserv_penalty, 3),
         "gate_ok": gate_ok,
         "flags": flags,
         "score": round(score, 3),

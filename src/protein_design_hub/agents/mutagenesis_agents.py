@@ -155,6 +155,26 @@ def _annotate_variant_effects(successful: list, sequence: str, context) -> None:
         except Exception as e:  # noqa: BLE001
             logger.warning("FoldX annotation skipped: %s", e)
 
+    # MSA family conservation (optional): if the run carries a per-position
+    # conservation profile or an alignment, attach the conserved-ness at each
+    # mutated site so the composite can penalise mutating conserved columns.
+    try:
+        from protein_design_hub.analysis.mutation_scoring import conservation_profile as _cons_profile
+        profile = (context.extra or {}).get("conservation_profile")
+        if profile is None:
+            aln = (context.extra or {}).get("msa_alignment") or (context.extra or {}).get("msa_a3m_path")
+            if aln:
+                profile = _cons_profile(aln)
+                if profile:
+                    context.extra["conservation_profile"] = profile
+        if profile:
+            for r in successful:
+                p = r.get("position")
+                if isinstance(p, int) and 1 <= p <= len(profile):
+                    r["conservation"] = profile[p - 1]
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Conservation annotation skipped: %s", e)
+
     uniprot = (context.extra or {}).get("uniprot_id")
     if uniprot:
         try:
