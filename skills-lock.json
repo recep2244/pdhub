@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "developing-with-streamlit": {
+      "source": "streamlit/agent-skills",
+      "sourceType": "github",
+      "skillPath": "developing-with-streamlit/SKILL.md",
+      "computedHash": "9f8006c37398b5c6a27043bdfe3a25d4aafdfb53413618c88d2c978932f9d08e"
+    },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "skillPath": "skills/find-skills/SKILL.md",
+      "computedHash": "9e1c8b3103f92fa8092568a44fe64858de7c5c9dc65ce4bea8f168080e889cfd"
+    },
+    "protein-sequence-msa": {
+      "source": "google-deepmind/science-skills",
+      "sourceType": "github",
+      "skillPath": "skills/protein_sequence_msa/SKILL.md",
+      "computedHash": "2fcb9186d800fe95cadfd5d531b850b372b61a2c014b2e5f7b88966538c55275"
+    },
+    "protein-sequence-similarity-search": {
+      "source": "google-deepmind/science-skills",
+      "sourceType": "github",
+      "skillPath": "skills/protein_sequence_similarity_search/SKILL.md",
+      "computedHash": "123444ea0c124153b15c8bac3258a49167aa3ad9f38809ee8d52086a640ca532"
+    },
+    "tooluniverse-protein-therapeutic-design": {
+      "source": "mims-harvard/tooluniverse",
+      "sourceType": "github",
+      "skillPath": "skills/tooluniverse-protein-therapeutic-design/SKILL.md",
+      "computedHash": "22cdb7fccd98b3c8a70527e8c6fb22e15d7cf75c3f35e99aade8b9a2efdf6a29"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+# Professional theme for Protein Design Hub (applied via developing-with-streamlit skill).
+[theme]
+base = "dark"
+primaryColor = "#10b981"            # emerald — matches the GO/decision accent
+backgroundColor = "#0e1117"
+secondaryBackgroundColor = "#192231"  # cards, sidebar, tables
+textColor = "#e6edf3"
+font = "sans serif"
+
+[client]
+showErrorDetails = true
+toolbarMode = "minimal"
+
+[server]
+runOnSave = false

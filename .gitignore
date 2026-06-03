@@ -177,7 +177,8 @@ localcolabfold/
 colabfold_envdb/
 
 # Streamlit
-.streamlit/
+.streamlit/*
+!.streamlit/config.toml
 
 # Claude Code local settings (machine-specific)
 .claude/
@@ -185,3 +186,6 @@ colabfold_envdb/
 # Vendored FoldX (non-redistributable; license must be renewed)
 tools/foldx/foldx_*
 tools/foldx/molecules/
+
+# Installed agent-skill packages (reinstall via: npx skills add ...)
+.agents/
