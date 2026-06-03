@@ -1096,6 +1096,62 @@ def _biophysicist_verdict(m, esm2_delta, ost_lddt, foldx_ddg=None) -> tuple:
     return v, {"ddg": ddg, "ddg_src": ddg_src, "ost_lddt": ost_lddt, "rmsd": rmsd, "clash": clash}
 
 
+def _protein_engineer_verdict(m, esm2_delta, foldx_ddg) -> tuple:
+    """Protein Engineer call: is the substitution a sound design choice?
+
+    Weighs substitution conservativeness (BLOSUM62), stability (FoldX ΔΔG or
+    heuristic), and evolutionary acceptability (ESM-2).
+    """
+    from protein_design_hub.analysis.mutation_scoring import substitution_risk
+    wt = (getattr(m, "original_aa", "") or "").upper()
+    mt = (getattr(m, "mutant_aa", "") or "").upper()
+    try:
+        from Bio.Align import substitution_matrices
+        blo = float(substitution_matrices.load("BLOSUM62")[(wt, mt)])
+    except Exception:
+        blo = None
+    ddg = float(foldx_ddg) if isinstance(foldx_ddg, (int, float)) else \
+        substitution_risk(wt, mt).get("ddg_kcal", 0.0)
+    reasons, score = [], 0
+    if blo is not None:
+        if blo >= 0:
+            reasons.append(f"conservative (BLOSUM {int(blo):+d})"); score += 1
+        else:
+            reasons.append(f"non-conservative (BLOSUM {int(blo):+d})"); score -= 1
+    if ddg <= -0.5:
+        reasons.append(f"stabilising (ΔΔG {ddg:+.1f})"); score += 1
+    elif ddg > 1.0:
+        reasons.append(f"destabilising (ΔΔG {ddg:+.1f})"); score -= 1
+    if esm2_delta is not None:
+        if esm2_delta >= -2:
+            score += 1
+        elif esm2_delta < -5:
+            reasons.append("evolutionarily implausible"); score -= 1
+    v = "🟢 Sound design" if score >= 2 else ("🔴 Poor design" if score <= -1 else "🟡 Plausible")
+    return v, {"blosum": blo, "ddg": ddg, "reasons": reasons}
+
+
+def _scientific_critic_verdict(m, esm2_delta, ost_lddt) -> tuple:
+    """Scientific Critic call: how trustworthy is the evidence? Flags low
+    confidence, conflicting signals, and missing orthogonal validation."""
+    site = getattr(m, "local_plddt", None)
+    rmsd = getattr(m, "rmsd_to_base", None)
+    dloc = getattr(m, "delta_local_plddt", 0) or 0
+    concerns, n = [], 0
+    if isinstance(site, (int, float)) and site < 70:
+        concerns.append(f"low site confidence (pLDDT {site:.0f})"); n += 1
+    if isinstance(rmsd, (int, float)) and rmsd > 2.5:
+        concerns.append(f"large RMSD ({rmsd:.1f} Å) — model unreliable"); n += 1
+    if esm2_delta is not None and esm2_delta < -5 and dloc > 0:
+        concerns.append("conflict: predictor confident but ESM-2 deleterious"); n += 1
+    if ost_lddt is None:
+        concerns.append("no OST fold confirmation vs WT")
+    if esm2_delta is None:
+        concerns.append("no evolutionary (ESM-2) signal")
+    v = "🔴 Weak/conflicting" if n >= 2 else ("🟡 Mixed evidence" if n == 1 else "🟢 Well-supported")
+    return v, {"concerns": concerns}
+
+
 def _consensus_recommendation(res, esm2_deltas):
     """Tri-expert (Data Scientist + Immunologist + Biophysicist) ranking.
 
@@ -1127,62 +1183,106 @@ def _consensus_recommendation(res, esm2_deltas):
     rows = []
     for i, m in enumerate(muts):
         ds = 0.4 * zs[i] + 0.3 * ze[i] + 0.2 * zl[i] - 0.1 * zr[i]
+        fdg = _foldx_ddg_for(m)
         immuno = _assess_candidate(m, seq, esm[i])
-        bio_v, bio = _biophysicist_verdict(m, esm[i], lddt[i], foldx_ddg=_foldx_ddg_for(m))
+        bio_v, bio = _biophysicist_verdict(m, esm[i], lddt[i], foldx_ddg=fdg)
+        eng_v, eng = _protein_engineer_verdict(m, esm[i], fdg)
+        crit_v, crit = _scientific_critic_verdict(m, esm[i], lddt[i])
         rows.append({
             "m": m, "code": getattr(m, "mutation_code", ""), "ds": ds,
             "immuno_verdict": immuno["verdict"], "immuno_ok": "High-risk" not in immuno["verdict"],
             "bio_verdict": bio_v, "bio_ok": "🔴" not in bio_v,
-            "esm": esm[i], "lddt": lddt[i], "chips": immuno["chips"],
+            "eng_verdict": eng_v, "eng_ok": "🔴" not in eng_v, "eng_reasons": eng.get("reasons", []),
+            "crit_verdict": crit_v, "crit_ok": "🔴" not in crit_v, "crit_concerns": crit.get("concerns", []),
+            "esm": esm[i], "lddt": lddt[i], "foldx_ddg": fdg, "chips": immuno["chips"],
         })
     rows.sort(key=lambda r: r["ds"], reverse=True)
     for rank, r in enumerate(rows, 1):
         r["ds_rank"] = rank
-        r["consensus"] = bool(r["immuno_ok"] and r["bio_ok"])
+        r["consensus"] = bool(r["immuno_ok"] and r["bio_ok"] and r["eng_ok"] and r["crit_ok"])
     consensus = next((r for r in rows if r["consensus"]), None)
     return {"rows": rows, "consensus": consensus, "ds_top": rows[0]}
 
 
 def _render_consensus(res, esm2_deltas) -> None:
-    """Render the tri-expert consensus recommendation panel (runs by default)."""
+    """5-expert consensus + concrete results presenter (runs by default).
+
+    Panel: Data Scientist · Immunologist · Biophysicist · Protein Engineer ·
+    Scientific Critic. Presents the recommended mutant with ALL metrics and each
+    expert's verdict + rationale, then a per-candidate trade-off table.
+    """
     rec = _consensus_recommendation(res, esm2_deltas)
     if not rec:
         return
     cons, ds_top = rec["consensus"], rec["ds_top"]
-    st.markdown("### 🤝 Consensus recommendation — Data Scientist · Immunologist · Biophysicist")
+    pick = cons or ds_top
+    st.markdown("### 🤝 Expert panel recommendation")
+    st.caption("Data Scientist · Immunologist · Biophysicist · Protein Engineer · Scientific Critic")
     if cons is not None:
-        agree_extra = "" if cons is ds_top else (
-            f" (the Data Scientist's top pick {_mut3(ds_top['code'])} was vetoed by "
-            f"{'the immunologist' if not ds_top['immuno_ok'] else 'the biophysicist'})")
-        st.success(
-            f"**All three experts agree on `{_mut3(cons['code'])}`** as the best mutant{agree_extra}. "
-            f"DS rank #{cons['ds_rank']} (composite {cons['ds']:+.2f}); "
-            f"Immunologist: {cons['immuno_verdict']}; Biophysicist: {cons['bio_verdict']}."
-        )
+        vetoed = "" if cons is ds_top else (
+            " (the Data Scientist's top pick was vetoed by " +
+            ", ".join([n for n, ok in (("immunologist", ds_top["immuno_ok"]),
+                                        ("biophysicist", ds_top["bio_ok"]),
+                                        ("protein engineer", ds_top["eng_ok"]),
+                                        ("scientific critic", ds_top["crit_ok"])) if not ok]) + ")")
+        st.success(f"**All five experts endorse `{_mut3(cons['code'])}`** as the best mutant{vetoed}.")
     else:
-        st.warning(
-            f"**No full consensus.** Data Scientist's top pick is `{_mut3(ds_top['code'])}` "
-            f"(composite {ds_top['ds']:+.2f}), but it's flagged by "
-            f"{'the immunologist' if not ds_top['immuno_ok'] else ''}"
-            f"{' and ' if (not ds_top['immuno_ok'] and not ds_top['bio_ok']) else ''}"
-            f"{'the biophysicist' if not ds_top['bio_ok'] else ''}. "
-            "Review the trade-off table below."
-        )
+        blockers = ", ".join([n for n, ok in (("immunologist", ds_top["immuno_ok"]),
+                                               ("biophysicist", ds_top["bio_ok"]),
+                                               ("protein engineer", ds_top["eng_ok"]),
+                                               ("scientific critic", ds_top["crit_ok"])) if not ok])
+        st.warning(f"**No unanimous pick.** Top-ranked `{_mut3(ds_top['code'])}` is flagged by: {blockers}. "
+                   "See the per-expert table; the highest-ranked fully-cleared candidate (if any) is preferred.")
+
+    # ── concrete results for the recommended mutant: ALL metrics ──
+    m = pick["m"]
+    st.markdown(f"#### 📋 Concrete results — `{_mut3(pick['code'])}`")
+    def _fmt(v, f="{:.2f}"):
+        return f.format(v) if isinstance(v, (int, float)) else "N/A"
+    c = st.columns(4)
+    c[0].metric("Site pLDDT (per-res)", _fmt(getattr(m, "local_plddt", None), "{:.1f}"),
+                _fmt(getattr(m, "delta_local_plddt", None), "{:+.2f}"))
+    c[1].metric("ESM-2 ΔLL", _fmt(pick["esm"], "{:+.2f}"),
+                _esm2_verdict(pick["esm"]) if pick["esm"] is not None else None, delta_color="off")
+    c[2].metric("FoldX ΔΔG", _fmt(pick["foldx_ddg"], "{:+.2f}"), "kcal/mol", delta_color="off")
+    c[3].metric("OST lDDT vs WT", _fmt(pick["lddt"], "{:.3f}"))
+    c2 = st.columns(4)
+    c2[0].metric("OST RMSD(CA)", _fmt(_ost_for(m, "rmsd_ca")), "Å", delta_color="off")
+    c2[1].metric("OST TM-score", _fmt(_ost_for(m, "tm_score"), "{:.3f}"))
+    c2[2].metric("RMSD vs WT", _fmt(getattr(m, "rmsd_to_base", None)), "Å", delta_color="off")
+    c2[3].metric("Liabilities", _assess_candidate(m, getattr(res, "sequence", ""), pick["esm"])["liabilities"])
+
+    # ── each expert's verdict + concrete rationale ──
+    eng_r = "; ".join(pick.get("eng_reasons", [])) or "—"
+    crit_r = "; ".join(pick.get("crit_concerns", [])) or "no major concerns"
+    chip_r = "; ".join(t for t, _ in pick.get("chips", [])) or "no liabilities flagged"
+    st.markdown(
+        f"- **🔢 Data Scientist** — rank #{pick['ds_rank']}/{len(rec['rows'])}, composite {pick['ds']:+.2f} "
+        f"(z-scored Δsite-pLDDT + ESM-2 + OST lDDT − RMSD)\n"
+        f"- **🧬 Immunologist** — {pick['immuno_verdict']}: {chip_r}\n"
+        f"- **🔬 Biophysicist** — {pick['bio_verdict']}: ΔΔG {_fmt(pick['foldx_ddg'] if pick['foldx_ddg'] is not None else 0)} kcal/mol, "
+        f"OST lDDT {_fmt(pick['lddt'], '{:.3f}')}\n"
+        f"- **🛠️ Protein Engineer** — {pick['eng_verdict']}: {eng_r}\n"
+        f"- **🧐 Scientific Critic** — {pick['crit_verdict']}: {crit_r}"
+    )
+
+    # ── per-candidate trade-off table (all 5 experts) ──
+    st.markdown("**Per-candidate expert table**")
     tbl = [{
-        "Mutation": _mut3(r["code"]),
-        "DS rank": r["ds_rank"],
-        "DS composite": round(r["ds"], 2),
-        "🧬 Immunologist": r["immuno_verdict"],
-        "🔬 Biophysicist": r["bio_verdict"],
+        "Mutation": _mut3(r["code"]), "DS#": r["ds_rank"], "Composite": round(r["ds"], 2),
+        "🧬 Immuno": r["immuno_verdict"], "🔬 Biophys": r["bio_verdict"],
+        "🛠️ Engineer": r["eng_verdict"], "🧐 Critic": r["crit_verdict"],
         "ESM-2 ΔLL": (round(r["esm"], 2) if r["esm"] is not None else None),
+        "FoldX ΔΔG": (round(r["foldx_ddg"], 2) if r["foldx_ddg"] is not None else None),
         "OST lDDT": (round(r["lddt"], 3) if r["lddt"] is not None else None),
         "Consensus": "✅" if r["consensus"] else "—",
-    } for r in rec["rows"][:8]]
+    } for r in rec["rows"][:10]]
     st.dataframe(pd.DataFrame(tbl), use_container_width=True, hide_index=True,
                  column_config={"ESM-2 ΔLL": st.column_config.NumberColumn(format="%+.2f"),
+                                "FoldX ΔΔG": st.column_config.NumberColumn(format="%+.2f"),
                                 "OST lDDT": st.column_config.NumberColumn(format="%.3f")})
-    st.caption("DS composite = z-scored 0.4·Δsite-pLDDT + 0.3·ESM-2 ΔLL + 0.2·OST lDDT − 0.1·RMSD. "
-               "Consensus ✅ = DS-ranked AND not High-risk (immunology) AND not destabilising/perturbed (biophysics).")
+    st.caption("Consensus ✅ = highest-DS-ranked candidate that the immunologist (not High-risk), biophysicist "
+               "(not destabilising), protein engineer (not poor design) AND scientific critic (not weak evidence) all clear.")
 
 
 def _render_interpretation_legend(immunebuilder: bool = False) -> None:
