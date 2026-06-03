@@ -52,12 +52,6 @@ from protein_design_hub.analysis.protein_utils import (
 )
 
 # Page config
-st.set_page_config(
-    page_title="Predict - Protein Design Hub",
-    page_icon="🔮",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
 
 # =============================================================================
 # Page-specific CSS for enhanced UI
@@ -1005,10 +999,10 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                     if st.button("📊 Evaluate Structure", width='stretch', type="primary"):
                         from protein_design_hub.web.ui import set_selected_model
                         set_selected_model(best_pdb)
-                        st.switch_page("pages/2_evaluate.py")
+                        st.switch_page("app_pages/2_evaluate.py")
 
                     if st.button("🧬 Run Mutations", width='stretch'):
-                        st.switch_page("pages/10_mutation_scanner.py")
+                        st.switch_page("app_pages/10_mutation_scanner.py")
 
         with tab_metrics:
             all_scores = []

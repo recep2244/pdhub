@@ -20,7 +20,6 @@ from protein_design_hub.analysis import (
     transit_peptide as tp, nlr_domains as nlr, codon_optimization as co,
 )
 
-st.set_page_config(page_title="Plant / Wheat - Protein Design Hub", page_icon="🌾", layout="wide")
 inject_base_css()
 sidebar_nav(current="Plant / Wheat")
 sidebar_system_status()

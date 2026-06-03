@@ -2093,31 +2093,31 @@ def sidebar_nav(current: str | None = None) -> None:
     # Modeling → Lab → AI & Tools. Every existing page is still reachable.
     nav_groups = {
         "Launchpad": [
-            ("Home", "app.py", "🏠"),
+            ("Home", "app_pages/home.py", "🏠"),
         ],
         "Design Tracks": [
-            ("Binder Design", "pages/14_binder.py", "🔗"),
-            ("Antibody", "pages/12_antibody.py", "🧫"),
-            ("Plant / Wheat", "pages/15_plant.py", "🌾"),
-            ("Mutagenesis", "pages/10_mutation_scanner.py", "🧬"),
+            ("Binder Design", "app_pages/14_binder.py", "🔗"),
+            ("Antibody", "app_pages/12_antibody.py", "🧫"),
+            ("Plant / Wheat", "app_pages/15_plant.py", "🌾"),
+            ("Mutagenesis", "app_pages/10_mutation_scanner.py", "🧬"),
         ],
         "Modeling": [
-            ("Predict", "pages/1_predict.py", "🔮"),
-            ("Evaluate", "pages/2_evaluate.py", "📊"),
-            ("Compare", "pages/3_compare.py", "⚖️"),
+            ("Predict", "app_pages/1_predict.py", "🔮"),
+            ("Evaluate", "app_pages/2_evaluate.py", "📊"),
+            ("Compare", "app_pages/3_compare.py", "⚖️"),
         ],
         "Design Lab": [
-            ("Editor", "pages/0_design.py", "✏️"),
-            ("MPNN Lab", "pages/8_mpnn.py", "🎯"),
-            ("Evolution", "pages/4_evolution.py", "📈"),
-            ("MSA", "pages/7_msa.py", "🧬"),
+            ("Editor", "app_pages/0_design.py", "✏️"),
+            ("MPNN Lab", "app_pages/8_mpnn.py", "🎯"),
+            ("Evolution", "app_pages/4_evolution.py", "📈"),
+            ("MSA", "app_pages/7_msa.py", "🧬"),
         ],
         "AI & Tools": [
-            ("Agents", "pages/11_agents.py", "🤖"),
-            ("Batch", "pages/5_batch.py", "📦"),
-            ("Jobs", "pages/9_jobs.py", "📁"),
-            ("Settings", "pages/6_settings.py", "⚙️"),
-            ("Guide", "pages/13_guide.py", "📖"),
+            ("Agents", "app_pages/11_agents.py", "🤖"),
+            ("Batch", "app_pages/5_batch.py", "📦"),
+            ("Jobs", "app_pages/9_jobs.py", "📁"),
+            ("Settings", "app_pages/6_settings.py", "⚙️"),
+            ("Guide", "app_pages/13_guide.py", "📖"),
         ],
     }
 
@@ -2361,7 +2361,7 @@ def workflow_breadcrumb(steps: List[str], current: int = 0) -> None:
 def cross_page_actions(actions: List[Dict[str, str]]) -> None:
     """Render a row of cross-page navigation buttons.
 
-    Each action dict: {"label": "...", "page": "pages/2_evaluate.py", "icon": "..."}
+    Each action dict: {"label": "...", "page": "app_pages/2_evaluate.py", "icon": "..."}
     """
     cols = st.columns(len(actions))
     for i, act in enumerate(actions):

@@ -13,11 +13,6 @@ if str(PROJECT_SRC) not in sys.path:
 
 import streamlit as st
 
-st.set_page_config(
-    page_title="Antibody Engineering - Protein Design Hub",
-    page_icon="🧫",
-    layout="wide",
-)
 
 import html as _html
 from typing import List, Optional

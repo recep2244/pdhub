@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-_PAGE = Path(__file__).resolve().parents[1] / "src/protein_design_hub/web/pages/10_mutation_scanner.py"
+_PAGE = Path(__file__).resolve().parents[1] / "src/protein_design_hub/web/app_pages/10_mutation_scanner.py"
 
 
 def _load_page():

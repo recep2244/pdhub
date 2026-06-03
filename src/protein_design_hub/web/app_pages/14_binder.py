@@ -21,7 +21,6 @@ from protein_design_hub.design.campaign import (
     plan_campaign, assess_health, recommend_stack,
 )
 
-st.set_page_config(page_title="Binder Design - Protein Design Hub", page_icon="🔗", layout="wide")
 inject_base_css()
 sidebar_nav(current="Binder Design")
 sidebar_system_status()

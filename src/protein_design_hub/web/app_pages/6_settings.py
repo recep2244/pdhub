@@ -5,7 +5,6 @@ from pathlib import Path
 import json
 from typing import Iterable, List, Tuple
 
-st.set_page_config(page_title="Settings - Protein Design Hub", page_icon="⚙️", layout="wide")
 
 from protein_design_hub.web.ui import (
     inject_base_css,

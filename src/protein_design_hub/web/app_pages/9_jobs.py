@@ -38,7 +38,6 @@ from protein_design_hub.web.ui import (
     cross_page_actions,
 )
 
-st.set_page_config(page_title="Jobs - Protein Design Hub", page_icon="📁", layout="wide")
 inject_base_css()
 sidebar_nav(current="Jobs")
 sidebar_system_status()
@@ -209,24 +208,24 @@ for i in range(0, len(jobs), cols_per_row):
                         if st.button("📊 Evaluate", key=f"eval_{job_id}", width='stretch', disabled=not inferred_model):
                             if inferred_model:
                                 set_selected_model(inferred_model)
-                                st.switch_page("pages/2_evaluate.py")
+                                st.switch_page("app_pages/2_evaluate.py")
                         if not inferred_model:
                             st.caption("No structure file found")
 
                     if job.get("has_evolution"):
                         if st.button("🧬 View Evo", key=f"vevo_{job_id}", width='stretch'):
                             st.session_state["evolution_job_to_load"] = str(job["path"])
-                            st.switch_page("pages/4_evolution.py")
+                            st.switch_page("app_pages/4_evolution.py")
 
                 with act_cols[1]:
                     if job.get("has_scan"):
                         if st.button("🔬 View Scan", key=f"vscan_{job_id}", width='stretch'):
                             st.session_state["scan_job_to_load"] = str(job["path"])
-                            st.switch_page("pages/10_mutation_scanner.py")
+                            st.switch_page("app_pages/10_mutation_scanner.py")
                     elif inferred_model:
                         if st.button("🎯 Design", key=f"des_{job_id}", width='stretch'):
                             set_selected_backbone(inferred_model)
-                            st.switch_page("pages/8_mpnn.py")
+                            st.switch_page("app_pages/8_mpnn.py")
 
 # Job details section
 st.markdown("---")

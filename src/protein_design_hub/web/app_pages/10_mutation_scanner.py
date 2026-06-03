@@ -68,11 +68,6 @@ from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
-st.set_page_config(
-    page_title="Mutation Scanner - Protein Design Hub",
-    page_icon="🔬",
-    layout="wide"
-)
 
 # Base theme + navigation
 inject_base_css()
@@ -3124,7 +3119,7 @@ with tab_manual:
                             'source': 'mutation_scanner_multi',
                             'description': f"Multi-variant {target_variant.mutation_code}. Δmean pLDDT: {target_variant.delta_mean_plddt:+.2f}",
                         }
-                        st.switch_page("pages/1_predict.py")
+                        st.switch_page("app_pages/1_predict.py")
 
                 with c2:
                     st.markdown("#### 🔬 Quick Compare")
@@ -3171,7 +3166,7 @@ with tab_manual:
                                     'name': f"variant_{v.mutation_code}",
                                     'source': 'mutation_scanner',
                                 }
-                                st.switch_page("pages/1_predict.py")
+                                st.switch_page("app_pages/1_predict.py")
             else:
                 st.info("No successful variants produced.")
 
@@ -3492,7 +3487,7 @@ with tab_manual:
                             'source': 'mutation_scanner',
                             'description': f"Variant {target_variant.mutation_code} from residue {res.position} scan. Expected ΔpLDDT: {target_variant.delta_mean_plddt:.2f}"
                         }
-                        st.switch_page("pages/1_predict.py")
+                        st.switch_page("app_pages/1_predict.py")
 
                 with c2:
                     st.markdown("#### 🔬 Quick Compare")

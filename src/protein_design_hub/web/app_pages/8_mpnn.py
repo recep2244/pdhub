@@ -39,7 +39,6 @@ from protein_design_hub.web.agent_helpers import (
 from protein_design_hub.web.visualizations import show_structure_with_pymol_fallback
 from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 
-st.set_page_config(page_title="MPNN Design - Protein Design Hub", page_icon="🎯", layout="wide")
 inject_base_css()
 sidebar_nav(current="MPNN Lab")
 sidebar_system_status()
@@ -564,7 +563,7 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", width='stretch'):
                         if result.sequences:
                             st.session_state.predict_sequence = result.sequences[0].sequence
                             st.session_state.predict_name = f"{result.sequences[0].id}_check"
-                            st.switch_page("pages/1_predict.py")
+                            st.switch_page("app_pages/1_predict.py")
                         else:
                             st.warning("No sequences available to fold.")
 
@@ -734,7 +733,7 @@ if _mpnn_prev and _mpnn_prev.success and _mpnn_prev.sequences:
         if st.button("Send top sequence → Predict page", key="mpnn_prev_predict", type="secondary"):
             st.session_state.predict_sequence = _mpnn_prev.sequences[0].sequence
             st.session_state.predict_name = f"{_mpnn_prev.sequences[0].id}_check"
-            st.switch_page("pages/1_predict.py")
+            st.switch_page("app_pages/1_predict.py")
 
         # ── Wheat Codon Optimization ──────────────────────────────────────
         with st.expander("🌾 Wheat Codon Optimization for designed sequences", expanded=False):

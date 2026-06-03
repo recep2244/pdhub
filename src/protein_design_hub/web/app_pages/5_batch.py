@@ -25,7 +25,6 @@ from protein_design_hub.web.agent_helpers import (
     observed_scoring_section,
 )
 
-st.set_page_config(page_title="Batch - Protein Design Hub", page_icon="📦", layout="wide")
 
 # Base theme + navigation
 inject_base_css()

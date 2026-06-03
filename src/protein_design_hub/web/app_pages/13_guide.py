@@ -24,11 +24,6 @@ from protein_design_hub.web.ui import (
 )
 from protein_design_hub.web.agent_helpers import agent_sidebar_status
 
-st.set_page_config(
-    page_title="Getting Started — Protein Design Hub",
-    page_icon="📖",
-    layout="wide",
-)
 inject_base_css()
 sidebar_nav(current="Guide")
 sidebar_system_status()
@@ -756,12 +751,12 @@ for i, (name, info) in enumerate(examples.items()):
                 if st.button("→ Predict", key=f"ex_pred_{i}", width='stretch'):
                     st.session_state["predict_sequence"] = info["seq"]
                     st.session_state["predict_name"] = name
-                    st.switch_page("pages/1_predict.py")
+                    st.switch_page("app_pages/1_predict.py")
             with c_mut:
                 if st.button("→ Mutagenesis", key=f"ex_mut_{i}", width='stretch'):
                     st.session_state["sequence"] = info["seq"]
                     st.session_state["sequence_name"] = name
-                    st.switch_page("pages/10_mutation_scanner.py")
+                    st.switch_page("app_pages/10_mutation_scanner.py")
 
 # ── Footer ─────────────────────────────────────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)

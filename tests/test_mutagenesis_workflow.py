@@ -57,7 +57,7 @@ def _load_scanner_page():
 
     page_path = (
         Path(__file__).resolve().parents[1]
-        / "src/protein_design_hub/web/pages/10_mutation_scanner.py"
+        / "src/protein_design_hub/web/app_pages/10_mutation_scanner.py"
     )
 
     with (

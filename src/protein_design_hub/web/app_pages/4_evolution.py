@@ -32,7 +32,6 @@ from protein_design_hub.web.agent_helpers import (
 )
 from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 
-st.set_page_config(page_title="Evolution - Protein Design Hub", page_icon="🧬", layout="wide")
 
 inject_base_css()
 sidebar_nav(current="Evolution")

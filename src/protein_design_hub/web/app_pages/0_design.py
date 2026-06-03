@@ -25,7 +25,6 @@ from protein_design_hub.web.agent_helpers import (
 )
 from protein_design_hub.web.shared_context import set_page_results, render_workflow_status_bar
 
-st.set_page_config(page_title="Design - Protein Design Hub", page_icon="🧬", layout="wide")
 
 # Base theme + navigation
 inject_base_css()
@@ -635,7 +634,7 @@ if seq:
                     # Clear scanner results to force fresh look
                     st.session_state.base_structure = None 
                     st.session_state.scan_results = None
-                    st.switch_page("pages/10_mutation_scanner.py")
+                    st.switch_page("app_pages/10_mutation_scanner.py")
                 st.markdown("---")
 
             col_groups = st.columns(len(AA_GROUPS))

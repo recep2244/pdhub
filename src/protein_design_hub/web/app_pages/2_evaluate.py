@@ -7,7 +7,6 @@ from typing import Optional
 
 import streamlit as st
 
-st.set_page_config(page_title="Evaluate - Protein Design Hub", page_icon="📊", layout="wide")
 
 from protein_design_hub.web.ui import (
     get_selected_model,

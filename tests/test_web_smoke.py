@@ -9,7 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 WEB_ROOT = ROOT / "src" / "protein_design_hub" / "web"
 APP_SCRIPT = WEB_ROOT / "app.py"
-PAGE_SCRIPTS = sorted((WEB_ROOT / "pages").glob("*.py"))
+PAGE_SCRIPTS = sorted((WEB_ROOT / "app_pages").glob("*.py"))
 
 
 def _run_script_smoke(script: Path) -> None:
