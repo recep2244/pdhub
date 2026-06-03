@@ -1204,6 +1204,112 @@ def _consensus_recommendation(res, esm2_deltas):
     return {"rows": rows, "consensus": consensus, "ds_top": rows[0]}
 
 
+def _fmtv(v, f="{:.2f}"):
+    return f.format(v) if isinstance(v, (int, float)) else "N/A"
+
+
+def _data_scientist_brief(pick, rec) -> str:
+    n = len(rec["rows"])
+    parts = [f"Ranks **#{pick['ds_rank']} of {n}** on the composite score (z={pick['ds']:+.2f}), "
+             f"which weights per-residue Δ pLDDT (0.4), ESM-2 plausibility (0.3), OST fold "
+             f"agreement (0.2) and an RMSD penalty (0.1)."]
+    sig = []
+    if pick["esm"] is not None:
+        sig.append(f"ESM-2 ΔLL {pick['esm']:+.2f}")
+    if pick["lddt"] is not None:
+        sig.append(f"OST lDDT {pick['lddt']:.3f}")
+    if pick["foldx_ddg"] is not None:
+        sig.append(f"FoldX ΔΔG {pick['foldx_ddg']:+.2f}")
+    if sig:
+        parts.append("Driving features: " + ", ".join(sig) + ".")
+    concordant = (pick["esm"] is None or pick["esm"] >= -2) and (pick["lddt"] is None or pick["lddt"] >= 0.9)
+    parts.append("The signals are **concordant** (structure + evolution agree), so the ranking is robust, not an outlier."
+                 if concordant else
+                 "Signals are **mixed** across features — treat the composite rank with caution.")
+    return " ".join(parts)
+
+
+def _biophysicist_brief(pick) -> str:
+    m = pick["m"]
+    rmsd = getattr(m, "rmsd_to_base", None)
+    parts = [f"**{pick['bio_verdict']}.**"]
+    if pick["foldx_ddg"] is not None:
+        d = pick["foldx_ddg"]
+        parts.append(f"FoldX predicts ΔΔG = {d:+.2f} kcal/mol "
+                     f"({'net stabilising' if d < -0.5 else 'destabilising' if d > 1 else 'roughly neutral'}).")
+    if pick["lddt"] is not None:
+        parts.append(f"Fold integrity vs WT is {'preserved' if pick['lddt'] >= 0.9 else 'perturbed'} "
+                     f"(OST lDDT {pick['lddt']:.3f}, CA-RMSD {_fmtv(_ost_for(m, 'rmsd_ca'))} Å).")
+    elif isinstance(rmsd, (int, float)):
+        parts.append(f"Backbone {'stays close to' if rmsd < 2 else 'drifts from'} WT (RMSD {rmsd:.2f} Å).")
+    parts.append("Confirm thermostability by nanoDSF/DSF (ΔTm vs WT) before committing.")
+    return " ".join(parts)
+
+
+def _protein_engineer_brief(pick) -> str:
+    reasons = "; ".join(pick.get("eng_reasons", [])) or "neutral substitution"
+    parts = [f"**{pick['eng_verdict']}.** Substitution chemistry: {reasons}."]
+    if pick["esm"] is not None:
+        parts.append(f"ESM-2 ({pick['esm']:+.2f}) indicates it is "
+                     f"{'evolutionarily well-tolerated' if pick['esm'] >= -2 else 'rarely seen in homologues'}.")
+    parts.append("Engineering call: " + (
+        "a primary candidate — conservative and stabilising; verify side-chain packing/rotamer at the site."
+        if pick["eng_ok"] and pick["bio_ok"] else
+        "secondary at best — the chemistry/stability trade-off needs a rationale or a milder substitution."))
+    return " ".join(parts)
+
+
+def _scientific_critic_brief(pick) -> str:
+    concerns = pick.get("crit_concerns", [])
+    parts = [f"**{pick['crit_verdict']}.**"]
+    if concerns:
+        parts.append("Concerns: " + "; ".join(concerns) + ".")
+    else:
+        parts.append("Multiple orthogonal signals (structure, evolution, energy) point the same way.")
+    parts.append("Caveat: all values are *predicted* — none replace experimental confirmation; "
+                 "demand an orthogonal predictor + a wet-lab assay before any go decision.")
+    return " ".join(parts)
+
+
+def _pi_decision(rec) -> dict:
+    """Principal Investigator synthesis → a clear decision + direction."""
+    cons, ds_top = rec["consensus"], rec["ds_top"]
+    pick = cons or ds_top
+    code = _mut3(pick["code"])
+    holds = [_mut3(r["code"]) for r in rec["rows"]
+             if not r["consensus"] and ("High-risk" in r["immuno_verdict"] or "🔴" in r["bio_verdict"])][:3]
+    hold_txt = (f" **Hold/deprioritise:** {', '.join(holds)} (failed one or more expert checks)." if holds else "")
+    if cons is not None:
+        n_green = sum([cons["immuno_ok"], cons["bio_ok"], cons["eng_ok"], cons["crit_ok"]])
+        return {
+            "go": True,
+            "headline": f"✅ DECISION: ADVANCE **{code}** to experimental validation.",
+            "rationale": (
+                f"The panel reaches consensus on **{code}** — endorsed by all four reviewers "
+                f"(DS rank #{cons['ds_rank']}). It combines a stabilising/neutral ΔΔG, preserved fold, "
+                f"evolutionary plausibility and no developability liabilities. The scientific critic's only "
+                f"reservation is the standard predicted-vs-experimental caveat.{hold_txt}"),
+            "next_steps": (
+                "**Next steps (PI):** 1) synthesise + express (E. coli/HEK293); "
+                "2) nanoDSF Tm + SEC purity vs WT; 3) SPR/BLI binding if functional; "
+                "4) developability panel (PSR/HIC/self-interaction) before lead nomination. "
+                "Re-predict with an orthogonal model (ColabFold/Boltz-2) as a quick self-consistency check first."),
+        }
+    blockers = ", ".join([n for n, ok in (("immunology", ds_top["immuno_ok"]), ("biophysics", ds_top["bio_ok"]),
+                                           ("engineering", ds_top["eng_ok"]), ("critique", ds_top["crit_ok"])) if not ok])
+    return {
+        "go": False,
+        "headline": f"⚠️ DECISION: HOLD — no candidate clears all experts (top pick **{code}** flagged on {blockers}).",
+        "rationale": (
+            f"The data scientist's top pick **{code}** is vetoed on {blockers}. No mutant currently satisfies the "
+            f"full panel, so none should advance unchanged.{hold_txt}"),
+        "next_steps": (
+            "**Next steps (PI):** broaden the scan (more positions / conservative targets), or pair the top "
+            "structural hit with a compensating mutation to clear the failing check, then re-evaluate. "
+            "Do not commit synthesis budget until at least four experts clear a single candidate."),
+    }
+
+
 def _render_consensus(res, esm2_deltas) -> None:
     """5-expert consensus + concrete results presenter (runs by default).
 
@@ -1216,71 +1322,58 @@ def _render_consensus(res, esm2_deltas) -> None:
         return
     cons, ds_top = rec["consensus"], rec["ds_top"]
     pick = cons or ds_top
-    st.markdown("### 🤝 Expert panel recommendation")
-    st.caption("Data Scientist · Immunologist · Biophysicist · Protein Engineer · Scientific Critic")
-    if cons is not None:
-        vetoed = "" if cons is ds_top else (
-            " (the Data Scientist's top pick was vetoed by " +
-            ", ".join([n for n, ok in (("immunologist", ds_top["immuno_ok"]),
-                                        ("biophysicist", ds_top["bio_ok"]),
-                                        ("protein engineer", ds_top["eng_ok"]),
-                                        ("scientific critic", ds_top["crit_ok"])) if not ok]) + ")")
-        st.success(f"**All five experts endorse `{_mut3(cons['code'])}`** as the best mutant{vetoed}.")
-    else:
-        blockers = ", ".join([n for n, ok in (("immunologist", ds_top["immuno_ok"]),
-                                               ("biophysicist", ds_top["bio_ok"]),
-                                               ("protein engineer", ds_top["eng_ok"]),
-                                               ("scientific critic", ds_top["crit_ok"])) if not ok])
-        st.warning(f"**No unanimous pick.** Top-ranked `{_mut3(ds_top['code'])}` is flagged by: {blockers}. "
-                   "See the per-expert table; the highest-ranked fully-cleared candidate (if any) is preferred.")
-
-    # ── concrete results for the recommended mutant: ALL metrics ──
     m = pick["m"]
-    st.markdown(f"#### 📋 Concrete results — `{_mut3(pick['code'])}`")
-    def _fmt(v, f="{:.2f}"):
-        return f.format(v) if isinstance(v, (int, float)) else "N/A"
-    c = st.columns(4)
-    c[0].metric("Site pLDDT (per-res)", _fmt(getattr(m, "local_plddt", None), "{:.1f}"),
-                _fmt(getattr(m, "delta_local_plddt", None), "{:+.2f}"))
-    c[1].metric("ESM-2 ΔLL", _fmt(pick["esm"], "{:+.2f}"),
-                _esm2_verdict(pick["esm"]) if pick["esm"] is not None else None, delta_color="off")
-    c[2].metric("FoldX ΔΔG", _fmt(pick["foldx_ddg"], "{:+.2f}"), "kcal/mol", delta_color="off")
-    c[3].metric("OST lDDT vs WT", _fmt(pick["lddt"], "{:.3f}"))
-    c2 = st.columns(4)
-    c2[0].metric("OST RMSD(CA)", _fmt(_ost_for(m, "rmsd_ca")), "Å", delta_color="off")
-    c2[1].metric("OST TM-score", _fmt(_ost_for(m, "tm_score"), "{:.3f}"))
-    c2[2].metric("RMSD vs WT", _fmt(getattr(m, "rmsd_to_base", None)), "Å", delta_color="off")
-    c2[3].metric("Liabilities", _assess_candidate(m, getattr(res, "sequence", ""), pick["esm"])["liabilities"])
+    pi = _pi_decision(rec)
 
-    # ── each expert's verdict + concrete rationale ──
-    eng_r = "; ".join(pick.get("eng_reasons", [])) or "—"
-    crit_r = "; ".join(pick.get("crit_concerns", [])) or "no major concerns"
-    chip_r = "; ".join(t for t, _ in pick.get("chips", [])) or "no liabilities flagged"
-    st.markdown(
-        f"- **🔢 Data Scientist** — rank #{pick['ds_rank']}/{len(rec['rows'])}, composite {pick['ds']:+.2f} "
-        f"(z-scored Δsite-pLDDT + ESM-2 + OST lDDT − RMSD)\n"
-        f"- **🧬 Immunologist** — {pick['immuno_verdict']}: {chip_r}\n"
-        f"- **🔬 Biophysicist** — {pick['bio_verdict']}: ΔΔG {_fmt(pick['foldx_ddg'] if pick['foldx_ddg'] is not None else 0)} kcal/mol, "
-        f"OST lDDT {_fmt(pick['lddt'], '{:.3f}')}\n"
-        f"- **🛠️ Protein Engineer** — {pick['eng_verdict']}: {eng_r}\n"
-        f"- **🧐 Scientific Critic** — {pick['crit_verdict']}: {crit_r}"
-    )
+    # ── 1) PI decision up front — the clear direction ──
+    st.markdown("## 🧪 Expert Panel Review")
+    (st.success if pi["go"] else st.warning)(pi["headline"])
+    st.markdown(pi["rationale"])
 
-    # ── per-candidate trade-off table (all 5 experts) ──
-    st.markdown("**Per-candidate expert table**")
-    tbl = [{
-        "Mutation": _mut3(r["code"]), "DS#": r["ds_rank"], "Composite": round(r["ds"], 2),
-        "🧬 Immuno": r["immuno_verdict"], "🔬 Biophys": r["bio_verdict"],
-        "🛠️ Engineer": r["eng_verdict"], "🧐 Critic": r["crit_verdict"],
-        "ESM-2 ΔLL": (round(r["esm"], 2) if r["esm"] is not None else None),
-        "FoldX ΔΔG": (round(r["foldx_ddg"], 2) if r["foldx_ddg"] is not None else None),
-        "OST lDDT": (round(r["lddt"], 3) if r["lddt"] is not None else None),
-        "Consensus": "✅" if r["consensus"] else "—",
-    } for r in rec["rows"][:10]]
-    st.dataframe(pd.DataFrame(tbl), use_container_width=True, hide_index=True,
-                 column_config={"ESM-2 ΔLL": st.column_config.NumberColumn(format="%+.2f"),
-                                "FoldX ΔΔG": st.column_config.NumberColumn(format="%+.2f"),
-                                "OST lDDT": st.column_config.NumberColumn(format="%.3f")})
+    # ── 2) recommended mutant — key metrics, compact ──
+    st.markdown(f"**Recommended candidate: `{_mut3(pick['code'])}`** — key metrics:")
+    c = st.columns(5)
+    c[0].metric("Site pLDDT", _fmtv(getattr(m, "local_plddt", None), "{:.1f}"),
+                _fmtv(getattr(m, "delta_local_plddt", None), "{:+.2f}"))
+    c[1].metric("ESM-2 ΔLL", _fmtv(pick["esm"], "{:+.2f}"))
+    c[2].metric("FoldX ΔΔG", _fmtv(pick["foldx_ddg"], "{:+.2f}"))
+    c[3].metric("OST lDDT", _fmtv(pick["lddt"], "{:.3f}"))
+    c[4].metric("Liabilities", _assess_candidate(m, getattr(res, "sequence", ""), pick["esm"])["liabilities"])
+
+    # ── 3) deep panel discussion — one reasoned assessment per expert ──
+    st.markdown("### 🗣️ Panel discussion")
+    imm = _assess_candidate(m, getattr(res, "sequence", ""), pick["esm"])
+    briefs = [
+        ("🔢", "Data Scientist", pick["ds_rank"], _data_scientist_brief(pick, rec)),
+        ("🔬", "Biophysicist", pick["bio_verdict"], _biophysicist_brief(pick)),
+        ("🛠️", "Protein Engineer", pick["eng_verdict"], _protein_engineer_brief(pick)),
+        ("🧬", "Immunologist", pick["immuno_verdict"],
+         _immunologist_brief(m, res, pick["esm"], imm)),
+        ("🧐", "Scientific Critic", pick["crit_verdict"], _scientific_critic_brief(pick)),
+    ]
+    for emoji, name, tag, brief in briefs:
+        with st.expander(f"{emoji} **{name}** — {tag}", expanded=(name in ("Biophysicist", "Protein Engineer"))):
+            st.markdown(brief)
+
+    # ── 4) PI summary + next steps ──
+    st.markdown("### 🎓 PI summary & decision")
+    st.markdown(pi["next_steps"])
+
+    # ── 5) per-candidate trade-off table (all 5 experts) ──
+    with st.expander("📊 Per-candidate expert comparison table", expanded=False):
+        tbl = [{
+            "Mutation": _mut3(r["code"]), "DS#": r["ds_rank"], "Composite": round(r["ds"], 2),
+            "🧬 Immuno": r["immuno_verdict"], "🔬 Biophys": r["bio_verdict"],
+            "🛠️ Engineer": r["eng_verdict"], "🧐 Critic": r["crit_verdict"],
+            "ESM-2 ΔLL": (round(r["esm"], 2) if r["esm"] is not None else None),
+            "FoldX ΔΔG": (round(r["foldx_ddg"], 2) if r["foldx_ddg"] is not None else None),
+            "OST lDDT": (round(r["lddt"], 3) if r["lddt"] is not None else None),
+            "Consensus": "✅" if r["consensus"] else "—",
+        } for r in rec["rows"][:10]]
+        st.dataframe(pd.DataFrame(tbl), use_container_width=True, hide_index=True,
+                     column_config={"ESM-2 ΔLL": st.column_config.NumberColumn(format="%+.2f"),
+                                    "FoldX ΔΔG": st.column_config.NumberColumn(format="%+.2f"),
+                                    "OST lDDT": st.column_config.NumberColumn(format="%.3f")})
     st.caption("Consensus ✅ = highest-DS-ranked candidate that the immunologist (not High-risk), biophysicist "
                "(not destabilising), protein engineer (not poor design) AND scientific critic (not weak evidence) all clear.")
 
