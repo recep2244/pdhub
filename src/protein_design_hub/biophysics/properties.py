@@ -16,6 +16,179 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 import math
 
+# --------------------------------------------------------------------------- #
+# Canonical property layer (single source of truth)
+# --------------------------------------------------------------------------- #
+# The functions in this section (``gravy``, ``molecular_weight``,
+# ``isoelectric_point``, ``net_charge``, ``aromaticity``, ``instability_index``
+# and the aggregate :func:`compute_properties`) are the ONE canonical
+# implementation that other modules (``analysis.protein_qc``, scanners, evolution)
+# should delegate to. They are intentionally dependency-free with a BioPython
+# fast-path used opportunistically. The legacy ``calculate_*`` API above is kept
+# untouched for backward compatibility.
+
+#: Kyte-Doolittle hydropathy index (also used to whitelist the 20 canonical AAs).
+KYTE_DOOLITTLE: Dict[str, float] = {
+    "A": 1.8, "R": -4.5, "N": -3.5, "D": -3.5, "C": 2.5, "Q": -3.5, "E": -3.5,
+    "G": -0.4, "H": -3.2, "I": 4.5, "L": 3.8, "K": -3.9, "M": 1.9, "F": 2.8,
+    "P": -1.6, "S": -0.8, "T": -0.7, "W": -0.9, "Y": -1.3, "V": 4.2,
+}
+
+#: Average residue masses (Da); one water (18.02) is added once per chain.
+_CANON_AA_MASS: Dict[str, float] = {
+    "A": 71.08, "R": 156.19, "N": 114.10, "D": 115.09, "C": 103.14,
+    "Q": 128.13, "E": 129.12, "G": 57.05, "H": 137.14, "I": 113.16,
+    "L": 113.16, "K": 128.17, "M": 131.19, "F": 147.18, "P": 97.12,
+    "S": 87.08, "T": 101.10, "W": 186.21, "Y": 163.18, "V": 99.13,
+}
+_CANON_WATER: float = 18.02
+
+#: Aromatic residues (BioPython aromaticity definition: Phe/Trp/Tyr).
+_CANON_AROMATIC = frozenset("FWY")
+
+#: EMBOSS pKa values (match BioPython's IsoelectricPoint defaults closely).
+_CANON_PKA: Dict[str, float] = {
+    "Cterm": 3.55, "Nterm": 7.5,
+    "D": 4.05, "E": 4.45, "C": 9.0, "Y": 10.0,
+    "H": 5.98, "K": 10.0, "R": 12.0,
+}
+
+
+def clean_sequence(seq: str) -> str:
+    """Upper-case ``seq`` and drop everything that is not one of the 20 canonical
+    amino acids (whitespace, gaps, ``X``, ``*``, digits, ...)."""
+    return "".join(c for c in (seq or "").upper() if c in KYTE_DOOLITTLE)
+
+
+def _has_biopython() -> bool:
+    try:
+        from Bio.SeqUtils.ProtParam import ProteinAnalysis  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def gravy(seq: str) -> Optional[float]:
+    """Grand average of hydropathy (mean Kyte-Doolittle). ``None`` if empty."""
+    s = clean_sequence(seq)
+    if not s:
+        return None
+    return sum(KYTE_DOOLITTLE[c] for c in s) / len(s)
+
+
+def molecular_weight(seq: str) -> Optional[float]:
+    """Average molecular weight in Daltons (residue masses + one water)."""
+    s = clean_sequence(seq)
+    if not s:
+        return None
+    return sum(_CANON_AA_MASS[c] for c in s) + _CANON_WATER
+
+
+def aromaticity(seq: str) -> Optional[float]:
+    """Fraction of Phe/Trp/Tyr residues. ``None`` if empty."""
+    s = clean_sequence(seq)
+    if not s:
+        return None
+    return sum(1 for c in s if c in _CANON_AROMATIC) / len(s)
+
+
+def net_charge(seq: str, ph: float = 7.0) -> Optional[float]:
+    """Net charge of the chain at a given pH (Henderson-Hasselbalch)."""
+    s = clean_sequence(seq)
+    if not s:
+        return None
+    pos = 1.0 / (1 + 10 ** (ph - _CANON_PKA["Nterm"]))
+    pos += s.count("K") / (1 + 10 ** (ph - _CANON_PKA["K"]))
+    pos += s.count("R") / (1 + 10 ** (ph - _CANON_PKA["R"]))
+    pos += s.count("H") / (1 + 10 ** (ph - _CANON_PKA["H"]))
+    neg = 1.0 / (1 + 10 ** (_CANON_PKA["Cterm"] - ph))
+    neg += s.count("D") / (1 + 10 ** (_CANON_PKA["D"] - ph))
+    neg += s.count("E") / (1 + 10 ** (_CANON_PKA["E"] - ph))
+    neg += s.count("C") / (1 + 10 ** (_CANON_PKA["C"] - ph))
+    neg += s.count("Y") / (1 + 10 ** (_CANON_PKA["Y"] - ph))
+    return pos - neg
+
+
+def isoelectric_point(seq: str) -> Optional[float]:
+    """Theoretical pI — pH at which :func:`net_charge` crosses zero (bisection)."""
+    s = clean_sequence(seq)
+    if not s:
+        return None
+    lo, hi = 0.0, 14.0
+    for _ in range(100):
+        mid = (lo + hi) / 2.0
+        if net_charge(s, mid) > 0:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
+
+def canonical_instability_index(seq: str) -> Optional[float]:
+    """Guruprasad instability index. Prefers BioPython; otherwise uses the legacy
+    DIWV dipeptide weights in this module. ``None`` for chains < 2 residues."""
+    s = clean_sequence(seq)
+    if len(s) < 2:
+        return None
+    if _has_biopython():
+        try:
+            from Bio.SeqUtils.ProtParam import ProteinAnalysis
+            return ProteinAnalysis(s).instability_index()
+        except Exception:
+            pass
+    return calculate_instability_index(s)
+
+
+def compute_properties(
+    seq: str, ph: float = 7.0, ndigits: int = 3
+) -> Dict[str, Optional[float]]:
+    """Compute the full canonical property set for ``seq``.
+
+    Returns a dict with keys ``length``, ``gravy``, ``mw``, ``pi``,
+    ``aromaticity``, ``instability``, ``net_charge`` and ``charge_ph``. Numeric
+    values are rounded. ``instability`` is ``None`` only for chains too short to
+    score. For an empty sequence every property is ``None`` and ``length`` is 0.
+
+    Prefers BioPython for GRAVY / pI / MW / aromaticity / instability when it is
+    importable, falling back to the pure-Python lookup tables otherwise.
+    """
+    s = clean_sequence(seq)
+    if not s:
+        return {
+            "length": 0, "gravy": None, "mw": None, "pi": None,
+            "aromaticity": None, "instability": None,
+            "net_charge": None, "charge_ph": ph,
+        }
+
+    out: Dict[str, Optional[float]] = {
+        "length": len(s),
+        "gravy": round(gravy(s), ndigits),
+        "mw": round(molecular_weight(s), 1),
+        "pi": round(isoelectric_point(s), 2),
+        "aromaticity": round(aromaticity(s), ndigits),
+        "instability": None,
+        "net_charge": round(net_charge(s, ph), ndigits),
+        "charge_ph": ph,
+    }
+
+    inst = canonical_instability_index(s)
+    if inst is not None:
+        out["instability"] = round(inst, 1)
+
+    if _has_biopython():
+        try:
+            from Bio.SeqUtils.ProtParam import ProteinAnalysis
+            pa = ProteinAnalysis(s)
+            out["gravy"] = round(pa.gravy(), ndigits)
+            out["pi"] = round(pa.isoelectric_point(), 2)
+            out["mw"] = round(pa.molecular_weight(), 1)
+            out["aromaticity"] = round(pa.aromaticity(), ndigits)
+            out["instability"] = round(pa.instability_index(), 1)
+        except Exception:
+            pass
+
+    return out
+
 
 # Amino acid molecular weights (Da) - monoisotopic masses
 AA_MW: Dict[str, float] = {

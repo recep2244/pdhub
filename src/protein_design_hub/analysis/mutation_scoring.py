@@ -12,14 +12,21 @@ the ranking ignored.
 This module composes those signals into a single, transparent ``improvement``
 score, signed so that **higher = more beneficial**:
 
-    score = w_stab·(−ΔΔG)            stability (heuristic ΔΔG, kcal/mol)
+    score = w_stab·(−ΔΔG)            stability (heuristic/FoldX ΔΔG, kcal/mol)
+          + w_esm2·ΔLL               ESM-2 zero-shot fitness (single-sequence)
+          − w_conserv·conservation   MSA family conservation penalty
+          − w_am·(AM − threshold)    AlphaMissense pathogenicity (flag/tiebreak)
           + w_fold·fold_agreement    fold preserved (OST lDDT / RMSD vs WT)
-          + w_conf·Δmean_pLDDT       confidence (demoted, small weight)
           − clash_penalty            new steric clashes vs WT
           − ptm_penalty              newly-introduced PTM liabilities
 
-pLDDT is kept only as a *confidence gate*: if the mutant fold collapses
-(mean pLDDT below ``MIN_VIABLE_PLDDT``) the candidate is flagged non-viable.
+**pLDDT is NOT a ranking term.** Per the gate-vs-rank contract it is used
+*only* as a viability gate: if the mutant fold collapses (mean pLDDT below
+``MIN_VIABLE_PLDDT``) the candidate is flagged non-viable and heavily demoted.
+The structure predictor's *confidence* (Δmean_pLDDT) never moves a viable
+candidate up or down the ranking — two mutants that differ only in pLDDT rank
+identically. ``delta_mean_plddt`` is still reported for transparency, with a
+weight of exactly zero.
 
 The heuristic ΔΔG is sequence-based and robust; GBSA single-point energies on
 two *different* predicted structures are noisy, so GBSA is reported but given a
@@ -34,7 +41,6 @@ from typing import Any, Dict, List, Optional, Tuple
 # ── Composite-score weights (documented, tunable) ──────────────────────────
 W_STABILITY = 1.0      # per kcal/mol of −ΔΔG  (stabilising → positive)
 W_FOLD = 5.0           # per unit of (lDDT − LDDT_REF)
-W_CONF = 0.02          # per pLDDT point of Δmean_pLDDT (demoted)
 W_CLASH = 0.05         # per clash-score unit introduced vs WT
 W_RMSD = 0.5           # per Å of CA-RMSD beyond RMSD_TOL (fallback when no lDDT)
 PTM_PENALTY = 0.75     # per newly-introduced high-risk PTM liability
@@ -237,9 +243,11 @@ def composite_mutation_score(
     else:
         fold_term = 0.0
 
-    # ── confidence (demoted) ───────────────────────────────────────────────
+    # ── confidence: REPORTED ONLY, never ranked ────────────────────────────
+    # pLDDT is a gate, not a ranking signal (see module docstring). We surface
+    # Δmean_pLDDT for transparency but it contributes exactly zero to the score.
     d_plddt = mutant.get("delta_mean_plddt", 0.0) or 0.0
-    conf_term = W_CONF * float(d_plddt)
+    conf_term = 0.0  # hard zero — pLDDT must not influence ranking
 
     # ── clash penalty (new clashes vs WT) ──────────────────────────────────
     clash_penalty = 0.0

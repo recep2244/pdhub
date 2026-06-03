@@ -59,6 +59,29 @@ def test_pLDDT_alone_does_not_make_beneficial():
     assert classify_score(score) != "beneficial"
 
 
+def test_pLDDT_is_not_a_ranking_term():
+    """Gate-vs-rank contract: two viable mutants that differ ONLY in pLDDT must
+    receive an identical composite score. pLDDT is a gate, never a ranking term.
+    """
+    base = {
+        "position": 5, "original_aa": "A", "mutant_aa": "V",
+        "ost_lddt": 0.97, "clash_score": 5, "extra_metrics": {},
+    }
+    wt = {"clash_score": 5, "extra_metrics": {}}
+    low = {**base, "mean_plddt": 70.0, "delta_mean_plddt": -10.0}
+    high = {**base, "mean_plddt": 95.0, "delta_mean_plddt": +20.0}
+
+    score_low, comp_low = composite_mutation_score(low, wt, _SEQ)
+    score_high, comp_high = composite_mutation_score(high, wt, _SEQ)
+
+    # Both viable (above the gate) → identical ranking despite a 30-point pLDDT gap.
+    assert comp_low["gate_ok"] is True and comp_high["gate_ok"] is True
+    assert score_low == score_high
+    # The confidence term contributes exactly zero to the composite.
+    assert comp_low["confidence_term"] == 0.0
+    assert comp_high["confidence_term"] == 0.0
+
+
 def test_substitution_risk_flags_cys():
     r = substitution_risk("C", "S")
     assert r["risk"] > 0
