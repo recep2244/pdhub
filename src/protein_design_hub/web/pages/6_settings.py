@@ -118,7 +118,7 @@ with tabs[0]:
 
     col_refresh, _ = st.columns([1, 4])
     with col_refresh:
-        if st.button("🔄 Refresh", key="refresh_status", use_container_width=True):
+        if st.button("🔄 Refresh", key="refresh_status", width='stretch'):
             st.rerun()
 
     # GPU Status - Using robust detection
@@ -280,7 +280,7 @@ with tabs[1]:
 
                     with col2:
                         if is_installed:
-                            if st.button("🔄 Update", key=f"update_{pred_id}", use_container_width=True):
+                            if st.button("🔄 Update", key=f"update_{pred_id}", width='stretch'):
                                 with st.spinner(f"Updating {info['name']}..."):
                                     success = predictor.installer.update()
                                     if success:
@@ -290,23 +290,23 @@ with tabs[1]:
                                         st.error("Update failed")
 
                             confirm_key = f"confirm_uninstall_{pred_id}"
-                            if st.button("🗑️ Uninstall", key=f"uninstall_{pred_id}", use_container_width=True, type="secondary"):
+                            if st.button("🗑️ Uninstall", key=f"uninstall_{pred_id}", width='stretch', type="secondary"):
                                 st.session_state[confirm_key] = True
 
                             if st.session_state.get(confirm_key):
                                 st.warning("Are you sure you want to uninstall?")
                                 c_yes, c_no = st.columns(2)
                                 with c_yes:
-                                    if st.button("✅ Confirm", key=f"confirm_{pred_id}", use_container_width=True):
+                                    if st.button("✅ Confirm", key=f"confirm_{pred_id}", width='stretch'):
                                         predictor.installer.uninstall()
                                         st.session_state.pop(confirm_key, None)
                                         st.rerun()
                                 with c_no:
-                                    if st.button("❌ Cancel", key=f"cancel_{pred_id}", use_container_width=True):
+                                    if st.button("❌ Cancel", key=f"cancel_{pred_id}", width='stretch'):
                                         st.session_state.pop(confirm_key, None)
                                         st.rerun()
                         else:
-                            if st.button("📥 Install", key=f"install_{pred_id}", type="primary", use_container_width=True):
+                            if st.button("📥 Install", key=f"install_{pred_id}", type="primary", width='stretch'):
                                 with st.spinner(f"Installing {info['name']}..."):
                                     success = predictor.installer.install()
                                     if success:
@@ -325,7 +325,7 @@ with tabs[1]:
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            if st.button("📥 Install All Missing", use_container_width=True, type="primary"):
+            if st.button("📥 Install All Missing", width='stretch', type="primary"):
                 progress = st.progress(0)
                 status_text = st.empty()
 
@@ -342,7 +342,7 @@ with tabs[1]:
                 st.success("All predictors processed!")
 
         with col2:
-            if st.button("🔄 Update All", use_container_width=True):
+            if st.button("🔄 Update All", width='stretch'):
                 progress = st.progress(0)
                 status_text = st.empty()
 
@@ -358,7 +358,7 @@ with tabs[1]:
                 st.success("All predictors updated!")
 
         with col3:
-            if st.button("🧪 Verify All", use_container_width=True):
+            if st.button("🧪 Verify All", width='stretch'):
                 for name in PredictorRegistry.list_available():
                     predictor = PredictorRegistry.get(name, settings)
                     if not predictor.installer.is_installed():
@@ -465,7 +465,7 @@ with tabs[2]:
 
     st.markdown("---")
 
-    if st.button("💾 Save Preferences", type="primary", use_container_width=True):
+    if st.button("💾 Save Preferences", type="primary", width='stretch'):
         preferences = {
             "show_confidence": show_confidence,
             "default_colorscheme": default_colorscheme,
@@ -571,7 +571,7 @@ with tabs[3]:
         col_save, col_reset = st.columns(2)
 
         with col_save:
-            if st.button("💾 Save Configuration", type="primary", use_container_width=True):
+            if st.button("💾 Save Configuration", type="primary", width='stretch'):
                 try:
                     settings.output.base_dir = Path(output_dir)
                     settings.output.save_all_models = save_all
@@ -591,7 +591,7 @@ with tabs[3]:
                     st.error(f"Error saving: {e}")
 
         with col_reset:
-            if st.button("🔄 Reset to Defaults", use_container_width=True):
+            if st.button("🔄 Reset to Defaults", width='stretch'):
                 config_path = Path.home() / ".pdhub" / "config.yaml"
                 if config_path.exists():
                     config_path.unlink()
@@ -614,7 +614,7 @@ with tabs[3]:
                 data=config_yaml,
                 file_name="pdhub_config.yaml",
                 mime="text/yaml",
-                use_container_width=True,
+                width='stretch',
             )
 
         with col_imp:
@@ -677,7 +677,7 @@ with tabs[4]:
 
             with col3:
                 if path.exists():
-                    if st.button("🗑️ Clear", key=f"clear_{name}", use_container_width=True):
+                    if st.button("🗑️ Clear", key=f"clear_{name}", width='stretch'):
                         try:
                             if path.is_file():
                                 path.unlink()
@@ -697,7 +697,7 @@ with tabs[4]:
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        if st.button("🧹 Clear All Caches", use_container_width=True):
+        if st.button("🧹 Clear All Caches", width='stretch'):
             import shutil
             cache_root = Path.home() / ".pdhub" / "cache"
             if cache_root.exists():
@@ -705,7 +705,7 @@ with tabs[4]:
                 st.success("All caches cleared!")
 
     with col2:
-        if st.button("🗑️ Clear Job History", use_container_width=True):
+        if st.button("🗑️ Clear Job History", width='stretch'):
             db_path = Path.home() / ".pdhub" / "jobs.db"
             if db_path.exists():
                 db_path.unlink()
@@ -782,10 +782,10 @@ with tabs[5]:
                         data=content,
                         file_name=log_path.name,
                         mime="text/plain",
-                        use_container_width=True,
+                        width='stretch',
                     )
                 with col2:
-                    if st.button(f"🗑️ Clear", key=f"clear_log_{name}", use_container_width=True):
+                    if st.button(f"🗑️ Clear", key=f"clear_log_{name}", width='stretch'):
                         log_path.write_text("")
                         st.success("Log cleared")
                         st.rerun()
@@ -840,7 +840,7 @@ with tabs[5]:
         data=sys_info_text,
         file_name="system_info.txt",
         mime="text/plain",
-        use_container_width=True,
+        width='stretch',
     )
 
 

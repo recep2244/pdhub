@@ -238,7 +238,7 @@ for step_num, title, target, desc, substeps in steps:
                 f'</div>',
                 unsafe_allow_html=True,
             )
-            if st.button(f"Open {title.split()[-1]}", key=f"guide_open_{step_num}", use_container_width=True):
+            if st.button(f"Open {title.split()[-1]}", key=f"guide_open_{step_num}", width='stretch'):
                 st.switch_page(target)
         with c2:
             st.markdown(
@@ -504,7 +504,7 @@ pages_ref = [
 for i, (title, target, desc) in enumerate(pages_ref):
     c1, c2 = st.columns([1, 4])
     with c1:
-        if st.button(title, key=f"ref_btn_{i}", use_container_width=True):
+        if st.button(title, key=f"ref_btn_{i}", width='stretch'):
             st.switch_page(target)
     with c2:
         st.markdown(
@@ -753,12 +753,12 @@ for i, (name, info) in enumerate(examples.items()):
             st.code(info["seq"], language=None)
             c_pred, c_mut = st.columns(2)
             with c_pred:
-                if st.button("→ Predict", key=f"ex_pred_{i}", use_container_width=True):
+                if st.button("→ Predict", key=f"ex_pred_{i}", width='stretch'):
                     st.session_state["predict_sequence"] = info["seq"]
                     st.session_state["predict_name"] = name
                     st.switch_page("pages/1_predict.py")
             with c_mut:
-                if st.button("→ Mutagenesis", key=f"ex_mut_{i}", use_container_width=True):
+                if st.button("→ Mutagenesis", key=f"ex_mut_{i}", width='stretch'):
                     st.session_state["sequence"] = info["seq"]
                     st.session_state["sequence_name"] = name
                     st.switch_page("pages/10_mutation_scanner.py")

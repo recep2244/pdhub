@@ -119,7 +119,7 @@ if selected_model or selected_backbone:
 
     col_clear, _ = st.columns([1, 4])
     with col_clear:
-        if st.button("Clear Selection", use_container_width=True, type="secondary"):
+        if st.button("Clear Selection", width='stretch', type="secondary"):
             set_selected_model(None)
             set_selected_backbone(None)
             st.rerun()
@@ -206,7 +206,7 @@ for i in range(0, len(jobs), cols_per_row):
 
                 with act_cols[0]:
                     if job["has_prediction"]:
-                        if st.button("📊 Evaluate", key=f"eval_{job_id}", use_container_width=True, disabled=not inferred_model):
+                        if st.button("📊 Evaluate", key=f"eval_{job_id}", width='stretch', disabled=not inferred_model):
                             if inferred_model:
                                 set_selected_model(inferred_model)
                                 st.switch_page("pages/2_evaluate.py")
@@ -214,17 +214,17 @@ for i in range(0, len(jobs), cols_per_row):
                             st.caption("No structure file found")
 
                     if job.get("has_evolution"):
-                        if st.button("🧬 View Evo", key=f"vevo_{job_id}", use_container_width=True):
+                        if st.button("🧬 View Evo", key=f"vevo_{job_id}", width='stretch'):
                             st.session_state["evolution_job_to_load"] = str(job["path"])
                             st.switch_page("pages/4_evolution.py")
 
                 with act_cols[1]:
                     if job.get("has_scan"):
-                        if st.button("🔬 View Scan", key=f"vscan_{job_id}", use_container_width=True):
+                        if st.button("🔬 View Scan", key=f"vscan_{job_id}", width='stretch'):
                             st.session_state["scan_job_to_load"] = str(job["path"])
                             st.switch_page("pages/10_mutation_scanner.py")
                     elif inferred_model:
-                        if st.button("🎯 Design", key=f"des_{job_id}", use_container_width=True):
+                        if st.button("🎯 Design", key=f"des_{job_id}", width='stretch'):
                             set_selected_backbone(inferred_model)
                             st.switch_page("pages/8_mpnn.py")
 

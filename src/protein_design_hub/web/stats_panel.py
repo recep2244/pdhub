@@ -94,7 +94,7 @@ def render_stats_panel(
 
             if rows:
                 stats_df = pd.DataFrame(rows)
-                st.dataframe(stats_df, use_container_width=True, hide_index=True)
+                st.dataframe(stats_df, width='stretch', hide_index=True)
 
                 # Interpretation guide
                 with st.expander("ℹ️ Interpretation guide", expanded=False):
@@ -150,9 +150,9 @@ def render_stats_panel(
                         plot_bgcolor="rgba(0,0,0,0)",
                         margin=dict(l=10, r=10, t=40, b=10),
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width='stretch')
                 except ImportError:
-                    st.dataframe(corr.round(3), use_container_width=True)
+                    st.dataframe(corr.round(3), width='stretch')
 
                 # Strongest correlations
                 corr_pairs = []
@@ -230,7 +230,7 @@ def render_stats_panel(
                     fi_df = pd.DataFrame(fi_rows).sort_values("|r|", ascending=False)
                     display_df = fi_df.drop(columns=["|r|"])
                     st.markdown(f"**Feature importance vs `{_target}`:**")
-                    st.dataframe(display_df, use_container_width=True, hide_index=True)
+                    st.dataframe(display_df, width='stretch', hide_index=True)
 
                     # Bar chart
                     try:
@@ -253,7 +253,7 @@ def render_stats_panel(
                             height=300,
                             margin=dict(l=10, r=10, t=40, b=10),
                         )
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width='stretch')
                     except ImportError:
                         pass
 
@@ -298,7 +298,7 @@ def render_stats_panel(
                         height=350,
                         margin=dict(l=10, r=10, t=40, b=10),
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width='stretch')
 
                     # Normality test
                     try:
@@ -441,7 +441,7 @@ def render_stats_panel(
                                 })
                                 st.markdown(f"**OLS Coefficients** (intercept = {intercept:.4f})")
                                 st.dataframe(coef_df.sort_values("Coefficient", key=lambda s: s.str.replace("+","").astype(float).abs(), ascending=False),
-                                             use_container_width=True, hide_index=True)
+                                             width='stretch', hide_index=True)
                                 st.caption(f"F-statistic: {ols.fvalue:.2f}, p(F): {ols.f_pvalue:.4f} | AIC: {ols.aic:.1f}")
                             except ImportError:
                                 coef_df = pd.DataFrame({
@@ -452,7 +452,7 @@ def render_stats_panel(
                                 st.markdown(f"**OLS Coefficients** (intercept = {intercept:.4f})")
                                 st.dataframe(coef_df.drop(columns=["|Coefficient|"]).sort_values(
                                     "Coefficient", key=lambda s: s.str.replace("+","").astype(float).abs(), ascending=False
-                                ), use_container_width=True, hide_index=True)
+                                ), width='stretch', hide_index=True)
 
                         elif reg_method == "Lasso (L1)":
                             try:
@@ -480,7 +480,7 @@ def render_stats_panel(
                                 "Selected": ["✅" if c != 0 else "—" for c in coefs],
                             }).sort_values("Lasso Coefficient", key=lambda s: s.str.replace("+","").astype(float).abs(), ascending=False)
                             st.markdown(f"**Lasso Coefficients** (α = {best_alpha:.4f}, {nonzero}/{len(coefs)} features selected)")
-                            st.dataframe(coef_df, use_container_width=True, hide_index=True)
+                            st.dataframe(coef_df, width='stretch', hide_index=True)
 
                         elif reg_method == "Ridge (L2)":
                             try:
@@ -505,7 +505,7 @@ def render_stats_panel(
                                 "Ridge Coefficient": [f"{c:+.4f}" for c in coefs],
                             }).sort_values("Ridge Coefficient", key=lambda s: s.str.replace("+","").astype(float).abs(), ascending=False)
                             st.markdown(f"**Ridge Coefficients** (α = {best_alpha:.4f})")
-                            st.dataframe(coef_df, use_container_width=True, hide_index=True)
+                            st.dataframe(coef_df, width='stretch', hide_index=True)
 
                         elif reg_method == "Elastic Net":
                             from sklearn.linear_model import ElasticNetCV
@@ -534,7 +534,7 @@ def render_stats_panel(
                                 "EN Coefficient": [f"{c:+.4f}" for c in coefs],
                                 "Selected": ["✅" if c != 0 else "—" for c in coefs],
                             }).sort_values("EN Coefficient", key=lambda s: s.str.replace("+","").astype(float).abs(), ascending=False)
-                            st.dataframe(coef_df, use_container_width=True, hide_index=True)
+                            st.dataframe(coef_df, width='stretch', hide_index=True)
 
                         # Coefficient bar chart (shared for all methods)
                         try:
@@ -559,7 +559,7 @@ def render_stats_panel(
                                     margin=dict(l=10, r=10, t=40, b=10),
                                     coloraxis_showscale=False,
                                 )
-                                st.plotly_chart(fig, use_container_width=True)
+                                st.plotly_chart(fig, width='stretch')
                         except Exception:
                             pass
 
@@ -585,7 +585,7 @@ def render_stats_panel(
                                 plot_bgcolor="rgba(0,0,0,0)",
                                 height=300, margin=dict(l=10, r=10, t=40, b=10),
                             )
-                            st.plotly_chart(fig2, use_container_width=True)
+                            st.plotly_chart(fig2, width='stretch')
                         except Exception:
                             pass
 
@@ -606,7 +606,7 @@ def render_stats_panel(
                                 plot_bgcolor="rgba(0,0,0,0)",
                                 height=280, margin=dict(l=10, r=10, t=40, b=10),
                             )
-                            st.plotly_chart(fig3, use_container_width=True)
+                            st.plotly_chart(fig3, width='stretch')
                         except Exception:
                             pass
 

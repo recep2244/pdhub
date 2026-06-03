@@ -265,7 +265,7 @@ with col_seq:
 
 with col_load:
     st.markdown("<br/>", unsafe_allow_html=True)
-    if st.button("Load from\nPredictor", use_container_width=True, key="ab_load_predict"):
+    if st.button("Load from\nPredictor", width='stretch', key="ab_load_predict"):
         pred_seq = st.session_state.get("predict_sequence", "")
         if pred_seq:
             st.session_state["ab_sequence"] = pred_seq
@@ -306,7 +306,7 @@ with badge_col:
 analyze_clicked = st.button(
     "🔬 Analyze",
     type="primary",
-    use_container_width=True,
+    width='stretch',
     key="ab_analyze_btn",
     disabled=len(sequence) < 10,
 )
@@ -482,7 +482,7 @@ with tab_cdr:
                     for c in active_cdrs
                 ]
             )
-            st.dataframe(cdr_df, use_container_width=True, hide_index=True)
+            st.dataframe(cdr_df, width='stretch', hide_index=True)
         else:
             st.info("No CDRs detected under this numbering scheme.")
 
@@ -669,7 +669,7 @@ with tab_imm:
                         )
                     )
                 fig_tcell.update_layout(shapes=shapes, annotations=annotations_fig)
-            st.plotly_chart(fig_tcell, use_container_width=True)
+            st.plotly_chart(fig_tcell, width='stretch')
 
         # ── Top T-cell epitopes table ────────────────────────────────────────
         section_header("Top T-cell Epitopes", icon="📊")
@@ -696,7 +696,7 @@ with tab_imm:
 
             st.dataframe(
                 epi_df.style.apply(_color_risk_rows, axis=1),
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
             )
         else:
@@ -754,7 +754,7 @@ with tab_imm:
                 height=220,
                 margin=dict(l=20, r=20, t=30, b=30),
             )
-            st.plotly_chart(fig_bcell, use_container_width=True)
+            st.plotly_chart(fig_bcell, width='stretch')
 
         # ── APR regions ──────────────────────────────────────────────────────
         section_header("Aggregation-Prone Regions (APR)", icon="⚡")
@@ -935,7 +935,7 @@ with tab_dev:
 
             st.dataframe(
                 ptm_df.style.apply(_color_ptm_rows, axis=1),
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
             )
 
@@ -1043,7 +1043,7 @@ with tab_fc:
             },
         ]
     )
-    st.dataframe(fc_data, use_container_width=True, hide_index=True)
+    st.dataframe(fc_data, width='stretch', hide_index=True)
 
     # ── Effector function guide ───────────────────────────────────────────────
     with st.expander("Fc Effector Function Selection Guide", expanded=False):
@@ -1168,7 +1168,7 @@ with tab_wl:
                 "Timeline": f"{_es.timeline_days[0]}–{_es.timeline_days[1]} days",
                 "Cost/mg": f"${_es.cost_per_mg_usd[0]:.0f}–${_es.cost_per_mg_usd[1]:.0f}",
             })
-        st.dataframe(pd.DataFrame(_es_df_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(_es_df_rows), width='stretch', hide_index=True)
 
         _top = _ab_wl_report.expression_systems[0]
         with st.expander(f"📋 Detailed Protocol: {_top.system}", expanded=True):

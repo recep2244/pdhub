@@ -1747,7 +1747,7 @@ def sidebar_nav(current: str | None = None) -> None:
                 if st.button(
                     f"{icon}  {label}",
                     key=f"nav_btn_{label}",
-                    use_container_width=True,
+                    width='stretch',
                     type="primary" if is_active else "secondary"
                 ):
                     st.switch_page(target)
@@ -1956,6 +1956,6 @@ def cross_page_actions(actions: List[Dict[str, str]]) -> None:
             if st.button(
                 f'{act.get("icon", "")} {act["label"]}',
                 key=f'xpage_{act["label"]}_{i}',
-                use_container_width=True,
+                width='stretch',
             ):
                 st.switch_page(act["page"])

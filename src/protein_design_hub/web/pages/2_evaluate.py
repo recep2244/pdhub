@@ -717,7 +717,7 @@ with col_upload:
             <span class="file-status-badge file-status-badge-ok">Selected</span>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("Clear selection", key="clear_sel_model", type="secondary", use_container_width=True):
+        if st.button("Clear selection", key="clear_sel_model", type="secondary", width='stretch'):
             set_selected_model(None)
             st.rerun()
     else:
@@ -984,7 +984,7 @@ with col_btn1:
     run_quick = st.button(
         "⚡ Run Quick Evaluation",
         type="primary",
-        use_container_width=True,
+        width='stretch',
         disabled=not has_model
     )
 
@@ -992,7 +992,7 @@ with col_btn2:
     run_comprehensive = st.button(
         "🔬 Run Comprehensive",
         type="secondary",
-        use_container_width=True,
+        width='stretch',
         disabled=not (has_model and has_reference)
     )
 
@@ -1133,7 +1133,7 @@ if run_quick:
                 )
 
             if metric_rows:
-                st.dataframe(metric_rows, use_container_width=True, hide_index=True)
+                st.dataframe(metric_rows, width='stretch', hide_index=True)
 
             with st.expander("Raw metric outputs"):
                 st.json(result.metadata or {})
@@ -1158,7 +1158,7 @@ if run_quick:
                 data=json.dumps(result.to_dict(), indent=2),
                 file_name="evaluation.json",
                 mime="application/json",
-                use_container_width=True,
+                width='stretch',
             )
 
             # Agent advice on evaluation results
@@ -1507,7 +1507,7 @@ if run_comprehensive:
                                 for i, d in enumerate(dockq_details)
                             ]
                         )
-                        st.dataframe(df_dockq, use_container_width=True, hide_index=True)
+                        st.dataframe(df_dockq, width='stretch', hide_index=True)
 
                         # DockQ component explanation
                         st.markdown(
@@ -1566,7 +1566,7 @@ if run_comprehensive:
 
                 df_patch = pd.DataFrame(patch_scores)
                 if not df_patch.empty:
-                    st.dataframe(df_patch, use_container_width=True, hide_index=True)
+                    st.dataframe(df_patch, width='stretch', hide_index=True)
 
                     # Patch score visualization
                     if "score" in df_patch.columns:
@@ -1574,7 +1574,7 @@ if run_comprehensive:
 
                         fig = px.bar(df_patch, y="score", title="Patch Scores by Interface Region")
                         fig.update_layout(yaxis_range=[0, 1], height=300)
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width='stretch')
 
             # lDDT Quality Distribution
             quality_cats = global_metrics.get("lddt_quality_categories", {})
@@ -1625,7 +1625,7 @@ if run_comprehensive:
                         margin=dict(l=0, r=0, t=30, b=0),
                         showlegend=False,
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width='stretch')
 
             # ========== PER-RESIDUE METRICS ==========
             per_residue = results.get("per_residue", {})
@@ -1659,7 +1659,7 @@ if run_comprehensive:
 
                 fig.update_layout(yaxis_range=[0, 1], height=400)
                 fig.update_traces(line_color="#667eea")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
                 # Detailed residue table
                 lddt_details = per_residue.get("lddt_details", [])
@@ -1680,9 +1680,9 @@ if run_comprehensive:
 
                             if "lddt" in df_details.columns:
                                 styled = df_details.style.applymap(color_lddt, subset=["lddt"])
-                                st.dataframe(styled, use_container_width=True, height=400)
+                                st.dataframe(styled, width='stretch', height=400)
                             else:
-                                st.dataframe(df_details, use_container_width=True, height=400)
+                                st.dataframe(df_details, width='stretch', height=400)
 
             # ========== PER-CHAIN METRICS ==========
             per_chain = results.get("per_chain", {})
@@ -1706,7 +1706,7 @@ if run_comprehensive:
                     import pandas as pd
 
                     df_chains = pd.DataFrame(chain_data)
-                    st.dataframe(df_chains, use_container_width=True, hide_index=True)
+                    st.dataframe(df_chains, width='stretch', hide_index=True)
 
                     # Chain comparison chart
                     if "mean_lddt" in df_chains.columns:
@@ -1721,7 +1721,7 @@ if run_comprehensive:
                             color_continuous_scale="RdYlGn",
                         )
                         fig.update_layout(yaxis_range=[0, 1])
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width='stretch')
 
             # ========== INTERFACE METRICS ==========
             interface = results.get("interface", {})
@@ -1808,7 +1808,7 @@ if run_comprehensive:
                     from protein_design_hub.web.visualizations import create_pae_heatmap
 
                     fig_pae = create_pae_heatmap(pae_data)
-                    st.plotly_chart(fig_pae, use_container_width=True)
+                    st.plotly_chart(fig_pae, width='stretch')
 
                     st.caption(
                         "PAE shows the expected position error (Å) when residue X is used to align the structure. Low values (green) indicate high confidence in relative positions."
@@ -1846,7 +1846,7 @@ if run_comprehensive:
                 else:
                     fig_cm = create_contact_map(model_contacts, threshold=contact_threshold)
 
-                st.plotly_chart(fig_cm, use_container_width=True)
+                st.plotly_chart(fig_cm, width='stretch')
 
                 # Contact statistics
                 model_contact_count = (model_contacts < contact_threshold).sum() - len(
@@ -1870,7 +1870,7 @@ if run_comprehensive:
                     data=json.dumps(results, indent=2),
                     file_name="evaluation_results_comprehensive.json",
                     mime="application/json",
-                    use_container_width=True,
+                    width='stretch',
                 )
 
             with col_dl2:
@@ -1896,7 +1896,7 @@ if run_comprehensive:
                     data="\n".join(report),
                     file_name="evaluation_report.txt",
                     mime="text/plain",
-                    use_container_width=True,
+                    width='stretch',
                 )
 
             # Save cross-page results
@@ -1991,7 +1991,7 @@ try:
         _obs_jobs = st.slider("Parallel scoring jobs", 1, 8, _scoring_settings.scoring_jobs, key="obs_jobs")
 
         if st.button("🚀 Run Observed Scoring", type="primary", key="run_obs_scoring",
-                     use_container_width=True,
+                     width='stretch',
                      disabled=not _obs_model_files):
             try:
                 import tempfile as _tmp_mod
@@ -2041,7 +2041,7 @@ try:
         if _obs_results_cached:
             st.markdown("### Scoring Results")
             _obs_df = _obs_runner.results_to_dataframe(_obs_results_cached)
-            st.dataframe(_obs_df, use_container_width=True, hide_index=True)
+            st.dataframe(_obs_df, width='stretch', hide_index=True)
 
             # Plot key metrics
             try:
@@ -2062,7 +2062,7 @@ try:
                         barmode="group", template="plotly_dark",
                         height=350, margin=dict(t=40, b=60),
                     )
-                    st.plotly_chart(_fig_obs, use_container_width=True)
+                    st.plotly_chart(_fig_obs, width='stretch')
             except Exception:
                 pass
 
@@ -2084,7 +2084,7 @@ try:
                         barmode="group", template="plotly_dark",
                         height=300, margin=dict(t=40, b=60),
                     )
-                    st.plotly_chart(_fig_mp, use_container_width=True)
+                    st.plotly_chart(_fig_mp, width='stretch')
             except Exception:
                 pass
 
@@ -2096,7 +2096,7 @@ try:
                     data=Path(_tsv_path_str).read_text(),
                     file_name="observed_scores.tsv",
                     mime="text/tab-separated-values",
-                    use_container_width=True,
+                    width='stretch',
                 )
 
             # ML stats panel on scoring results
@@ -2150,7 +2150,7 @@ with st.expander("⚠️ PTM Liability & Thermal Stability Scan", expanded=False
             disabled=not _ptm_antibody,
         )
     with _ptm_col3:
-        _ptm_run = st.button("Scan Liabilities", type="primary", use_container_width=True, key="ptm_run_btn")
+        _ptm_run = st.button("Scan Liabilities", type="primary", width='stretch', key="ptm_run_btn")
 
     # Auto-populate sequence from structure extraction if available
     if not _ptm_seq_input:
@@ -2240,7 +2240,7 @@ with st.expander("⚠️ PTM Liability & Thermal Stability Scan", expanded=False
         ]
         if _summary_data:
             _sum_df = pd.DataFrame(_summary_data)
-            st.dataframe(_sum_df, use_container_width=True, hide_index=True, height=min(300, len(_summary_data) * 40 + 50))
+            st.dataframe(_sum_df, width='stretch', hide_index=True, height=min(300, len(_summary_data) * 40 + 50))
 
         # ── Detailed table ────────────────────────────────────────────────────
         if _ptm_result_cached.liabilities:
@@ -2275,7 +2275,7 @@ with st.expander("⚠️ PTM Liability & Thermal Stability Scan", expanded=False
                 _lib_df = pd.DataFrame(_lib_rows)
                 st.dataframe(
                     _lib_df,
-                    use_container_width=True,
+                    width='stretch',
                     hide_index=True,
                     height=min(500, len(_lib_rows) * 40 + 50),
                     column_config={
@@ -2362,7 +2362,7 @@ with st.expander("🧪 Wet-Lab Readiness Dashboard — Expression, Purification 
             key="wl_hosts",
         )
     with _wl_col3:
-        _wl_run = st.button("Assess Readiness", type="primary", use_container_width=True, key="wl_run_btn")
+        _wl_run = st.button("Assess Readiness", type="primary", width='stretch', key="wl_run_btn")
 
     if _wl_run and _wl_seq_input.strip():
         _wl_seq_clean = "".join(
@@ -2448,7 +2448,7 @@ with st.expander("🧪 Wet-Lab Readiness Dashboard — Expression, Purification 
                 "Timeline": _timeline_str,
                 "Cost/mg": _cost_str,
             })
-        st.dataframe(pd.DataFrame(_expr_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(_expr_rows), width='stretch', hide_index=True)
 
         # Top system details
         if _wl_report.expression_systems:

@@ -122,7 +122,7 @@ MVLSAADKNNVKGIFTKIAGHAEEYGAETLERMFTTYPSTKTYFPHFDLSH"""
     st.markdown("**⚡ Quick Load — Example MSA:**")
     _msa_ex_col1, _msa_ex_col2, _msa_ex_spacer = st.columns([1, 1, 2])
     with _msa_ex_col1:
-        if st.button("🧬 Ubiquitin family (5 seq)", key="msa_ex_ubi", use_container_width=True, type="secondary"):
+        if st.button("🧬 Ubiquitin family (5 seq)", key="msa_ex_ubi", width='stretch', type="secondary"):
             _seqs, _names = [], []
             for _line in _MSA_EXAMPLE_UBI.strip().split('\n'):
                 if _line.startswith('>'):
@@ -134,7 +134,7 @@ MVLSAADKNNVKGIFTKIAGHAEEYGAETLERMFTTYPSTKTYFPHFDLSH"""
             st.session_state.msa_names = _names
             st.rerun()
     with _msa_ex_col2:
-        if st.button("🩸 Hemoglobin α (5 seq)", key="msa_ex_hba", use_container_width=True, type="secondary"):
+        if st.button("🩸 Hemoglobin α (5 seq)", key="msa_ex_hba", width='stretch', type="secondary"):
             _seqs, _names = [], []
             for _line in _MSA_EXAMPLE_HBA.strip().split('\n'):
                 if _line.startswith('>'):
@@ -425,7 +425,7 @@ with main_tabs[1]:
                 paper_bgcolor='rgba(0,0,0,0)',
                 font=dict(color='#cbd5e1'),
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
             # Download
             csv = df.to_csv(index=False)
@@ -444,7 +444,7 @@ with main_tabs[1]:
                 }
                 for r in top_conserved
             ])
-            st.dataframe(conserved_df, use_container_width=True)
+            st.dataframe(conserved_df, width='stretch')
 
 
 # === COEVOLUTION TAB ===
@@ -507,7 +507,7 @@ with main_tabs[2]:
                 for r in results[:50]
             ])
 
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, width='stretch')
 
             # Contact map visualization
             st.markdown("#### Contact Map")
@@ -537,7 +537,7 @@ with main_tabs[2]:
                     height=500,
                 )
 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
             except ImportError:
                 st.info("Install plotly for contact map visualization: pip install plotly")
@@ -806,7 +806,7 @@ with main_tabs[4]:
                             for s in suggestions[:20]
                         ])
 
-                        st.dataframe(mut_df, use_container_width=True)
+                        st.dataframe(mut_df, width='stretch')
                     else:
                         st.info("No mutations found above threshold")
 

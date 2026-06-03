@@ -162,7 +162,7 @@ def render_model_switcher(key_prefix: str = "model_sw") -> None:
     with col_apply:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
         if st.button("Apply", key=f"{key_prefix}_apply", type="primary",
-                      use_container_width=True):
+                      width='stretch'):
             if new_prov != cfg.provider:
                 switch_llm_provider(new_prov, new_model)
             elif new_model != cfg.model:
@@ -287,9 +287,9 @@ def _render_sidebar_chat() -> None:
         )
         c1, c2 = st.columns([3, 1])
         with c1:
-            ask = st.button("Ask", key=f"{sb_key}_btn", use_container_width=True, type="primary")
+            ask = st.button("Ask", key=f"{sb_key}_btn", width='stretch', type="primary")
         with c2:
-            if st.button("X", key=f"{sb_key}_clr", use_container_width=True):
+            if st.button("X", key=f"{sb_key}_clr", width='stretch'):
                 st.session_state.pop(reply_key, None)
                 st.rerun()
 
@@ -372,11 +372,11 @@ def render_agent_advice_panel(
             clicked = st.button(
                 f"💬 Consult {agent_choice}",
                 key=f"{key_prefix}_btn",
-                use_container_width=True,
+                width='stretch',
                 type="primary",
             )
         with col_clear:
-            if st.button("↺ Clear", key=f"{key_prefix}_clr", use_container_width=True):
+            if st.button("↺ Clear", key=f"{key_prefix}_clr", width='stretch'):
                 st.session_state.pop(reply_key, None)
                 st.session_state.pop(adv_tool_key, None)
                 st.rerun()
@@ -643,7 +643,7 @@ def render_contextual_insight(
             clicked = st.button(
                 f"🧠 Analyze with {expert}",
                 key=f"{key_prefix}_btn",
-                use_container_width=True,
+                width='stretch',
                 type="primary",
             )
         with col_deep:
@@ -653,7 +653,7 @@ def render_contextual_insight(
                 help="Step-by-step reasoning, ~2× longer output",
             )
         with col_clr:
-            if st.button("↺", key=f"{key_prefix}_clr", use_container_width=True, help="Clear result"):
+            if st.button("↺", key=f"{key_prefix}_clr", width='stretch', help="Clear result"):
                 st.session_state.pop(reply_key, None)
                 st.rerun()
 
@@ -780,7 +780,7 @@ def render_ml_stats_panel(
             clicked = st.button(
                 "🧠 Run ML Analysis",
                 key=f"{key_prefix}_ml_btn",
-                use_container_width=True,
+                width='stretch',
                 type="primary",
             )
         with col_deep:
@@ -790,7 +790,7 @@ def render_ml_stats_panel(
                 help="Extended reasoning with Lasso/Ridge feature selection context",
             )
         with col_clr:
-            if st.button("↺", key=f"{key_prefix}_ml_clr", use_container_width=True, help="Clear"):
+            if st.button("↺", key=f"{key_prefix}_ml_clr", width='stretch', help="Clear"):
                 st.session_state.pop(reply_key, None)
                 st.session_state.pop(tool_report_key, None)
                 st.rerun()
@@ -1846,7 +1846,7 @@ def render_pymolai_chatbot(key_prefix: str = "pymolai_chat", pymol_port: int = 0
             unsafe_allow_html=True,
         )
     with clr_col:
-        if st.button("🗑 New Chat", key=f"{key_prefix}_clr", use_container_width=True):
+        if st.button("🗑 New Chat", key=f"{key_prefix}_clr", width='stretch'):
             st.session_state[hist_key] = []
             st.session_state[snap_key] = []
             st.rerun()
@@ -1876,7 +1876,7 @@ def render_pymolai_chatbot(key_prefix: str = "pymolai_chat", pymol_port: int = 0
         for i, chip in enumerate(_chips):
             col = c1 if i % 2 == 0 else c2
             with col:
-                if st.button(chip, key=f"{key_prefix}_chip_{i}", use_container_width=True):
+                if st.button(chip, key=f"{key_prefix}_chip_{i}", width='stretch'):
                     history.append({"role": "user", "content": chip})
                     st.session_state[hist_key] = history
                     st.rerun()
@@ -1918,7 +1918,7 @@ def render_pymolai_chatbot(key_prefix: str = "pymolai_chat", pymol_port: int = 0
 
         # Show all captured snapshots
         for i, snap in enumerate(snaps):
-            st.image(snap, caption=f"PyMOL snapshot #{i + 1}", use_container_width=True)
+            st.image(snap, caption=f"PyMOL snapshot #{i + 1}", width='stretch')
 
     # ── Input ──────────────────────────────────────────────────────────────────
     with st.form(key=f"{key_prefix}_form", clear_on_submit=True):
@@ -1928,7 +1928,7 @@ def render_pymolai_chatbot(key_prefix: str = "pymolai_chat", pymol_port: int = 0
             label_visibility="collapsed",
             key=f"{key_prefix}_input",
         )
-        submitted = st.form_submit_button("Send ↵", use_container_width=True)
+        submitted = st.form_submit_button("Send ↵", width='stretch')
 
     if submitted and user_msg and user_msg.strip():
         history.append({"role": "user", "content": user_msg.strip()})
@@ -2080,7 +2080,7 @@ def render_agent_chatbot(key_prefix: str = "chatbot", pymol_port: int = 0) -> No
         if selected != st.session_state[agent_key]:
             st.session_state[agent_key] = selected
     with col_clear:
-        if st.button("🗑 New Chat", key=f"{key_prefix}_clr", use_container_width=True):
+        if st.button("🗑 New Chat", key=f"{key_prefix}_clr", width='stretch'):
             st.session_state[hist_key] = []
             st.rerun()
 
@@ -2135,7 +2135,7 @@ def render_agent_chatbot(key_prefix: str = "chatbot", pymol_port: int = 0) -> No
                 if st.button(
                     sug,
                     key=f"{key_prefix}_sug_{i}",
-                    use_container_width=True,
+                    width='stretch',
                 ):
                     # Add user message and get response
                     history.append({"role": "user", "content": sug})
@@ -2195,7 +2195,7 @@ def render_agent_chatbot(key_prefix: str = "chatbot", pymol_port: int = 0) -> No
                         f'<div style="font-size:.75rem;color:#a78bfa;margin:4px 0 2px">{_html.escape(label)}</div>',
                         unsafe_allow_html=True,
                     )
-                    st.image(img, use_container_width=True)
+                    st.image(img, width='stretch')
 
         # Show "▶ Run in PyMOL" buttons for commands in the last agent reply
         if pymol_port and history:
@@ -2216,7 +2216,7 @@ def render_agent_chatbot(key_prefix: str = "chatbot", pymol_port: int = 0) -> No
                             st.code(cmd, language="text")
                         with col_run:
                             st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-                            if st.button("▶ Run", key=f"{key_prefix}_runcmd_{ci}", use_container_width=True):
+                            if st.button("▶ Run", key=f"{key_prefix}_runcmd_{ci}", width='stretch'):
                                 result, _ = _pymol_execute(cmd, pymol_port)
                                 st.session_state[f"_chat_cmd_result_{key_prefix}"] = (cmd, result)
                                 st.rerun()
@@ -2249,7 +2249,7 @@ def render_agent_chatbot(key_prefix: str = "chatbot", pymol_port: int = 0) -> No
             send = st.form_submit_button(
                 "Send",
                 type="primary",
-                use_container_width=True,
+                width='stretch',
             )
 
     if send and user_input and user_input.strip():
@@ -2416,7 +2416,7 @@ def observed_scoring_section(
         results = st.session_state.get(run_key)
         if results:
             df = runner.results_to_dataframe(results)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width='stretch', hide_index=True)
 
             # OST chart
             try:
@@ -2434,7 +2434,7 @@ def observed_scoring_section(
                         height=320,
                         margin=dict(t=40, b=60),
                     )
-                    st.plotly_chart(fig_ost, use_container_width=True)
+                    st.plotly_chart(fig_ost, width='stretch')
             except Exception:
                 pass
 
@@ -2454,7 +2454,7 @@ def observed_scoring_section(
                         height=320,
                         margin=dict(t=40, b=60),
                     )
-                    st.plotly_chart(fig_mp, use_container_width=True)
+                    st.plotly_chart(fig_mp, width='stretch')
             except Exception:
                 pass
 

@@ -104,7 +104,7 @@ with col_w1:
             "Predict 3D structures from amino acid sequences using ESMFold, ColabFold, Chai-1, Boltz-2, and more.</p>",
             unsafe_allow_html=True,
         )
-        if st.button("Start Prediction", key="h_predict", type="primary", use_container_width=True):
+        if st.button("Start Prediction", key="h_predict", type="primary", width='stretch'):
             st.switch_page("pages/1_predict.py")
 
 with col_w2:
@@ -115,7 +115,7 @@ with col_w2:
             "Analyze structures with biophysical metrics: clash score, SASA, contact energy, Ramachandran analysis, and more.</p>",
             unsafe_allow_html=True,
         )
-        if st.button("Evaluate Structure", key="h_eval", type="primary", use_container_width=True):
+        if st.button("Evaluate Structure", key="h_eval", type="primary", width='stretch'):
             st.switch_page("pages/2_evaluate.py")
 
 with col_w3:
@@ -126,7 +126,7 @@ with col_w3:
             "Benchmark multiple predictors on the same sequence. Side-by-side metric comparison with detailed analysis.</p>",
             unsafe_allow_html=True,
         )
-        if st.button("Compare", key="h_compare", type="primary", use_container_width=True):
+        if st.button("Compare", key="h_compare", type="primary", width='stretch'):
             st.switch_page("pages/3_compare.py")
 
 # ── Design & Engineering ─────────────────────────────────────────────
@@ -143,7 +143,7 @@ with col_d1:
             "Interactive residue editor with amino acid property coloring, constraint management, and ligand support.</p>",
             unsafe_allow_html=True,
         )
-        if st.button("Open Editor", key="h_editor", use_container_width=True):
+        if st.button("Open Editor", key="h_editor", width='stretch'):
             st.switch_page("pages/0_design.py")
 
 with col_d2:
@@ -154,7 +154,7 @@ with col_d2:
             "Saturation mutagenesis to identify beneficial mutations and evaluate stability impacts.</p>",
             unsafe_allow_html=True,
         )
-        if st.button("Scan Mutations", key="h_scan", use_container_width=True):
+        if st.button("Scan Mutations", key="h_scan", width='stretch'):
             st.switch_page("pages/10_mutation_scanner.py")
 
 with col_d3:
@@ -165,7 +165,7 @@ with col_d3:
             "Design novel sequences for fixed backbone structures using ProteinMPNN deep learning.</p>",
             unsafe_allow_html=True,
         )
-        if st.button("MPNN Design", key="h_mpnn", use_container_width=True):
+        if st.button("MPNN Design", key="h_mpnn", width='stretch'):
             st.switch_page("pages/8_mpnn.py")
 
 # ── Agent Pipeline ───────────────────────────────────────────────────
@@ -185,7 +185,7 @@ with col_a1:
             unsafe_allow_html=True,
         )
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-        if st.button("Open Agent Pipeline", key="h_agents", type="primary", use_container_width=True):
+        if st.button("Open Agent Pipeline", key="h_agents", type="primary", width='stretch'):
             st.switch_page("pages/11_agents.py")
 
 with col_a2:
@@ -199,7 +199,7 @@ with col_a2:
             unsafe_allow_html=True,
         )
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-        if st.button("Start Meeting", key="h_meeting", use_container_width=True):
+        if st.button("Start Meeting", key="h_meeting", width='stretch'):
             st.switch_page("pages/11_agents.py")
 
 # ── Additional Tools Grid ────────────────────────────────────────────
@@ -212,28 +212,28 @@ with ct1:
     with st.container(border=True):
         st.markdown("**📈 Directed Evolution**")
         st.caption("Iterative optimization with fitness tracking")
-        if st.button("Evolve", key="t_evolve", use_container_width=True):
+        if st.button("Evolve", key="t_evolve", width='stretch'):
             st.switch_page("pages/4_evolution.py")
 
 with ct2:
     with st.container(border=True):
         st.markdown("**📦 Batch Processing**")
         st.caption("Process multiple sequences in parallel")
-        if st.button("Batch", key="t_batch", use_container_width=True):
+        if st.button("Batch", key="t_batch", width='stretch'):
             st.switch_page("pages/5_batch.py")
 
 with ct3:
     with st.container(border=True):
         st.markdown("**🧬 MSA & Phylogeny**")
         st.caption("Multiple sequence alignment analysis")
-        if st.button("MSA", key="t_msa", use_container_width=True):
+        if st.button("MSA", key="t_msa", width='stretch'):
             st.switch_page("pages/7_msa.py")
 
 with ct4:
     with st.container(border=True):
         st.markdown("**📁 Job Browser**")
         st.caption("Browse and reload past results")
-        if st.button("Jobs", key="t_jobs", use_container_width=True):
+        if st.button("Jobs", key="t_jobs", width='stretch'):
             st.switch_page("pages/9_jobs.py")
 
 # ── Getting Started ──────────────────────────────────────────────────
@@ -250,7 +250,7 @@ with col_gs1:
             "(antibody, plant/wheat, de novo design), metrics reference, and troubleshooting.</p>",
             unsafe_allow_html=True,
         )
-        if st.button("Open Guide", key="h_guide", type="primary", use_container_width=True):
+        if st.button("Open Guide", key="h_guide", type="primary", width='stretch'):
             st.switch_page("pages/13_guide.py")
 
 with col_gs2:
@@ -262,7 +262,7 @@ with col_gs2:
             "developability metrics, germline assignment, and wet-lab planning.</p>",
             unsafe_allow_html=True,
         )
-        if st.button("Antibody Workbench", key="h_antibody", use_container_width=True):
+        if st.button("Antibody Workbench", key="h_antibody", width='stretch'):
             st.switch_page("pages/12_antibody.py")
 
 with col_gs3:
@@ -274,7 +274,7 @@ with col_gs3:
             "wheat codon optimization (CAI), and NLR mutation impact flags.</p>",
             unsafe_allow_html=True,
         )
-        if st.button("Plant Biology Tools", key="h_plant", use_container_width=True):
+        if st.button("Plant Biology Tools", key="h_plant", width='stretch'):
             st.switch_page("pages/10_mutation_scanner.py")
 
 # ── Recent Activity ──────────────────────────────────────────────────

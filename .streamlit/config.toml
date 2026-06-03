@@ -1,11 +1,24 @@
-# Professional theme for Protein Design Hub (applied via developing-with-streamlit skill).
+# Professional theme for Protein Design Hub.
+# Applied via the developing-with-streamlit skill (theme.md guidance).
 [theme]
 base = "dark"
-primaryColor = "#10b981"            # emerald — matches the GO/decision accent
-backgroundColor = "#0e1117"
-secondaryBackgroundColor = "#192231"  # cards, sidebar, tables
-textColor = "#e6edf3"
+primaryColor = "#10b981"                 # emerald — buttons, links, active elements, GO accent
+backgroundColor = "#0e1117"              # main content background
+secondaryBackgroundColor = "#192231"     # widgets, sidebar, tables, cards
+textColor = "#e6edf3"                    # body text
+linkColor = "#34d399"                    # markdown links (lighter emerald for contrast)
+borderColor = "#2b3648"                  # widget/card borders — subtle, cohesive
+codeBackgroundColor = "#11161f"
 font = "sans serif"
+headingFont = "sans serif"
+baseRadius = "0.6rem"                     # softer corners → modern, polished
+
+# Semantic palette — used by status text, st.metric deltas, sparklines.
+redColor = "#ef4444"
+orangeColor = "#f59e0b"
+yellowColor = "#eab308"
+greenColor = "#10b981"
+blueColor = "#3b82f6"
 
 [client]
 showErrorDetails = true

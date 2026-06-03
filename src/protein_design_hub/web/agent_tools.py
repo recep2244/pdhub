@@ -656,7 +656,7 @@ def _plot_regression(data: dict) -> None:
                 yaxis_range=[0, max(1.05, max(r2_vals) * 1.1)],
                 template="plotly_dark", height=280, margin=dict(t=40, b=30),
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     # ── Coefficient chart ──────────────────────────────────────────
     coefs_df = data.get("coefs")
@@ -676,7 +676,7 @@ def _plot_regression(data: dict) -> None:
                 barmode="group", template="plotly_dark", height=320,
                 yaxis_title="Coefficient", margin=dict(t=40, b=60),
             )
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width='stretch')
         except Exception:
             pass
 
@@ -703,7 +703,7 @@ def _plot_regression(data: dict) -> None:
                 xaxis_title="Actual", yaxis_title="Predicted",
                 template="plotly_dark", height=320, margin=dict(t=40, b=40),
             )
-            st.plotly_chart(fig3, use_container_width=True)
+            st.plotly_chart(fig3, width='stretch')
         except Exception:
             pass
 
@@ -736,7 +736,7 @@ def _plot_feature_importance(df: pd.DataFrame) -> None:
             xaxis_title="Pearson r", template="plotly_dark",
             height=max(220, len(feats) * 28 + 80), margin=dict(t=40, l=120, b=40),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     except Exception:
         pass
 
@@ -772,7 +772,7 @@ def _plot_pca(data: dict) -> None:
             yaxis_title="Variance explained (%)", template="plotly_dark",
             height=300, margin=dict(t=40, b=40),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         sil = data.get("silhouette")
         k = data.get("best_k")
         if sil is not None:
@@ -803,32 +803,32 @@ def render_tool_result(result: ToolResult) -> None:
             mdf = data.get("metrics")
             if mdf is not None and not mdf.empty:
                 with st.expander("Raw metrics table", expanded=False):
-                    st.dataframe(mdf, use_container_width=True, hide_index=True)
+                    st.dataframe(mdf, width='stretch', hide_index=True)
             coefs = data.get("coefs")
             if coefs is not None and not coefs.empty:
                 with st.expander("Coefficients table", expanded=False):
-                    st.dataframe(coefs, use_container_width=True, hide_index=True)
+                    st.dataframe(coefs, width='stretch', hide_index=True)
 
         elif result.tool_name == "Feature Importance Suite" and isinstance(data, pd.DataFrame):
             _plot_feature_importance(data)
             with st.expander("Full importance table", expanded=False):
-                st.dataframe(data, use_container_width=True, hide_index=True)
+                st.dataframe(data, width='stretch', hide_index=True)
 
         elif result.tool_name == "PCA + Clustering" and isinstance(data, dict):
             _plot_pca(data)
             pca_df = data.get("pca")
             if pca_df is not None and not pca_df.empty:
                 with st.expander("PCA table", expanded=False):
-                    st.dataframe(pca_df, use_container_width=True, hide_index=True)
+                    st.dataframe(pca_df, width='stretch', hide_index=True)
 
         elif isinstance(data, pd.DataFrame):
-            st.dataframe(data, use_container_width=True, hide_index=True)
+            st.dataframe(data, width='stretch', hide_index=True)
 
         elif isinstance(data, dict):
             for key, val in data.items():
                 if isinstance(val, pd.DataFrame) and not val.empty:
                     st.markdown(f"**{key.replace('_', ' ').title()}**")
-                    st.dataframe(val, use_container_width=True, hide_index=True)
+                    st.dataframe(val, width='stretch', hide_index=True)
                 elif isinstance(val, dict) and key not in ("residuals",):
                     pass  # skip raw residuals dict (plotted above)
                 elif val is not None and not isinstance(val, dict):

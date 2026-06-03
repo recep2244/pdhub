@@ -110,7 +110,7 @@ with main_tabs[0]:
             label_visibility="collapsed"
         )
     with col_load:
-        if st.button("📋 Load Example", use_container_width=True, type="secondary"):
+        if st.button("📋 Load Example", width='stretch', type="secondary"):
             st.session_state.batch_seq_input = BATCH_EXAMPLE
 
     sequences = []
@@ -221,7 +221,7 @@ with main_tabs[0]:
             {'Name': s['name'], 'Length': len(s['sequence']), 'Sequence': s['sequence'][:30] + '...'}
             for s in sequences
         ])
-        st.dataframe(preview_df, use_container_width=True)
+        st.dataframe(preview_df, width='stretch')
 
         # Validation
         invalid = [s for s in sequences if len(s['sequence']) < 10]
@@ -373,7 +373,7 @@ with main_tabs[2]:
 
         with col_run:
             if st.button("▶️ Start Batch", type="primary",
-                         use_container_width=True,
+                         width='stretch',
                          disabled=st.session_state.batch_running):
 
                 st.session_state.batch_running = True
@@ -552,7 +552,7 @@ with main_tabs[3]:
                 else:
                     st.warning(f"No structures pass pLDDT ≥ {_plddt_thresh:.0f}. Lower the threshold or re-run with more recycles.")
 
-                st.dataframe(df, use_container_width=True)
+                st.dataframe(df, width='stretch')
 
                 # Download all structures
                 if st.button("📥 Download All Structures (ZIP)"):
@@ -648,7 +648,7 @@ with main_tabs[3]:
                     else:
                         st.warning("No sequences pass current QC criteria — relax the filters.")
 
-                st.dataframe(df, use_container_width=True)
+                st.dataframe(df, width='stretch')
 
                 # Download CSV
                 csv = df.to_csv(index=False)
@@ -697,7 +697,7 @@ with main_tabs[3]:
                                 pass
                         if _wl_rows:
                             _wl_df = pd.DataFrame(_wl_rows)
-                            st.dataframe(_wl_df, use_container_width=True, hide_index=True)
+                            st.dataframe(_wl_df, width='stretch', hide_index=True)
                             _go_count = sum(1 for r in _wl_rows if r["Verdict"] == "GO")
                             _cond_count = sum(1 for r in _wl_rows if r["Verdict"] == "CONDITIONAL")
                             _nogo_count = sum(1 for r in _wl_rows if r["Verdict"] == "NO-GO")

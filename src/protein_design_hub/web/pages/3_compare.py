@@ -748,7 +748,7 @@ with col_actions:
     run_comparison = st.button(
         "🚀 Run Comparison",
         type="primary",
-        use_container_width=True,
+        width='stretch',
         disabled=not is_ready
     )
 
@@ -972,7 +972,7 @@ if "compare_result" in st.session_state:
 
         import pandas as pd
         pred_df = pd.DataFrame(pred_data)
-        st.dataframe(pred_df, use_container_width=True, hide_index=True)
+        st.dataframe(pred_df, width='stretch', hide_index=True)
 
         # Evaluation results (if reference provided)
         if result.evaluation_results:
@@ -995,7 +995,7 @@ if "compare_result" in st.session_state:
                 eval_data.append(row)
 
             eval_df = pd.DataFrame(eval_data)
-            st.dataframe(eval_df, use_container_width=True, hide_index=True)
+            st.dataframe(eval_df, width='stretch', hide_index=True)
 
             # Interface metrics (for multimers)
             has_interface = any(
@@ -1020,7 +1020,7 @@ if "compare_result" in st.session_state:
                     interface_data.append(row)
 
                 interface_df = pd.DataFrame(interface_data)
-                st.dataframe(interface_df, use_container_width=True, hide_index=True)
+                st.dataframe(interface_df, width='stretch', hide_index=True)
 
             # Comparison chart
             st.markdown("#### Visual Comparison")
@@ -1054,7 +1054,7 @@ if "compare_result" in st.session_state:
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     with tab_viewer:
         section_header("Structure Viewer", "Visualize predicted structures", "🔬")
@@ -1083,7 +1083,7 @@ if "compare_result" in st.session_state:
                             data=f.read(),
                             file_name=selected_structure.name,
                             mime="chemical/x-pdb" if selected_structure.suffix == ".pdb" else "chemical/x-cif",
-                            use_container_width=True
+                            width='stretch'
                         )
 
             with col_view:
@@ -1150,7 +1150,7 @@ if "compare_result" in st.session_state:
                     data=report_path.read_text(),
                     file_name="comparison_report.html",
                     mime="text/html",
-                    use_container_width=True
+                    width='stretch'
                 )
             else:
                 st.markdown("No report generated")
@@ -1162,7 +1162,7 @@ if "compare_result" in st.session_state:
                     data=summary_path.read_text(),
                     file_name="prediction_summary.json",
                     mime="application/json",
-                    use_container_width=True
+                    width='stretch'
                 )
 
 st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
@@ -1205,7 +1205,7 @@ if existing_results and Path(existing_results).exists():
                         data=f.read(),
                         file_name=selected_structure.name,
                         mime="chemical/x-pdb" if selected_structure.suffix == ".pdb" else "chemical/x-cif",
-                        use_container_width=True
+                        width='stretch'
                     )
 
         with col_view:

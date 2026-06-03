@@ -274,9 +274,9 @@ with tabs[0]:
             )
             _c1, _c2 = st.columns([3, 1])
             with _c1:
-                _run = st.form_submit_button("▶ Run", use_container_width=True)
+                _run = st.form_submit_button("▶ Run", width='stretch')
             with _c2:
-                _snap = st.form_submit_button("📸 Snap", use_container_width=True)
+                _snap = st.form_submit_button("📸 Snap", width='stretch')
         if _run and _ci and _ci.strip():
             from protein_design_hub.web.agent_helpers import _pymol_execute
             _res, _img = _pymol_execute(_ci.strip(), port)
@@ -287,12 +287,12 @@ with tabs[0]:
                 unsafe_allow_html=True,
             )
             if _img:
-                st.image(_img, use_container_width=True)
+                st.image(_img, width='stretch')
         if _snap:
             from protein_design_hub.web.agent_helpers import _pymol_snapshot
             _fr = _pymol_snapshot(port)
             if _fr:
-                st.image(_fr, use_container_width=True)
+                st.image(_fr, width='stretch')
 
     # ══════════════════════════════════════════════════════════════════
     # SECTION 1 — PyMolAI (primary, full-width chat + viewer)
@@ -549,10 +549,10 @@ with tabs[1]:
         run_dis = fasta_path is None or st.session_state.pipe_running
         run_btn = st.button(
             "▶ Run Pipeline" if not st.session_state.pipe_running else "⏳ Running...",
-            type="primary", use_container_width=True, disabled=run_dis, key="btn_run",
+            type="primary", width='stretch', disabled=run_dis, key="btn_run",
         )
     with bx:
-        if st.button("🗑 Clear Results", use_container_width=True, key="btn_clr"):
+        if st.button("🗑 Clear Results", width='stretch', key="btn_clr"):
             for k in ("pipe_log", "pipe_result", "pipe_ctx"):
                 st.session_state[k] = [] if k == "pipe_log" else None
             st.rerun()
@@ -671,7 +671,7 @@ with tabs[1]:
                     })
                 if rows:
                     import pandas as pd
-                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
 
             if ctx and ctx.comparison_result and ctx.comparison_result.ranking:
                 section_header("Ranking", "", "🏆")
@@ -842,10 +842,10 @@ with tabs[2]:
         mdis = not agenda or not agenda.strip() or st.session_state.meet_running
         mbtn = st.button(
             "▶ Start Meeting" if not st.session_state.meet_running else "⏳ Running...",
-            type="primary", use_container_width=True, disabled=mdis, key="btn_meet",
+            type="primary", width='stretch', disabled=mdis, key="btn_meet",
         )
     with bmr:
-        if st.button("🗑 Clear", use_container_width=True, key="btn_mclr"):
+        if st.button("🗑 Clear", width='stretch', key="btn_mclr"):
             st.session_state.meet_result = None
             st.session_state.meet_transcript = None
             st.rerun()
@@ -991,7 +991,7 @@ with tabs[4]:
 
     cr, _ = st.columns([1, 4])
     with cr:
-        if st.button("🔄 Refresh Status", key="btn_ref_llm", use_container_width=True):
+        if st.button("🔄 Refresh Status", key="btn_ref_llm", width='stretch'):
             _check_llm.clear()
             list_available_models.clear()
             st.rerun()
@@ -1143,7 +1143,7 @@ with tabs[5]:
 
     cr2, _ = st.columns([1, 4])
     with cr2:
-        if st.button("🔄 Refresh", key="btn_ref_hist", use_container_width=True):
+        if st.button("🔄 Refresh", key="btn_ref_hist", width='stretch'):
             st.rerun()
 
     try:
@@ -1197,7 +1197,7 @@ with tabs[5]:
                                 st.download_button(
                                     "📥 Download .md", mdc,
                                     file_name=f"{jf.stem}.md", mime="text/markdown",
-                                    key=f"dl_{jn}_{jf.stem}", use_container_width=True,
+                                    key=f"dl_{jn}_{jf.stem}", width='stretch',
                                 )
 
                             with st.expander("View transcript"):

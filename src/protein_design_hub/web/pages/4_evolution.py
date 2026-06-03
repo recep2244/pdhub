@@ -150,7 +150,7 @@ with main_tabs[0]:
     _evo_ex_cols = st.columns(len(_EVO_EXAMPLES))
     for _ei, (_elabel, (_ename, _eseq)) in enumerate(_EVO_EXAMPLES.items()):
         with _evo_ex_cols[_ei]:
-            if st.button(_elabel, key=f"evo_ex_{_ei}", use_container_width=True, type="secondary"):
+            if st.button(_elabel, key=f"evo_ex_{_ei}", width='stretch', type="secondary"):
                 st.session_state.evolution_sequence = _eseq
                 st.rerun()
 
@@ -326,7 +326,7 @@ with main_tabs[1]:
 
         with col_run:
             if st.button("🧬 Start Evolution", type="primary",
-                         use_container_width=True,
+                         width='stretch',
                          disabled=st.session_state.evolution_running):
                 st.session_state.evolution_running = True
 
@@ -615,7 +615,7 @@ with main_tabs[2]:
                 "📥 Best Sequence (FASTA)",
                 fasta,
                 "evolved_sequence.fasta",
-                use_container_width=True
+                width='stretch'
             )
 
         with col_dl2:
@@ -623,11 +623,11 @@ with main_tabs[2]:
                 "📥 Full Results (JSON)",
                 json.dumps(results, indent=2),
                 "evolution_results.json",
-                use_container_width=True
+                width='stretch'
             )
 
         with col_dl3:
-            if st.button("🧪 Wet-Lab Readiness", use_container_width=True, key="evo_wl_btn",
+            if st.button("🧪 Wet-Lab Readiness", width='stretch', key="evo_wl_btn",
                          help="Check expression system, purification, and go/no-go for best variant"):
                 try:
                     from protein_design_hub.analysis.wet_lab_advisor import build_wet_lab_report as _build_evo_wl
@@ -661,7 +661,7 @@ with main_tabs[2]:
            if 'evo_structure' not in st.session_state:
                st.session_state.evo_structure = None
            
-           if st.button("🔮 Fold Best Variant (ESMFold)", use_container_width=True, disabled=st.session_state.get('evo_folding', False)):
+           if st.button("🔮 Fold Best Variant (ESMFold)", width='stretch', disabled=st.session_state.get('evo_folding', False)):
                 st.session_state.evo_folding = True
                 with st.spinner("Folding best variant..."):
                     try:
@@ -806,7 +806,7 @@ with main_tabs[2]:
                 data=st.session_state.evo_structure,
                 file_name=f"evolved_best.pdb",
                 mime="chemical/x-pdb",
-                use_container_width=True
+                width='stretch'
             )
 
 
@@ -865,7 +865,7 @@ with main_tabs[3]:
 
             # Calculate library size
             st.markdown("---")
-            if st.button("📊 Calculate Library Size", use_container_width=True):
+            if st.button("📊 Calculate Library Size", width='stretch'):
                 try:
                     from protein_design_hub.evolution.library_design import LibraryDesigner
 
@@ -1064,7 +1064,7 @@ with main_tabs[3]:
                     data=_content,
                     file_name=_fname,
                     mime=_mime,
-                    use_container_width=True,
+                    width='stretch',
                 )
 
 st.divider()

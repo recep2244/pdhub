@@ -832,14 +832,14 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
             run_btn = st.button(
                 "🚀 Predict",
                 type="primary",
-                use_container_width=True,
+                width='stretch',
                 disabled=not is_ready
             )
         with col_demo:
             demo_btn = st.button(
                 "📂 Demo",
                 type="secondary",
-                use_container_width=True
+                width='stretch'
             )
 
     st.markdown('</div>', unsafe_allow_html=True)
@@ -983,7 +983,7 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
 
                     # Inline structural biologist quick insight
                     _struct_reply_key = "_predict_struct_insight"
-                    if st.button("🔬 Structural Insight", use_container_width=True, key="struct_insight_btn"):
+                    if st.button("🔬 Structural Insight", width='stretch', key="struct_insight_btn"):
                         from protein_design_hub.web.agent_helpers import _get_cross_page_context
                         _ctx = f"Best structure: {best_name}, pLDDT={best_plddt:.1f}"
                         cross = _get_cross_page_context()
@@ -1002,12 +1002,12 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                         st.markdown(st.session_state[_struct_reply_key])
 
                     st.markdown("---")
-                    if st.button("📊 Evaluate Structure", use_container_width=True, type="primary"):
+                    if st.button("📊 Evaluate Structure", width='stretch', type="primary"):
                         from protein_design_hub.web.ui import set_selected_model
                         set_selected_model(best_pdb)
                         st.switch_page("pages/2_evaluate.py")
 
-                    if st.button("🧬 Run Mutations", use_container_width=True):
+                    if st.button("🧬 Run Mutations", width='stretch'):
                         st.switch_page("pages/10_mutation_scanner.py")
 
         with tab_metrics:
@@ -1050,7 +1050,7 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                 st.dataframe(
                     df.style.format({"pLDDT": "{:.1f}", "pTM": "{:.3f}", "ipTM": "{:.3f}"})
                     .background_gradient(subset=["pLDDT"], cmap="RdYlGn"),
-                    use_container_width=True,
+                    width='stretch',
                 )
 
                 # Save results to shared cross-page context
@@ -1179,7 +1179,7 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                         st.markdown(f"📄 `{f['name']}` — {f['predictor']} ({f['size']/1024:.1f} KB)")
                     with col_btn:
                         with open(f["path"], "rb") as file:
-                            st.download_button("Download", file.read(), f["name"], "chemical/x-pdb", key=f"dl_{f['name']}", use_container_width=True)
+                            st.download_button("Download", file.read(), f["name"], "chemical/x-pdb", key=f"dl_{f['name']}", width='stretch')
 
                 st.markdown("---")
                 import zipfile, io
@@ -1187,7 +1187,7 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                 with zipfile.ZipFile(buf, "w") as zf:
                     for f in output_files:
                         zf.write(f["path"], f["name"])
-                st.download_button("📦 Download All as ZIP", buf.getvalue(), "prediction_results.zip", "application/zip", key="dl_all", use_container_width=True)
+                st.download_button("📦 Download All as ZIP", buf.getvalue(), "prediction_results.zip", "application/zip", key="dl_all", width='stretch')
             else:
                 empty_state("No Files", "No structure files found", "📭")
 

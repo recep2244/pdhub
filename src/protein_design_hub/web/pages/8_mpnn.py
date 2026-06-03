@@ -389,7 +389,7 @@ if _active_constraints:
     st.info("**Active constraints:** " + " · ".join(_active_constraints))
 
 # Run button
-if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=True):
+if st.button("🚀 Run ProteinMPNN Design", type="primary", width='stretch'):
     if backbone_file is None and chosen is None:
         info_box(
             "Please upload a backbone structure or select one from recent structures.",
@@ -513,7 +513,7 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=
                             if st.button(
                                 "🔧 Protein Engineer Analysis",
                                 key=f"mpnn_seq_btn_{i}",
-                                use_container_width=True,
+                                width='stretch',
                             ):
                                 try:
                                     m = compute_sequence_metrics(s.sequence)
@@ -554,13 +554,13 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", use_container_width=
                         data="\n".join(fasta_lines) + "\n",
                         file_name=f"{job_id}_designed.fasta",
                         mime="text/plain",
-                        use_container_width=True,
+                        width='stretch',
                         type="primary"
                     )
 
                 with col_d2:
                     st.markdown("**Validation**")
-                    if st.button("🔮 Fold Top Sequence (ESMFold)", use_container_width=True):
+                    if st.button("🔮 Fold Top Sequence (ESMFold)", width='stretch'):
                         if result.sequences:
                             st.session_state.predict_sequence = result.sequences[0].sequence
                             st.session_state.predict_name = f"{result.sequences[0].id}_check"
@@ -730,7 +730,7 @@ if _mpnn_prev and _mpnn_prev.success and _mpnn_prev.sequences:
             except Exception:
                 _prev_rows.append({"ID": _ps.id, "Length": len(_ps.sequence)})
         if _prev_rows:
-            st.dataframe(pd.DataFrame(_prev_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(_prev_rows), width='stretch', hide_index=True)
         if st.button("Send top sequence → Predict page", key="mpnn_prev_predict", type="secondary"):
             st.session_state.predict_sequence = _mpnn_prev.sequences[0].sequence
             st.session_state.predict_name = f"{_mpnn_prev.sequences[0].id}_check"
@@ -764,7 +764,7 @@ if _mpnn_prev and _mpnn_prev.success and _mpnn_prev.sequences:
                             "Poly-A signals": sum(1 for p in _res.poly_a_signals if p["risk"] == "high"),
                             "Warnings": len(_res.warnings),
                         })
-                    st.dataframe(pd.DataFrame(_opt_rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(_opt_rows), width='stretch', hide_index=True)
                     _all_fasta = "\n".join(_opt_fastas)
                     st.download_button(
                         f"📥 Download all {_species_choice}-optimized DNA sequences",

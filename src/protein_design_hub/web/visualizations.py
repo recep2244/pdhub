@@ -2376,7 +2376,7 @@ def show_structure_with_pymol_fallback(
                 "🔬 Open in PyMOL",
                 key=f"{key}_open_pymol",
                 help="Launch full PyMOL GUI window",
-                use_container_width=True,
+                width='stretch',
             ):
                 pid = launch_pymol_interactive(
                     structs,
@@ -2394,7 +2394,7 @@ def show_structure_with_pymol_fallback(
         with _bcols[1]:
             if st.button("🔄 Reload", key=f"{key}_reload",
                          help="Reload structure into viewer",
-                         use_container_width=True):
+                         width='stretch'):
                 server.load_structure(
                     pdb_data=pdb_data,
                     name=structs[0][1],
@@ -2407,7 +2407,7 @@ def show_structure_with_pymol_fallback(
         with _bcols[2]:
             if st.button("📸 Save PNG", key=f"{key}_savepng",
                          help="Download current PyMOL view as PNG",
-                         use_container_width=True):
+                         width='stretch'):
                 png = server.get_frame()
                 st.download_button(
                     "⬇ Download PNG",

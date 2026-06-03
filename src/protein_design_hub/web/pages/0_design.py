@@ -311,7 +311,7 @@ with col_actions:
 
         if fetch_type == "UniProt":
             uniprot_id = st.text_input("UniProt ID", placeholder="P12345 or EGFR_HUMAN", key="uniprot_fetch_id")
-            if st.button("📥 Fetch", key="fetch_uniprot", use_container_width=True, disabled=not uniprot_id):
+            if st.button("📥 Fetch", key="fetch_uniprot", width='stretch', disabled=not uniprot_id):
                 with st.spinner("Fetching from UniProt..."):
                     try:
                         from protein_design_hub.io.fetch import UniProtFetcher, parse_fasta
@@ -337,7 +337,7 @@ with col_actions:
 
         elif fetch_type == "PDB":
             pdb_id = st.text_input("PDB ID", placeholder="1ABC", key="pdb_fetch_id")
-            if st.button("📥 Fetch", key="fetch_pdb", use_container_width=True, disabled=not pdb_id):
+            if st.button("📥 Fetch", key="fetch_pdb", width='stretch', disabled=not pdb_id):
                 with st.spinner("Fetching from RCSB PDB..."):
                     try:
                         from protein_design_hub.io.fetch import PDBFetcher
@@ -378,7 +378,7 @@ with col_actions:
 
         else:  # AlphaFold DB
             af_id = st.text_input("UniProt ID", placeholder="P12345", key="af_fetch_id", help="Fetch AlphaFold predicted structure")
-            if st.button("📥 Fetch", key="fetch_af", use_container_width=True, disabled=not af_id):
+            if st.button("📥 Fetch", key="fetch_af", width='stretch', disabled=not af_id):
                 with st.spinner("Fetching from AlphaFold DB..."):
                     try:
                         from protein_design_hub.io.fetch import AlphaFoldDBFetcher, UniProtFetcher, parse_fasta
@@ -424,7 +424,7 @@ with col_actions:
                         st.error(f"Error: {e}")
 
     with action_tabs[2]:
-        if st.button("🗑️ Clear All", use_container_width=True):
+        if st.button("🗑️ Clear All", width='stretch'):
             st.session_state.current_sequence = ""
             st.session_state.selected_positions = set()
             st.session_state.current_structure = None
@@ -490,12 +490,12 @@ if seq:
     col_sel_ctrl1, col_sel_ctrl2, col_sel_ctrl3, col_sel_ctrl4 = st.columns(4)
 
     with col_sel_ctrl1:
-        if st.button("🔄 Clear Selection", use_container_width=True):
+        if st.button("🔄 Clear Selection", width='stretch'):
             st.session_state.selected_positions = set()
             st.rerun()
 
     with col_sel_ctrl2:
-        if st.button("✅ Select All", use_container_width=True):
+        if st.button("✅ Select All", width='stretch'):
             st.session_state.selected_positions = set(range(len(seq)))
             st.rerun()
 
@@ -596,7 +596,7 @@ if seq:
                         key=f"res_{pos}",
                         type=button_type,
                         help=f"Pos {pos+1}: {AMINO_ACIDS.get(aa, {}).get('name', aa)}" + (f" [Ligand: {st.session_state.residue_ligands.get(pos, {}).get('name', '')}]" if has_ligand else ""),
-                        use_container_width=True,
+                        width='stretch',
                     ):
                         toggle_position(pos)
                         st.rerun()
@@ -627,7 +627,7 @@ if seq:
                 </div>
                 """, unsafe_allow_html=True)
                 
-                if st.button(f"🔬 Run Mutation Scanner on Pos {scan_pos}", use_container_width=True):
+                if st.button(f"🔬 Run Mutation Scanner on Pos {scan_pos}", width='stretch'):
                     # Set state for scanner
                     st.session_state.sequence = st.session_state.current_sequence
                     st.session_state.sequence_name = st.session_state.sequence_name
@@ -648,7 +648,7 @@ if seq:
                             f"{aa}",
                             key=f"replace_to_{aa}",
                             help=f"Replace with {AMINO_ACIDS[aa]['name']}",
-                            use_container_width=True,
+                            width='stretch',
                         ):
                             # Replace all selected positions
                             seq_list = list(st.session_state.current_sequence)
@@ -688,7 +688,7 @@ if seq:
                 **Swap:** {aa1} (pos {pos1+1}) ↔ {aa2} (pos {pos2+1})
                 """)
 
-                if st.button("🔄 Swap These Two", type="primary", use_container_width=True):
+                if st.button("🔄 Swap These Two", type="primary", width='stretch'):
                     seq_list = list(st.session_state.current_sequence)
                     seq_list[pos1], seq_list[pos2] = seq_list[pos2], seq_list[pos1]
                     st.session_state.current_sequence = ''.join(seq_list)
@@ -725,7 +725,7 @@ if seq:
                 else:
                     st.code("After:   [random order]")
 
-                if st.button("🔄 Apply Multi-Swap", type="primary", use_container_width=True):
+                if st.button("🔄 Apply Multi-Swap", type="primary", width='stretch'):
                     seq_list = list(st.session_state.current_sequence)
 
                     if swap_mode == "Rotate (1→2→3→...→1)":
@@ -799,7 +799,7 @@ if seq:
                     except (ImportError, AttributeError, ValueError, Exception):
                         st.code(ligand['smiles'])
 
-                    if st.button(f"💊 Attach to {len(st.session_state.selected_positions)} residue(s)", type="primary", use_container_width=True):
+                    if st.button(f"💊 Attach to {len(st.session_state.selected_positions)} residue(s)", type="primary", width='stretch'):
                         for pos in st.session_state.selected_positions:
                             st.session_state.residue_ligands[pos] = ligand
 
@@ -831,7 +831,7 @@ if seq:
         with edit_tabs[3]:
             st.warning(f"⚠️ This will delete {len(st.session_state.selected_positions)} residue(s) from the sequence")
 
-            if st.button("🗑️ Delete Selected Residues", type="primary", use_container_width=True):
+            if st.button("🗑️ Delete Selected Residues", type="primary", width='stretch'):
                 seq_list = list(st.session_state.current_sequence)
 
                 # Delete from end to start to maintain indices
@@ -875,7 +875,7 @@ if seq:
             if len(seq) > 400:
                 st.warning(f"Sequence > 400 residues. Using local ESMFold (requires GPU).")
 
-            if st.button("🚀 Predict Structure", type="primary", use_container_width=True, disabled=st.session_state.esmfold_running):
+            if st.button("🚀 Predict Structure", type="primary", width='stretch', disabled=st.session_state.esmfold_running):
                 st.session_state.esmfold_running = True
 
                 with st.spinner("Running ESMFold..."):
@@ -915,7 +915,7 @@ if seq:
                     data=st.session_state.current_structure,
                     file_name=f"{st.session_state.sequence_name}_design.pdb",
                     mime="chemical/x-pdb",
-                    use_container_width=True
+                    width='stretch'
                 )
 
         with col_view:
@@ -1071,7 +1071,7 @@ if seq:
             cols = st.columns(3)
             for i, (name, smiles) in enumerate(common.items()):
                 with cols[i % 3]:
-                    if st.button(f"➕ {name}", key=f"add_common_{name}", use_container_width=True):
+                    if st.button(f"➕ {name}", key=f"add_common_{name}", width='stretch'):
                         st.session_state.ligands.append({'name': name, 'smiles': smiles, 'type': 'ligand'})
                         st.success(f"Added {name}")
                         st.rerun()
@@ -1089,7 +1089,7 @@ if seq:
             cols = st.columns(3)
             for i, (name, smiles) in enumerate(modified_aa.items()):
                 with cols[i % 3]:
-                    if st.button(f"➕ {name}", key=f"add_mod_{name}", use_container_width=True):
+                    if st.button(f"➕ {name}", key=f"add_mod_{name}", width='stretch'):
                         st.session_state.ligands.append({'name': name, 'smiles': smiles, 'type': 'modified_aa'})
                         st.success(f"Added {name}")
                         st.rerun()
@@ -1151,7 +1151,7 @@ if seq:
         with col_exp1:
             # FASTA
             fasta = f">{st.session_state.sequence_name}\n{seq}"
-            st.download_button("📥 FASTA", fasta, f"{st.session_state.sequence_name}.fasta", "text/plain", use_container_width=True)
+            st.download_button("📥 FASTA", fasta, f"{st.session_state.sequence_name}.fasta", "text/plain", width='stretch')
 
             # JSON with all data
             export_data = {
@@ -1162,15 +1162,15 @@ if seq:
                 'residue_ligands': {str(k): v for k, v in st.session_state.residue_ligands.items()},
                 'history': st.session_state.design_history,
             }
-            st.download_button("📥 JSON (Full)", json.dumps(export_data, indent=2), f"{st.session_state.sequence_name}.json", "application/json", use_container_width=True)
+            st.download_button("📥 JSON (Full)", json.dumps(export_data, indent=2), f"{st.session_state.sequence_name}.json", "application/json", width='stretch')
 
         with col_exp2:
             if st.session_state.current_structure:
-                st.download_button("📥 PDB", st.session_state.current_structure, f"{st.session_state.sequence_name}.pdb", "chemical/x-pdb", use_container_width=True)
+                st.download_button("📥 PDB", st.session_state.current_structure, f"{st.session_state.sequence_name}.pdb", "chemical/x-pdb", width='stretch')
 
             if st.session_state.ligands:
                 smi = "\n".join(f"{l['smiles']}\t{l['name']}" for l in st.session_state.ligands)
-                st.download_button("📥 Ligands (SMI)", smi, "ligands.smi", "text/plain", use_container_width=True)
+                st.download_button("📥 Ligands (SMI)", smi, "ligands.smi", "text/plain", width='stretch')
 
         # Send to predictor
         st.markdown("---")
@@ -1182,7 +1182,7 @@ if seq:
         if st.session_state.ligands and predictor in ["Chai-1", "Boltz-2"]:
             include_ligands = st.checkbox("Include ligands", value=True)
 
-        if st.button("🚀 Start Prediction", type="primary", use_container_width=True):
+        if st.button("🚀 Start Prediction", type="primary", width='stretch'):
             st.session_state.predict_sequence = seq
             st.session_state.predict_name = st.session_state.sequence_name
             st.session_state.predict_ligands = st.session_state.ligands if include_ligands else []
@@ -1263,7 +1263,7 @@ if seq:
                              "Cost/mg": f"${es.cost_per_mg_usd[0]:.0f}–${es.cost_per_mg_usd[1]:.0f}"}
                             for es in _des_wl_rep.expression_systems
                         ]
-                        st.dataframe(pd.DataFrame(_des_es_rows), use_container_width=True, hide_index=True)
+                        st.dataframe(pd.DataFrame(_des_es_rows), width='stretch', hide_index=True)
 
                 # Purification summary
                 st.markdown(
@@ -1308,6 +1308,6 @@ else:
     """, unsafe_allow_html=True)
 
     # Example sequence button - uses flag pattern to avoid widget key modification error
-    if st.button("Load Example Sequence", key="load_example_btn", type="primary", use_container_width=True):
+    if st.button("Load Example Sequence", key="load_example_btn", type="primary", width='stretch'):
         st.session_state.load_example_requested = True
         st.rerun()

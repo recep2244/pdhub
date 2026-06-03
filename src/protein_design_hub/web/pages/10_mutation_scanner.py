@@ -1017,7 +1017,7 @@ def _render_ds_insights(res, esm2_deltas) -> None:
             fig = px.bar(imp_df.head(10), x="|r|", y="feature", orientation="h",
                          color="r", color_continuous_scale="RdBu", range_color=[-1, 1])
             fig.update_layout(height=320, margin=dict(l=4, r=4, t=10, b=4), yaxis=dict(autorange="reversed"))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         else:
             st.caption("Not enough variation to rank features.")
     with c2:
@@ -1027,7 +1027,7 @@ def _render_ds_insights(res, esm2_deltas) -> None:
             import plotly.express as px
             figc = px.imshow(corr, color_continuous_scale="RdBu", zmin=-1, zmax=1, aspect="auto")
             figc.update_layout(height=320, margin=dict(l=4, r=4, t=10, b=4))
-            st.plotly_chart(figc, use_container_width=True)
+            st.plotly_chart(figc, width='stretch')
 
     # ── auto-generated narrative ──
     insights = []
@@ -1061,7 +1061,7 @@ def _render_ds_insights(res, esm2_deltas) -> None:
             st.markdown(f"- {s}")
 
     with st.expander("Per-mutation engineered features (table)"):
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width='stretch', hide_index=True)
     st.caption("Importance = |Pearson r| vs per-residue Δ pLDDT (no model fit; sklearn not installed). "
                "Engineered features are sequence-derived (Kyte-Doolittle hydrophobicity, MW-as-volume, "
                "formal charge, BLOSUM62).")
@@ -1488,7 +1488,7 @@ def _render_consensus(res, esm2_deltas) -> None:
             "OST lDDT": (round(r["lddt"], 3) if r["lddt"] is not None else None),
             "Consensus": "✅" if r["consensus"] else "—",
         } for r in rec["rows"][:10]]
-        st.dataframe(pd.DataFrame(tbl), use_container_width=True, hide_index=True,
+        st.dataframe(pd.DataFrame(tbl), width='stretch', hide_index=True,
                      column_config={"ESM-2 ΔLL": st.column_config.NumberColumn(format="%+.2f"),
                                     "FoldX ΔΔG": st.column_config.NumberColumn(format="%+.2f"),
                                     "OST lDDT": st.column_config.NumberColumn(format="%.3f")})
@@ -1824,7 +1824,7 @@ def render_heatmap(results):
         title=f"Mutation Stability ({y_title}) at {results.original_aa}{results.position}",
         yaxis_title=y_title, height=350
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 def run_baseline_comparison(
     sequence: str,
@@ -1935,7 +1935,7 @@ def _render_manual_tab_settings():
     if baseline_predictors != st.session_state.get("baseline_predictors"):
         st.session_state.baseline_predictors = baseline_predictors
 
-    if st.button("🧪 Run Baseline Comparison", use_container_width=True, disabled=not baseline_predictors):
+    if st.button("🧪 Run Baseline Comparison", width='stretch', disabled=not baseline_predictors):
         if not st.session_state.sequence:
             st.warning("Provide a sequence first.")
         elif "immunebuilder" in baseline_predictors and not (
@@ -1982,19 +1982,19 @@ def _render_manual_tab_settings():
         st.markdown("**Quick model switch (local Ollama):**")
         qs_cols = st.columns(3)
         with qs_cols[0]:
-            if st.button("qwen2.5:14b (fast)", key="qs_qwen", use_container_width=True):
+            if st.button("qwen2.5:14b (fast)", key="qs_qwen", width='stretch'):
                 st.session_state.mut_review_provider = "ollama"
                 st.session_state.mut_review_model = "qwen2.5:14b"
                 st.session_state.mut_review_custom_provider = ""
                 st.rerun()
         with qs_cols[1]:
-            if st.button("deepseek-r1:14b (reasoning)", key="qs_dsr1", use_container_width=True):
+            if st.button("deepseek-r1:14b (reasoning)", key="qs_dsr1", width='stretch'):
                 st.session_state.mut_review_provider = "ollama"
                 st.session_state.mut_review_model = "deepseek-r1:14b"
                 st.session_state.mut_review_custom_provider = ""
                 st.rerun()
         with qs_cols[2]:
-            if st.button("DeepSeek Cloud", key="qs_dscloud", use_container_width=True):
+            if st.button("DeepSeek Cloud", key="qs_dscloud", width='stretch'):
                 st.session_state.mut_review_provider = "deepseek"
                 st.session_state.mut_review_model = "deepseek-chat"
                 st.session_state.mut_review_custom_provider = ""
@@ -2116,7 +2116,7 @@ def _render_manual_tab_settings():
                     "Error": data.get("error", ""),
                 }
             )
-        st.dataframe(pd.DataFrame(baseline_rows), use_container_width=True)
+        st.dataframe(pd.DataFrame(baseline_rows), width='stretch')
 
         # Auto-insight on baseline comparison
         baseline_insight_data = {}
@@ -2185,7 +2185,7 @@ def _render_manual_tab_settings():
 
             run_eval_btn = st.button(
                 "📊 Evaluate Baseline Structure",
-                use_container_width=True,
+                width='stretch',
                 type="primary",
                 disabled=not successful_structures or not selected_baseline_metrics,
             )
@@ -2263,7 +2263,7 @@ def _render_manual_tab_settings():
                 if val is not None:
                     rows.append({"Metric": label, "Value": val})
             if rows:
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
             errors = (eval_result.get("metadata") or {}).get("errors", [])
             if errors:
                 with st.expander("Metric warnings/errors"):
@@ -2586,7 +2586,7 @@ with tab_manual:
 
     with info_col:
         st.markdown("##### Quick Load")
-        if st.button("📋 Ubiquitin (76 aa)", use_container_width=True, type="secondary"):
+        if st.button("📋 Ubiquitin (76 aa)", width='stretch', type="secondary"):
             ubi = "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"
             if ("immunebuilder" in baseline_predictors) or (selected_predictor == "immunebuilder"):
                 st.session_state.sequence_input_raw = f">A\n{ubi}\n>B\n{ubi}\n"
@@ -2603,7 +2603,7 @@ with tab_manual:
             st.session_state.baseline_evaluation_predictor = None
             st.rerun()
 
-        if st.button("📋 T1024 (52 aa)", use_container_width=True, type="secondary"):
+        if st.button("📋 T1024 (52 aa)", width='stretch', type="secondary"):
             t1024 = "MAAHKGAEHVVKASLDAGVKTVAGGLVVKAKALGGKDATMHLVAATLKKGYM"
             if ("immunebuilder" in baseline_predictors) or (selected_predictor == "immunebuilder"):
                 st.session_state.sequence_input_raw = f">A\n{t1024}\n>B\n{t1024}\n"
@@ -2720,14 +2720,14 @@ with tab_manual:
                 if plddt_per_res:
                     if st.session_state.mutation_predictor == "immunebuilder":
                         threshold = st.slider("High-error threshold (Å)", 0.0, 20.0, 5.0)
-                        if st.button("Auto-select high-error residues", use_container_width=True):
+                        if st.button("Auto-select high-error residues", width='stretch'):
                             st.session_state.selected_positions = {
                                 i + 1 for i, v in enumerate(plddt_per_res) if v > threshold
                             }
                             st.rerun()
                     else:
                         threshold = st.slider("Low-confidence threshold (pLDDT)", 40, 90, 70)
-                        if st.button("Auto-select low-confidence residues", use_container_width=True):
+                        if st.button("Auto-select low-confidence residues", width='stretch'):
                             st.session_state.selected_positions = {
                                 i + 1 for i, v in enumerate(plddt_per_res) if v < threshold
                             }
@@ -2748,17 +2748,17 @@ with tab_manual:
                         fig = create_plddt_plot(values, title=title)
                         for pos in st.session_state.selected_positions:
                             fig.add_vline(x=pos, line_dash="dash", line_color="#f59e0b", opacity=0.6)
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width='stretch')
                     except Exception as exc:
                         st.warning(f"Plotly pLDDT plot unavailable ({exc}). Showing fallback line chart.")
-                        st.line_chart(values, height=300, use_container_width=True)
+                        st.line_chart(values, height=300, width='stretch')
             with col_select:
                 st.markdown("**Manual selection**")
                 pos_text = st.text_input("Positions (e.g. 5,7-10)", value="")
-                if st.button("Add positions", use_container_width=True):
+                if st.button("Add positions", width='stretch'):
                     st.session_state.selected_positions |= parse_positions(pos_text, len(seq))
                     st.rerun()
-                if st.button("Clear selection", use_container_width=True):
+                if st.button("Clear selection", width='stretch'):
                     st.session_state.selected_positions = set()
                     st.rerun()
 
@@ -3110,7 +3110,7 @@ with tab_manual:
                     if st.button(
                         "⚡ Send to Predict Page",
                         type="primary",
-                        use_container_width=True,
+                        width='stretch',
                         key="mut_multi_send_predict",
                     ):
                         mut_seq = list(res.sequence)
@@ -3128,7 +3128,7 @@ with tab_manual:
 
                 with c2:
                     st.markdown("#### 🔬 Quick Compare")
-                    if st.button("Load Best Variant", use_container_width=True):
+                    if st.button("Load Best Variant", width='stretch'):
                         st.session_state.multi_comparison_variant = best
 
             if variants:
@@ -3162,7 +3162,7 @@ with tab_manual:
                                         Path(_vpath), height=260, title=v.mutation_code
                                     )
                         with col3:
-                            if st.button("Send to Predict", key=f"send_{v.mutation_code}", use_container_width=True, type="secondary"):
+                            if st.button("Send to Predict", key=f"send_{v.mutation_code}", width='stretch', type="secondary"):
                                 _ms = list(res.sequence)
                                 for _p, _aa in zip(res.positions, v.mutant_aas):
                                     _ms[_p - 1] = _aa
@@ -3235,7 +3235,7 @@ with tab_manual:
                         else:
                             data[-1][label] = f"{value:.3f}"
             _render_interpretation_legend(is_immunebuilder)
-            st.dataframe(pd.DataFrame(data), use_container_width=True)
+            st.dataframe(pd.DataFrame(data), width='stretch')
 
         with tab3:
             base_path = None
@@ -3479,7 +3479,7 @@ with tab_manual:
                     if st.button(
                         "⚡ Send to Predict Page",
                         type="primary",
-                        use_container_width=True,
+                        width='stretch',
                         key="mut_single_send_predict",
                     ):
                         # Create the full mutant sequence
@@ -3497,7 +3497,7 @@ with tab_manual:
                 with c2:
                     st.markdown("#### 🔬 Quick Compare")
                     st.write(f"Compare {target_variant.mutation_code} with Wild-Type")
-                    if st.button("Load into Structure Viewer", use_container_width=True):
+                    if st.button("Load into Structure Viewer", width='stretch'):
                         st.session_state.comparison_mutation = target_variant
 
             # List other top variants with inline structure viewers
@@ -3696,7 +3696,7 @@ with tab_manual:
                     site_label, help="Per-residue confidence at the mutated site (0–100)",
                     min_value=0, max_value=100, format="%.1f")
             st.dataframe(
-                pd.DataFrame(data), use_container_width=True, hide_index=True,
+                pd.DataFrame(data), width='stretch', hide_index=True,
                 column_config=_col_cfg,
             )
             if esm2_deltas is None:
