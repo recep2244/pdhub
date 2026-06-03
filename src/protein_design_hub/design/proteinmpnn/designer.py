@@ -60,6 +60,15 @@ class ProteinMPNNDesigner(BaseDesigner):
         ]
         if input_data.seed is not None:
             cmd += ["--seed", str(int(input_data.seed))]
+        # SolubleMPNN weights — bias toward soluble, well-expressing sequences
+        if getattr(input_data, "use_soluble_model", False):
+            cmd += ["--use_soluble_model"]
+        # Restrict which chains to (re)design, e.g. "A" or "A,B"
+        if getattr(input_data, "chains_to_design", None):
+            cmd += ["--pdb_path_chains", str(input_data.chains_to_design)]
+        # Globally exclude residue types, e.g. "C" to avoid free cysteines
+        if getattr(input_data, "omit_aa", None):
+            cmd += ["--omit_AAs", str(input_data.omit_aa)]
 
         try:
             result = subprocess.run(
