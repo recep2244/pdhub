@@ -1271,42 +1271,132 @@ def _scientific_critic_brief(pick) -> str:
     return " ".join(parts)
 
 
+def _why_it_wins(rec) -> tuple:
+    """Comparative reasoning: why the recommended mutant beats the field.
+
+    Returns (strengths[list], vs_runner[str]) — concrete, metric-grounded.
+    """
+    rows = rec["rows"]
+    pick = rec["consensus"] or rec["ds_top"]
+    site = getattr(pick["m"], "local_plddt", None)
+    strengths = []
+    if isinstance(pick["foldx_ddg"], (int, float)) and pick["foldx_ddg"] < -0.5:
+        strengths.append(f"stabilising (FoldX ΔΔG {pick['foldx_ddg']:+.1f} kcal/mol)")
+    if isinstance(pick["esm"], (int, float)) and pick["esm"] >= -2:
+        strengths.append(f"evolutionarily favoured (ESM-2 {pick['esm']:+.1f})")
+    if isinstance(pick["lddt"], (int, float)) and pick["lddt"] >= 0.9:
+        strengths.append(f"fold preserved (OST lDDT {pick['lddt']:.2f})")
+    if not pick.get("chips"):
+        strengths.append("no developability liabilities")
+    if isinstance(site, (int, float)) and site >= 70:
+        strengths.append(f"high site confidence (pLDDT {site:.0f})")
+    if not strengths:
+        strengths.append("best overall composite among the scanned variants")
+
+    vs_runner = ""
+    runner = next((r for r in rows if r["code"] != pick["code"]), None)
+    if runner:
+        diffs = []
+        pe, re_ = pick["esm"], runner["esm"]
+        if isinstance(pe, (int, float)) and isinstance(re_, (int, float)) and pe - re_ > 1:
+            diffs.append(f"more plausible (ESM-2 {pe:+.1f} vs {re_:+.1f})")
+        pf, rf = pick["foldx_ddg"], runner["foldx_ddg"]
+        if isinstance(pf, (int, float)) and isinstance(rf, (int, float)) and rf - pf > 0.5:
+            diffs.append(f"more stabilising (ΔΔG {pf:+.1f} vs {rf:+.1f})")
+        if not pick.get("chips") and runner.get("chips"):
+            diffs.append(f"liability-free vs {len(runner['chips'])} flag(s) on {_mut3(runner['code'])}")
+        if "High-risk" in runner["immuno_verdict"] or "🔴" in runner["bio_verdict"]:
+            diffs.append(f"{_mut3(runner['code'])} is itself flagged ({runner['immuno_verdict']} / {runner['bio_verdict']})")
+        if diffs:
+            vs_runner = f"Edge over the runner-up {_mut3(runner['code'])}: " + "; ".join(diffs[:3]) + "."
+    return strengths, vs_runner
+
+
 def _pi_decision(rec) -> dict:
-    """Principal Investigator synthesis → a clear decision + direction."""
+    """Principal Investigator synthesis — adds value beyond the panel: names the
+    *deciding factor*, the residual risk, the single most informative experiment,
+    and a calibrated confidence. Not an echo of the other experts.
+    """
     cons, ds_top = rec["consensus"], rec["ds_top"]
     pick = cons or ds_top
     code = _mut3(pick["code"])
+    strengths, vs_runner = _why_it_wins(rec)
+    site = getattr(pick["m"], "local_plddt", None)
     holds = [_mut3(r["code"]) for r in rec["rows"]
              if not r["consensus"] and ("High-risk" in r["immuno_verdict"] or "🔴" in r["bio_verdict"])][:3]
-    hold_txt = (f" **Hold/deprioritise:** {', '.join(holds)} (failed one or more expert checks)." if holds else "")
+
+    # Deciding factor: the single sharpest positive signal.
+    if isinstance(pick["foldx_ddg"], (int, float)) and pick["foldx_ddg"] < -0.5:
+        deciding = f"a genuinely stabilising FoldX ΔΔG ({pick['foldx_ddg']:+.1f} kcal/mol) — rare in the scan set"
+    elif isinstance(pick["esm"], (int, float)) and pick["esm"] >= 0:
+        deciding = f"strong evolutionary support (ESM-2 {pick['esm']:+.1f}) with a clean liability profile"
+    elif not pick.get("chips"):
+        deciding = "it is the highest-ranked candidate with zero developability liabilities"
+    else:
+        deciding = "the best balance of structural confidence and evolutionary plausibility in the set"
+
+    # Residual risk: the critic's top concern, else the weakest signal.
+    concerns = pick.get("crit_concerns", [])
+    if concerns:
+        risk = concerns[0]
+    elif isinstance(site, (int, float)) and site < 70:
+        risk = f"modest site confidence (pLDDT {site:.0f})"
+    elif pick["lddt"] is None:
+        risk = "no experimental/orthogonal fold confirmation yet"
+    else:
+        risk = "values are predicted, not measured"
+
+    # The single most informative next experiment, matched to the profile.
+    if isinstance(pick["foldx_ddg"], (int, float)) and pick["foldx_ddg"] < -0.5:
+        next_exp = "**nanoDSF/DSF** — confirm the predicted ΔTm gain vs WT (highest-information single assay here)"
+    elif any("aggregation" in (t.lower()) for t, _ in pick.get("chips", [])):
+        next_exp = "**SEC-HPLC + DLS** — the flagged aggregation risk is the gating uncertainty"
+    elif any("ptm" in t.lower() for t, _ in pick.get("chips", [])):
+        next_exp = "**peptide LC-MS/MS** — verify/quantify the introduced PTM liability"
+    elif isinstance(site, (int, float)) and site < 70:
+        next_exp = "**orthogonal structure prediction (ColabFold/Boltz-2)** — resolve the low-confidence site before wet lab"
+    else:
+        next_exp = "**express + nanoDSF + SEC** — establish foldedness, Tm and monodispersity vs WT"
+
+    # Calibrated confidence.
+    n_clear = sum([pick["immuno_ok"], pick["bio_ok"], pick["eng_ok"], pick["crit_ok"]])
+    has_energy = isinstance(pick["foldx_ddg"], (int, float)) or isinstance(pick["lddt"], (int, float))
+    if cons is not None and n_clear == 4 and has_energy:
+        confidence = "High"
+    elif n_clear >= 3:
+        confidence = "Medium"
+    else:
+        confidence = "Low"
+
+    hold_txt = (f" Deprioritise {', '.join(holds)}." if holds else "")
+
     if cons is not None:
-        n_green = sum([cons["immuno_ok"], cons["bio_ok"], cons["eng_ok"], cons["crit_ok"]])
         return {
-            "go": True,
-            "headline": f"✅ DECISION: ADVANCE **{code}** to experimental validation.",
-            "rationale": (
-                f"The panel reaches consensus on **{code}** — endorsed by all four reviewers "
-                f"(DS rank #{cons['ds_rank']}). It combines a stabilising/neutral ΔΔG, preserved fold, "
-                f"evolutionary plausibility and no developability liabilities. The scientific critic's only "
-                f"reservation is the standard predicted-vs-experimental caveat.{hold_txt}"),
+            "go": True, "recommend": code, "confidence": confidence,
+            "strengths": strengths, "vs_runner": vs_runner,
+            "headline": f"ADVANCE {code} to validation",
+            "synthesis": (
+                f"All four reviewers clear **{code}** (DS rank #{cons['ds_rank']}). "
+                f"As PI, the **deciding factor** is {deciding} — that is what separates it from the rest of the field. "
+                f"{vs_runner} The **main residual risk** is {risk}; everything else is predicted, not measured. "
+                f"**Single most informative next step:** {next_exp}.{hold_txt} **Confidence: {confidence}.**"),
             "next_steps": (
-                "**Next steps (PI):** 1) synthesise + express (E. coli/HEK293); "
-                "2) nanoDSF Tm + SEC purity vs WT; 3) SPR/BLI binding if functional; "
-                "4) developability panel (PSR/HIC/self-interaction) before lead nomination. "
-                "Re-predict with an orthogonal model (ColabFold/Boltz-2) as a quick self-consistency check first."),
+                "Validation ladder: (1) express (E. coli/HEK293) → (2) nanoDSF Tm + SEC purity vs WT → "
+                "(3) SPR/BLI binding if functional → (4) developability panel (PSR/HIC/self-interaction) before lead nomination."),
         }
     blockers = ", ".join([n for n, ok in (("immunology", ds_top["immuno_ok"]), ("biophysics", ds_top["bio_ok"]),
                                            ("engineering", ds_top["eng_ok"]), ("critique", ds_top["crit_ok"])) if not ok])
     return {
-        "go": False,
-        "headline": f"⚠️ DECISION: HOLD — no candidate clears all experts (top pick **{code}** flagged on {blockers}).",
-        "rationale": (
-            f"The data scientist's top pick **{code}** is vetoed on {blockers}. No mutant currently satisfies the "
-            f"full panel, so none should advance unchanged.{hold_txt}"),
+        "go": False, "recommend": code, "confidence": "Low",
+        "strengths": strengths, "vs_runner": vs_runner,
+        "headline": f"HOLD — no candidate clears the full panel",
+        "synthesis": (
+            f"The top-ranked **{code}** is vetoed on **{blockers}**. As PI I would not commit synthesis budget yet: "
+            f"the deciding weakness is {risk}.{hold_txt} The most useful next step is to {next_exp.split('—')[0].strip()} "
+            f"or pair the top structural hit with a compensating mutation to clear the failing check. **Confidence: Low.**"),
         "next_steps": (
-            "**Next steps (PI):** broaden the scan (more positions / conservative targets), or pair the top "
-            "structural hit with a compensating mutation to clear the failing check, then re-evaluate. "
-            "Do not commit synthesis budget until at least four experts clear a single candidate."),
+            "Broaden the scan (more positions / conservative targets) or design a compensating double mutant, "
+            "then re-run the panel. No wet-lab commitment until ≥4 experts clear one candidate."),
     }
 
 
@@ -1324,42 +1414,70 @@ def _render_consensus(res, esm2_deltas) -> None:
     pick = cons or ds_top
     m = pick["m"]
     pi = _pi_decision(rec)
+    imm = _assess_candidate(m, getattr(res, "sequence", ""), pick["esm"])
 
-    # ── 1) PI decision up front — the clear direction ──
-    st.markdown("## 🧪 Expert Panel Review")
-    (st.success if pi["go"] else st.warning)(pi["headline"])
-    st.markdown(pi["rationale"])
+    # ── 1) Decision card — clear direction, professional ──
+    accent = "#10b981" if pi["go"] else "#f59e0b"
+    badge = "GO" if pi["go"] else "HOLD"
+    conf_color = {"High": "#10b981", "Medium": "#eab308", "Low": "#ef4444"}.get(pi["confidence"], "#94a3b8")
+    why = " · ".join(pi["strengths"][:3])
+    st.markdown(
+        f"""
+        <div style="border:1px solid {accent}55; border-left:5px solid {accent}; border-radius:10px;
+                    padding:14px 18px; margin:6px 0 14px 0; background:{accent}10;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div style="font-size:13px; letter-spacing:.5px; color:{accent}; font-weight:700;">
+              EXPERT PANEL DECISION · <span style="color:{conf_color};">confidence {pi['confidence']}</span></div>
+            <div style="background:{accent}; color:#0b1220; font-weight:800; padding:2px 12px; border-radius:12px;">{badge}</div>
+          </div>
+          <h2 style="margin:6px 0 2px 0;">{pi['headline']}</h2>
+          <div style="opacity:.85; font-size:14px;">Why it wins: {why}.</div>
+        </div>
+        """, unsafe_allow_html=True)
 
     # ── 2) recommended mutant — key metrics, compact ──
-    st.markdown(f"**Recommended candidate: `{_mut3(pick['code'])}`** — key metrics:")
     c = st.columns(5)
     c[0].metric("Site pLDDT", _fmtv(getattr(m, "local_plddt", None), "{:.1f}"),
                 _fmtv(getattr(m, "delta_local_plddt", None), "{:+.2f}"))
     c[1].metric("ESM-2 ΔLL", _fmtv(pick["esm"], "{:+.2f}"))
     c[2].metric("FoldX ΔΔG", _fmtv(pick["foldx_ddg"], "{:+.2f}"))
     c[3].metric("OST lDDT", _fmtv(pick["lddt"], "{:.3f}"))
-    c[4].metric("Liabilities", _assess_candidate(m, getattr(res, "sequence", ""), pick["esm"])["liabilities"])
+    c[4].metric("Liabilities", imm["liabilities"])
 
-    # ── 3) deep panel discussion — one reasoned assessment per expert ──
-    st.markdown("### 🗣️ Panel discussion")
-    imm = _assess_candidate(m, getattr(res, "sequence", ""), pick["esm"])
-    briefs = [
-        ("🔢", "Data Scientist", pick["ds_rank"], _data_scientist_brief(pick, rec)),
-        ("🔬", "Biophysicist", pick["bio_verdict"], _biophysicist_brief(pick)),
-        ("🛠️", "Protein Engineer", pick["eng_verdict"], _protein_engineer_brief(pick)),
-        ("🧬", "Immunologist", pick["immuno_verdict"],
-         _immunologist_brief(m, res, pick["esm"], imm)),
-        ("🧐", "Scientific Critic", pick["crit_verdict"], _scientific_critic_brief(pick)),
-    ]
-    for emoji, name, tag, brief in briefs:
-        with st.expander(f"{emoji} **{name}** — {tag}", expanded=(name in ("Biophysicist", "Protein Engineer"))):
-            st.markdown(brief)
-
-    # ── 4) PI summary + next steps ──
-    st.markdown("### 🎓 PI summary & decision")
+    # ── 3) PI synthesis — the value-add (deciding factor, risk, next step) ──
+    st.markdown("#### 🎓 Principal Investigator — synthesis & decision")
+    st.info(pi["synthesis"])
     st.markdown(pi["next_steps"])
 
-    # ── 5) per-candidate trade-off table (all 5 experts) ──
+    # ── 4) expert panel — compact, one sharp verdict each ──
+    st.markdown("#### 🧪 Panel verdicts")
+    pv = st.columns(5)
+    for col, (emoji, name, verdict) in zip(pv, [
+        ("🔢", "Data Scientist", f"rank #{pick['ds_rank']}/{len(rec['rows'])}"),
+        ("🔬", "Biophysicist", pick["bio_verdict"]),
+        ("🛠️", "Protein Engineer", pick["eng_verdict"]),
+        ("🧬", "Immunologist", pick["immuno_verdict"]),
+        ("🧐", "Scientific Critic", pick["crit_verdict"]),
+    ]):
+        col.markdown(f"<div style='text-align:center;font-size:22px;'>{emoji}</div>"
+                     f"<div style='text-align:center;font-size:12px;opacity:.7;'>{name}</div>"
+                     f"<div style='text-align:center;font-weight:600;font-size:13px;'>{verdict}</div>",
+                     unsafe_allow_html=True)
+
+    # ── 5) full reasoned discussion (collapsed — clean by default) ──
+    with st.expander("🗣️ Full panel discussion (per-expert reasoning)", expanded=False):
+        for emoji, name, brief in [
+            ("🔢", "Data Scientist", _data_scientist_brief(pick, rec)),
+            ("🔬", "Biophysicist", _biophysicist_brief(pick)),
+            ("🛠️", "Protein Engineer", _protein_engineer_brief(pick)),
+            ("🧬", "Immunologist", _immunologist_brief(m, res, pick["esm"], imm)),
+            ("🧐", "Scientific Critic", _scientific_critic_brief(pick)),
+        ]:
+            st.markdown(f"**{emoji} {name}**")
+            st.markdown(brief)
+            st.markdown("")
+
+    # ── 6) per-candidate trade-off table (all 5 experts) ──
     with st.expander("📊 Per-candidate expert comparison table", expanded=False):
         tbl = [{
             "Mutation": _mut3(r["code"]), "DS#": r["ds_rank"], "Composite": round(r["ds"], 2),
