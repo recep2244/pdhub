@@ -2371,4 +2371,10 @@ def cross_page_actions(actions: List[Dict[str, str]]) -> None:
                 key=f'xpage_{act["label"]}_{i}',
                 width='stretch',
             ):
-                st.switch_page(act["page"])
+                # defensive: tolerate legacy "pages/..." and bare "app.py" targets
+                target = act["page"]
+                if target.startswith("pages/"):
+                    target = "app_pages/" + target[len("pages/"):]
+                elif target in ("app.py", "app_pages/app.py"):
+                    target = "app_pages/home.py"
+                st.switch_page(target)

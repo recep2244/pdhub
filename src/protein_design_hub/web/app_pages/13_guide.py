@@ -187,33 +187,33 @@ You can start at any step and skip steps you don't need.
 """)
 
 steps = [
-    ("Step 1", "🔮 Predict", "pages/1_predict.py",
+    ("Step 1", "🔮 Predict", "app_pages/1_predict.py",
      "Input an amino-acid sequence → choose a predictor → get a 3D structure (PDB) with per-residue confidence (pLDDT).",
      ["Paste a sequence or upload a FASTA file.",
       "Select a predictor: ESMFold (fast, API-based), ColabFold (most accurate), Chai-1 (multi-chain), Boltz-2 (cofactors).",
       "Click Predict. Results appear in the viewer and are saved to outputs/.",
       "The structure is automatically shared with other pages via session state."]),
-    ("Step 2", "📊 Evaluate", "pages/2_evaluate.py",
+    ("Step 2", "📊 Evaluate", "app_pages/2_evaluate.py",
      "Load a PDB → compute biophysical quality metrics → identify problem regions.",
      ["Upload a PDB or use the last predicted structure.",
       "Click Evaluate. Metrics computed: pLDDT mean, TM-score vs reference, RMSD, clash score, SASA, VoroMQA, Ramachandran.",
       "Optional: PTM Liability scanner, Tm prediction, OpenMM GBSA energy.",
       "Export a full PDF report."]),
-    ("Step 3", "🧬 Mutagenesis", "pages/10_mutation_scanner.py",
+    ("Step 3", "🧬 Mutagenesis", "app_pages/10_mutation_scanner.py",
      "Select positions → scan all 19 amino acid substitutions → rank by structural impact.",
      ["Load a sequence (or use the predicted one).",
       "Click 'Run Plant Biology Analysis' if working with plant proteins.",
       "Select 2–5 positions to scan (more = slower).",
       "Run Phase 1: LLM suggests positions. Run Phase 2: ESMFold predicts each variant.",
       "The ranked table shows delta pLDDT, RMSD, and NLR impact flags (🔴/🟡/🟢)."]),
-    ("Step 4", "🎯 Design (MPNN)", "pages/8_mpnn.py",
+    ("Step 4", "🎯 Design (MPNN)", "app_pages/8_mpnn.py",
      "Upload a backbone structure → ProteinMPNN generates new sequences that fold into it.",
      ["Upload a PDB backbone (use the predicted structure from Step 1).",
       "Set temperature (0.1 = conservative, 0.3 = balanced, 0.5+ = diverse).",
       "Optionally fix key positions, add sequence constraints, or enable wheat codon optimization.",
       "Run MPNN → get 8–32 designed sequences with pI/GRAVY/instability metrics.",
       "Send top sequence → Predict page to validate the design."]),
-    ("Step 5", "⚖️ Compare / Refine", "pages/3_compare.py",
+    ("Step 5", "⚖️ Compare / Refine", "app_pages/3_compare.py",
      "Run the same sequence through multiple predictors → compare confidence and structural agreement.",
      ["Paste sequence → select 2+ predictors.",
       "Compare pLDDT, TM-score (inter-predictor), clash scores side-by-side.",
@@ -454,45 +454,45 @@ st.markdown("<br>", unsafe_allow_html=True)
 section_header("4. All Pages — Quick Reference", icon="📋")
 
 pages_ref = [
-    ("🏠 Home", "app.py", "Dashboard with quick stats, workflow shortcuts, and recent activity."),
-    ("🔮 Predict", "pages/1_predict.py",
+    ("🏠 Home", "app_pages/home.py", "Dashboard with quick stats, workflow shortcuts, and recent activity."),
+    ("🔮 Predict", "app_pages/1_predict.py",
      "Structure prediction. Supports ESMFold (API), ColabFold, Chai-1, Boltz-2, ESM3, ImmuneBuild. "
      "Input: sequence. Output: PDB + pLDDT per residue + 3D viewer."),
-    ("📊 Evaluate", "pages/2_evaluate.py",
+    ("📊 Evaluate", "app_pages/2_evaluate.py",
      "Structure quality analysis. Metrics: pLDDT, TM-score, RMSD, VoroMQA, QS-score, clash, SASA, "
      "Ramachandran. Optional: PTM liability, Tm prediction, GBSA energy. Export PDF report."),
-    ("⚖️ Compare", "pages/3_compare.py",
+    ("⚖️ Compare", "app_pages/3_compare.py",
      "Side-by-side predictor benchmarking. Same sequence → multiple predictors → metric comparison table + 3D overlays."),
-    ("📈 Evolution", "pages/4_evolution.py",
+    ("📈 Evolution", "app_pages/4_evolution.py",
      "Directed evolution. GA with 4 fitness functions (stability, solubility, pLDDT, recovery). "
      "Combinatorial library design. Biophysical pre-filter. Wet-lab readiness per variant."),
-    ("📦 Batch", "pages/5_batch.py",
+    ("📦 Batch", "app_pages/5_batch.py",
      "Multi-sequence processing. FASTA upload → parallel prediction + biophysics → ranked table + Wet-Lab Go/No-Go."),
-    ("⚙️ Settings", "pages/6_settings.py",
+    ("⚙️ Settings", "app_pages/6_settings.py",
      "Configure predictors, LLM backend (Ollama/Groq/OpenAI/DeepSeek/etc.), output directory, "
      "Ollama GPU settings, and API keys. Run system diagnostics."),
-    ("🧬 MSA", "pages/7_msa.py",
+    ("🧬 MSA", "app_pages/7_msa.py",
      "Multiple sequence alignment analysis. Upload FASTA or paste aligned sequences. "
      "Conservation plot, entropy heatmap, consensus sequence."),
-    ("🎯 MPNN Lab", "pages/8_mpnn.py",
+    ("🎯 MPNN Lab", "app_pages/8_mpnn.py",
      "ProteinMPNN inverse folding. Upload PDB backbone → design N sequences. "
      "Temperature control, fixed positions, sequence constraints. "
      "Wheat codon optimization output. Send to Predict for validation."),
-    ("📁 Jobs", "pages/9_jobs.py",
+    ("📁 Jobs", "app_pages/9_jobs.py",
      "Browse previous job directories. Reload and re-inspect past predictions and analyses. Filter by date/type."),
-    ("🧬 Mutagenesis", "pages/10_mutation_scanner.py",
+    ("🧬 Mutagenesis", "app_pages/10_mutation_scanner.py",
      "Saturation mutagenesis. Phase 1: LLM baseline analysis + position suggestions. "
      "Phase 2: ESMFold saturation scan. Ranked by delta pLDDT + RMSD. NLR-aware flags. "
      "Plant Biology panel: transit peptide + NLR domains + wheat codon optimization. PDF export."),
-    ("🤖 Agents", "pages/11_agents.py",
+    ("🤖 Agents", "app_pages/11_agents.py",
      "LLM-guided full pipeline. 10 specialist personas (PI, Critic, Structural Biologist, Immunologist, "
      "Plant Biologist, Wet Lab Researcher, etc.). Team presets: default, design, nanobody, "
      "antibody, plant_biology, full_pipeline. Per-call timing + GPU usage display."),
-    ("🧫 Antibody", "pages/12_antibody.py",
+    ("🧫 Antibody", "app_pages/12_antibody.py",
      "Antibody Engineering Workbench. CDR annotation (Chothia/IMGT/Kabat), chain-type detection, "
      "immunogenicity heatmap, developability metrics, Fc engineering guide, "
      "germline assignment, H3 kink detection, wet-lab plan."),
-    ("📖 Guide", "pages/13_guide.py",
+    ("📖 Guide", "app_pages/13_guide.py",
      "This page. Complete onboarding guide, use-case tracks, page reference, troubleshooting."),
 ]
 

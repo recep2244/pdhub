@@ -1150,10 +1150,10 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                 st.markdown("---")
                 section_header("Next Steps", "Continue your analysis workflow", "➡️")
                 cross_page_actions([
-                    {"label": "Evaluate Structure", "page": "pages/2_evaluate.py", "icon": "📊"},
-                    {"label": "Compare Predictors", "page": "pages/3_compare.py", "icon": "⚖️"},
-                    {"label": "Scan Mutations", "page": "pages/10_mutation_scanner.py", "icon": "🧬"},
-                    {"label": "MPNN Design", "page": "pages/8_mpnn.py", "icon": "🎯"},
+                    {"label": "Evaluate Structure", "page": "app_pages/2_evaluate.py", "icon": "📊"},
+                    {"label": "Compare Predictors", "page": "app_pages/3_compare.py", "icon": "⚖️"},
+                    {"label": "Scan Mutations", "page": "app_pages/10_mutation_scanner.py", "icon": "🧬"},
+                    {"label": "MPNN Design", "page": "app_pages/8_mpnn.py", "icon": "🎯"},
                 ])
 
         with tab_download:

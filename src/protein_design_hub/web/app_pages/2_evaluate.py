@@ -1245,9 +1245,9 @@ if run_quick:
             st.markdown("---")
             section_header("Next Steps", "Continue your workflow", "➡️")
             cross_page_actions([
-                {"label": "Compare Predictors", "page": "pages/3_compare.py", "icon": "⚖️"},
-                {"label": "Scan Mutations", "page": "pages/10_mutation_scanner.py", "icon": "🧬"},
-                {"label": "MPNN Design", "page": "pages/8_mpnn.py", "icon": "🎯"},
+                {"label": "Compare Predictors", "page": "app_pages/3_compare.py", "icon": "⚖️"},
+                {"label": "Scan Mutations", "page": "app_pages/10_mutation_scanner.py", "icon": "🧬"},
+                {"label": "MPNN Design", "page": "app_pages/8_mpnn.py", "icon": "🎯"},
             ])
 
         except Exception as e:
@@ -1291,7 +1291,7 @@ if run_comprehensive:
 
                 evaluator = CompositeEvaluator(settings=settings)
 
-                if eval_mode == "Comprehensive (All Levels)":
+                if eval_mode.startswith("Comprehensive"):
                     # Use comprehensive evaluation
                     results = evaluator.evaluate_comprehensive(model_path, reference_path)
                 else:
@@ -1920,9 +1920,9 @@ if run_comprehensive:
             st.markdown("---")
             section_header("Next Steps", "Continue your workflow", "➡️")
             cross_page_actions([
-                {"label": "Compare Predictors", "page": "pages/3_compare.py", "icon": "⚖️"},
-                {"label": "Scan Mutations", "page": "pages/10_mutation_scanner.py", "icon": "🧬"},
-                {"label": "MPNN Design", "page": "pages/8_mpnn.py", "icon": "🎯"},
+                {"label": "Compare Predictors", "page": "app_pages/3_compare.py", "icon": "⚖️"},
+                {"label": "Scan Mutations", "page": "app_pages/10_mutation_scanner.py", "icon": "🧬"},
+                {"label": "MPNN Design", "page": "app_pages/8_mpnn.py", "icon": "🎯"},
             ])
 
         except Exception as e:

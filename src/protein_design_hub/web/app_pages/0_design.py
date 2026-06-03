@@ -890,9 +890,17 @@ if seq:
                             )
 
                             if response.status_code == 200:
-                                st.session_state.current_structure = response.text
-                                # Simple mock pLDDT
-                                st.session_state.plddt_scores = [90] * len(seq)
+                                pdb_text = response.text
+                                st.session_state.current_structure = pdb_text
+                                # Real per-residue pLDDT from the ESMFold PDB B-factor column
+                                _plddt = []
+                                for _ln in pdb_text.splitlines():
+                                    if _ln.startswith(("ATOM", "HETATM")) and _ln[12:16].strip() == "CA":
+                                        try:
+                                            _plddt.append(float(_ln[60:66]))
+                                        except ValueError:
+                                            pass
+                                st.session_state.plddt_scores = _plddt
                                 st.success("Structure folded successfully!")
                             else:
                                 st.error(f"API Error: {response.status_code}")
@@ -907,7 +915,13 @@ if seq:
 
             if st.session_state.current_structure:
                 st.markdown("#### Metrics")
-                metric_card("90.5", "Mean pLDDT", "success", "🌟")
+                _pl = st.session_state.get("plddt_scores") or []
+                _mean = (sum(_pl) / len(_pl)) if _pl else None
+                metric_card(
+                    f"{_mean:.1f}" if _mean is not None else "N/A", "Mean pLDDT",
+                    "success" if (_mean or 0) >= 70 else "warning" if _mean is not None else "default",
+                    "🌟",
+                )
                 
                 st.download_button(
                     "📥 Download PDB",
@@ -1182,10 +1196,13 @@ if seq:
             include_ligands = st.checkbox("Include ligands", value=True)
 
         if st.button("🚀 Start Prediction", type="primary", width='stretch'):
-            st.session_state.predict_sequence = seq
-            st.session_state.predict_name = st.session_state.sequence_name
-            st.session_state.predict_ligands = st.session_state.ligands if include_ligands else []
-            st.info(f"Go to the Predict page to run {predictor}")
+            st.session_state['incoming_prediction_job'] = {
+                'sequence': seq,
+                'name': st.session_state.sequence_name,
+                'source': 'design',
+                'description': f"From Sequence Editor (intended predictor: {predictor})",
+            }
+            st.switch_page("app_pages/1_predict.py")
 
     # === WET-LAB ADVISOR TAB ===
     with main_tabs[4]:
@@ -1283,9 +1300,9 @@ if seq:
             "name": st.session_state.sequence_name or "Unnamed",
         })
     cross_page_actions([
-            {"label": "Predict Structure", "page": "pages/1_predict.py", "icon": "🔮"},
-            {"label": "Run Evolution", "page": "pages/4_evolution.py", "icon": "🧬"},
-            {"label": "MSA Analysis", "page": "pages/7_msa.py", "icon": "🌿"},
+            {"label": "Predict Structure", "page": "app_pages/1_predict.py", "icon": "🔮"},
+            {"label": "Run Evolution", "page": "app_pages/4_evolution.py", "icon": "🧬"},
+            {"label": "MSA Analysis", "page": "app_pages/7_msa.py", "icon": "🌿"},
     ])
 
 else:

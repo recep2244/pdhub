@@ -120,9 +120,14 @@ with tab_nlr:
 # ── Codon optimisation ───────────────────────────────────────────────────────
 with tab_codon:
     section_header("Host Codon Optimisation", "Back-translate & optimise for expression host", "🧬")
-    host = st.selectbox("Expression host", ["wheat", "rice", "maize", "tobacco"], index=0,
-                        help="N. benthamiana ≈ tobacco; wheat for cereal in-planta expression")
-    res = co.optimize_for_wheat(seq, species=host) if host == "wheat" else co.optimize_for_wheat(seq, species=host)
+    host = st.selectbox("Expression host", ["wheat", "rice", "maize"], index=0,
+                        help="Codon usage tables available for wheat, rice and maize "
+                             "(N. benthamiana table not yet bundled).")
+    try:
+        res = co.optimize_for_wheat(seq, species=host)
+    except Exception as exc:
+        info_box(f"Codon optimisation failed for host '{host}': {exc}", variant="error")
+        st.stop()
     k1, k2, k3 = st.columns(3)
     with k1:
         metric_card(f"{res.cai:.2f}", f"CAI ({host})",

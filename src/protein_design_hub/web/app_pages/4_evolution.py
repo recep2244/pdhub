@@ -156,9 +156,10 @@ with main_tabs[0]:
     col_input, col_info = st.columns([2, 1])
 
     with col_input:
-        # Check if sequence came from design page
-        if 'predict_sequence' in st.session_state and st.session_state.predict_sequence:
+        # Seed ONCE from an incoming sequence (handoff); don't clobber edits on every rerun
+        if st.session_state.get('predict_sequence') and not st.session_state.get('_evo_seeded'):
             st.session_state.evolution_sequence = st.session_state.predict_sequence
+            st.session_state._evo_seeded = True
 
         seq_input = st.text_area(
             "Starting sequence",
@@ -371,9 +372,9 @@ with main_tabs[1]:
                             part = part.strip()
                             if "-" in part:
                                 start, end = map(int, part.split("-"))
-                                fixed_pos_set.update(range(start - 1, end))
+                                fixed_pos_set.update(range(start, end + 1))  # 1-indexed (engine uses i+1)
                             else:
-                                fixed_pos_set.add(int(part) - 1)
+                                fixed_pos_set.add(int(part))                  # 1-indexed
 
                     # Create config — all kwargs now exist on EvolutionConfig
                     config = EvolutionConfig(

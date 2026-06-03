@@ -106,10 +106,10 @@ st.markdown("<br>", unsafe_allow_html=True)
 section_header("Start by goal", "Pick what you're trying to achieve — each Track guides you end-to-end", "🚀")
 
 _tracks = [
-    ("🔗", "Design a binder", "De novo binder to a target surface", "pages/14_binder.py"),
-    ("🧫", "Engineer an antibody", "CDR annotation, developability, humanness", "pages/12_antibody.py"),
-    ("🌾", "Engineer a plant protein", "Targeting, NLR architecture, codon optimisation", "pages/15_plant.py"),
-    ("🧬", "Optimise a variant", "Mutagenesis ranked by ΔΔG + ESM-2 + conservation", "pages/10_mutation_scanner.py"),
+    ("🔗", "Design a binder", "De novo binder to a target surface", "app_pages/14_binder.py"),
+    ("🧫", "Engineer an antibody", "CDR annotation, developability, humanness", "app_pages/12_antibody.py"),
+    ("🌾", "Engineer a plant protein", "Targeting, NLR architecture, codon optimisation", "app_pages/15_plant.py"),
+    ("🧬", "Optimise a variant", "Mutagenesis ranked by ΔΔG + ESM-2 + conservation", "app_pages/10_mutation_scanner.py"),
 ]
 _lc = st.columns(4)
 for _col, (_ic, _t, _d, _pg) in zip(_lc, _tracks):

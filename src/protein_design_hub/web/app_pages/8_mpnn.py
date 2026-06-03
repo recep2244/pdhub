@@ -561,8 +561,12 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", width='stretch'):
                     st.markdown("**Validation**")
                     if st.button("🔮 Fold Top Sequence (ESMFold)", width='stretch'):
                         if result.sequences:
-                            st.session_state.predict_sequence = result.sequences[0].sequence
-                            st.session_state.predict_name = f"{result.sequences[0].id}_check"
+                            st.session_state['incoming_prediction_job'] = {
+                                'sequence': result.sequences[0].sequence,
+                                'name': f"{result.sequences[0].id}_check",
+                                'source': 'mpnn',
+                                'description': 'Top ProteinMPNN design — fold to validate',
+                            }
                             st.switch_page("app_pages/1_predict.py")
                         else:
                             st.warning("No sequences available to fold.")
@@ -731,8 +735,12 @@ if _mpnn_prev and _mpnn_prev.success and _mpnn_prev.sequences:
         if _prev_rows:
             st.dataframe(pd.DataFrame(_prev_rows), width='stretch', hide_index=True)
         if st.button("Send top sequence → Predict page", key="mpnn_prev_predict", type="secondary"):
-            st.session_state.predict_sequence = _mpnn_prev.sequences[0].sequence
-            st.session_state.predict_name = f"{_mpnn_prev.sequences[0].id}_check"
+            st.session_state['incoming_prediction_job'] = {
+                'sequence': _mpnn_prev.sequences[0].sequence,
+                'name': f"{_mpnn_prev.sequences[0].id}_check",
+                'source': 'mpnn',
+                'description': 'Top ProteinMPNN design — fold to validate',
+            }
             st.switch_page("app_pages/1_predict.py")
 
         # ── Wheat Codon Optimization ──────────────────────────────────────
@@ -744,6 +752,7 @@ if _mpnn_prev and _mpnn_prev.success and _mpnn_prev.sequences:
             )
             if st.button("Optimize all sequences for expression", key="mpnn_codon_btn"):
                 try:
+                    import pandas as pd
                     from protein_design_hub.analysis.codon_optimization import optimize_for_wheat
                     _opt_fastas = []
                     _opt_rows = []
@@ -754,8 +763,7 @@ if _mpnn_prev and _mpnn_prev.success and _mpnn_prev.sequences:
                             gene_name=_seq_obj.id,
                         )
                         _opt_fastas.append(_res.fasta)
-                        import pandas as pd
-                    _opt_rows.append({
+                        _opt_rows.append({
                             "ID": _seq_obj.id,
                             "CAI": f"{_res.cai:.3f}",
                             "GC%": f"{_res.gc_content*100:.1f}",

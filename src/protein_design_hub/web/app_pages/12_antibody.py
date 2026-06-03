@@ -424,7 +424,7 @@ with tab_cdr:
             f"| Confidence: **{ann.chain_confidence:.1%}** "
             f"| {germline_text} "
             f"| Humanness: **{ann.humanness_score:.1f}%**",
-            kind="info",
+            variant="info",
         )
 
         # ── Numbering scheme selector ────────────────────────────────────────
@@ -828,7 +828,7 @@ with tab_dev:
                 icon="⚖️",
             )
     else:
-        info_box("Sequence metrics could not be computed (BioPython required).", kind="warning")
+        info_box("Sequence metrics could not be computed (BioPython required).", variant="warning")
 
     # ── Therapeutic antibody criteria checklist ───────────────────────────────
     section_header("Therapeutic Antibody Criteria", icon="✅")
@@ -966,7 +966,7 @@ with tab_fc:
         info_box(
             "Variable domain only — Fc engineering not applicable. "
             f"(Sequence is {seq_len} residues; full IgG typically >600 residues.)",
-            kind="info",
+            variant="info",
         )
     else:
         st.warning(
@@ -1106,7 +1106,7 @@ with tab_wl:
             _ab_wl_report = None
 
     if _ab_wl_report is None:
-        info_box("Click **Generate Wet-Lab Plan** to run the analysis.", kind="info")
+        info_box("Click **Generate Wet-Lab Plan** to run the analysis.", variant="info")
     else:
         _verd_col = {"GO": "#22c55e", "CONDITIONAL": "#f59e0b", "NO-GO": "#ef4444"}
         _verd_icon = {"GO": "✅", "CONDITIONAL": "⚠️", "NO-GO": "❌"}
@@ -1313,9 +1313,9 @@ elif stored is not None:
 
 cross_page_actions(
     [
-        {"label": "Scan Mutations", "page": "pages/10_mutation_scanner.py", "icon": "🧬"},
-        {"label": "Predict Structure", "page": "pages/1_predict.py", "icon": "🔮"},
-        {"label": "Evaluate Structure", "page": "pages/2_evaluate.py", "icon": "📊"},
-        {"label": "Scan PTMs", "page": "pages/2_evaluate.py", "icon": "⚗️"},
+        {"label": "Scan Mutations", "page": "app_pages/10_mutation_scanner.py", "icon": "🧬"},
+        {"label": "Predict Structure", "page": "app_pages/1_predict.py", "icon": "🔮"},
+        {"label": "Evaluate Structure", "page": "app_pages/2_evaluate.py", "icon": "📊"},
+        {"label": "Scan PTMs", "page": "app_pages/2_evaluate.py", "icon": "⚗️"},
     ]
 )
