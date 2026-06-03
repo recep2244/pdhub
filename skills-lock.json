@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "bioinformatics-fundamentals": {
+      "source": "delphine-l/claude_global",
+      "sourceType": "github",
+      "skillPath": "skills/bioinformatics/fundamentals/SKILL.md",
+      "computedHash": "47ed2052af34f64add49ff7e00bbaeac7c35e4bb9e0fb1fe0d22fe16b9b920fa"
+    },
     "developing-with-streamlit": {
       "source": "streamlit/agent-skills",
       "sourceType": "github",
@@ -12,6 +18,24 @@
       "sourceType": "github",
       "skillPath": "skills/find-skills/SKILL.md",
       "computedHash": "9e1c8b3103f92fa8092568a44fe64858de7c5c9dc65ce4bea8f168080e889cfd"
+    },
+    "mdanalysis": {
+      "source": "tondevrel/scientific-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/mdanalysis/SKILL.md",
+      "computedHash": "4068df9e0eb5467d92f8fef7b8c8a9960f3b26df4baec4df4a48c680b78e472c"
+    },
+    "molecular-dynamics": {
+      "source": "eturkes/claude-scientific-skills",
+      "sourceType": "github",
+      "skillPath": "skills/molecular-dynamics/SKILL.md",
+      "computedHash": "bce6dc09cdb093a5da312fe2cf3970c96ba1bb7fdf56f36f71f52226e0327322"
+    },
+    "nextflow-development": {
+      "source": "anthropics/life-sciences",
+      "sourceType": "github",
+      "skillPath": "nextflow-development/SKILL.md",
+      "computedHash": "19168e49c3bb87e6320e528dccdf21e9719ab8c9fc88a6e26c5b212aae2ad8d6"
     },
     "protein-sequence-msa": {
       "source": "google-deepmind/science-skills",
@@ -30,6 +54,12 @@
       "sourceType": "github",
       "skillPath": "skills/tooluniverse-protein-therapeutic-design/SKILL.md",
       "computedHash": "22cdb7fccd98b3c8a70527e8c6fb22e15d7cf75c3f35e99aade8b9a2efdf6a29"
+    },
+    "tooluniverse-vaccine-design": {
+      "source": "mims-harvard/tooluniverse",
+      "sourceType": "github",
+      "skillPath": "skills/tooluniverse-vaccine-design/SKILL.md",
+      "computedHash": "39db1466a91999869d70de7646f6e02bac10a3ad2788c645fb30128649e9055a"
     }
   }
 }

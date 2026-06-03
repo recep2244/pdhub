@@ -83,3 +83,13 @@ def test_conservation_profile_from_alignment():
     assert prof is not None and len(prof) == 4
     assert all(p > 0.9 for p in prof)
     assert conservation_profile(["not-a-real-thing"]) is not None or True  # graceful
+
+
+def test_self_consistency_verdict_and_thresholds():
+    from protein_design_hub.evaluation.self_consistency import verdict, SC_TM_PASS, SC_RMSD_PASS
+    assert SC_TM_PASS == 0.5 and SC_RMSD_PASS == 2.0
+    ok = verdict({"status": "SUCCESS", "sc_tm": 0.9, "sc_rmsd": 1.0, "passed": True})
+    bad = verdict({"status": "SUCCESS", "sc_tm": 0.3, "sc_rmsd": 5.0, "passed": False})
+    assert "self-consistent" in ok and "🟢" in ok
+    assert "NOT self-consistent" in bad
+    assert "unavailable" in verdict({"status": "unavailable", "error": "x"})
