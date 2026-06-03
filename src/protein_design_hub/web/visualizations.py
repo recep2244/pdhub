@@ -64,10 +64,9 @@ def create_pae_heatmap(
         zmin=0,
         zmax=max_value,
         colorbar=dict(
-            title="PAE (Å)",
-            titleside="right",
+            title=dict(text="PAE (Å) — lower = more confident relative position", side="right"),
         ),
-        hovertemplate="Residue %{x} vs %{y}<br>PAE: %{z:.2f} Å<extra></extra>",
+        hovertemplate="Aligned %{x} vs Scored %{y}<br>PAE: %{z:.2f} Å<extra></extra>",
     ))
 
     fig.update_layout(
@@ -118,7 +117,7 @@ def create_plddt_plot(
         x=residues,
         y=plddt_values,
         mode='lines',
-        line=dict(color='#1f77b4', width=2),
+        line=dict(color='#4cc9f0', width=2),
         name='pLDDT',
         hovertemplate="Residue %{x}<br>pLDDT: %{y:.1f}<extra></extra>",
     ))
@@ -205,12 +204,13 @@ def create_contact_map(
 
         fig = go.Figure(data=go.Heatmap(
             z=model_binary,
-            colorscale=[[0, 'white'], [1, '#1f77b4']],
+            colorscale=[[0, 'rgba(0,0,0,0)'], [1, '#4cc9f0']],
             showscale=False,
             hovertemplate="Residue %{x} vs %{y}<extra></extra>",
         ))
 
-        fig.update_layout(title=dict(text=title, x=0.5))
+        fig.update_layout(
+            title=dict(text=f"{title}<br><sup>Cα–Cα &lt; {threshold:.0f} Å</sup>", x=0.5))
 
     fig.update_layout(
         xaxis=dict(title="Residue", scaleanchor="y"),
@@ -219,7 +219,7 @@ def create_contact_map(
         height=600,
     )
 
-    return fig
+    return apply_pro_theme(fig)
 
 
 def compute_contact_map_from_structure(

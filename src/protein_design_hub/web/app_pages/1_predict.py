@@ -876,10 +876,17 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
         global_settings = get_settings()
         predictor_ids = [PREDICTORS[p]["id"] for p in selected_predictors]
 
-        # Apply settings
+        # Apply per-predictor settings to the shared settings object
         if "colabfold" in settings_ui:
             global_settings.predictors.colabfold.num_models = settings_ui["colabfold"]["num_models"]
             global_settings.predictors.colabfold.num_recycles = settings_ui["colabfold"]["num_recycles"]
+            if "use_amber" in settings_ui["colabfold"]:
+                global_settings.predictors.colabfold.use_amber = settings_ui["colabfold"]["use_amber"]
+        if "chai1" in settings_ui:
+            global_settings.predictors.chai1.num_trunk_recycles = settings_ui["chai1"]["num_trunk_recycles"]
+            global_settings.predictors.chai1.num_diffn_timesteps = settings_ui["chai1"]["num_diffusion_timesteps"]
+        if "boltz2" in settings_ui:
+            global_settings.predictors.boltz2.sampling_steps = settings_ui["boltz2"]["sampling_steps"]
 
         workflow = PredictionWorkflow(global_settings)
 
