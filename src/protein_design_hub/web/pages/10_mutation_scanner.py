@@ -3343,45 +3343,9 @@ with tab_manual:
 
             if best_mut:
                 _best_esm2 = _rec_esm2.get(best_mut.mutant_aa) if _rec_esm2 else None
-                _esm2_html = (
-                    f"&nbsp;·&nbsp; ESM-2 ΔLL: <b>{_best_esm2:+.2f}</b> ({_esm2_verdict(_best_esm2)})"
-                    if _best_esm2 is not None else ""
-                )
-                # Highlight Best Variant
-                st.markdown(f"""
-                <div style="background: linear-gradient(90deg, rgba(16,185,129,0.15) 0%, rgba(34,197,94,0.15) 100%); padding: 15px; border-radius: 10px; border: 1px solid rgba(16,185,129,0.35); margin-bottom: 20px;">
-                    <h3 style="margin:0; color: #10b981;">🏆 Best Candidate: {_mut3(best_mut.mutation_code)}</h3>
-                    <p style="margin:5px 0 0 0; color: var(--pdhub-text, #e2e8f0);">
-                        Per-residue Δ at the mutated site: <b>{best_mut.delta_local_plddt:+.2f}</b>
-                        &nbsp;·&nbsp; whole-chain Δmean: {best_mut.delta_mean_plddt:+.2f} ({delta_label}){_esm2_html}
-                        <br><span style="font-size:12px;opacity:0.8;">(for a single point mutation the whole-chain mean barely moves — judge by the per-residue site change and ESM-2 plausibility)</span>
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
 
-                # At-a-glance metric tiles + developability verdict for the best candidate.
-                _ba = _assess_candidate(best_mut, res.sequence, _best_esm2)
-                _mt1, _mt2, _mt3c, _mt4 = st.columns(4)
-                _mt1.metric(
-                    "Site pLDDT" if not is_immunebuilder else "Site error (Å)",
-                    f"{best_mut.local_plddt:.1f}", f"{best_mut.delta_local_plddt:+.2f}",
-                    delta_color="normal" if not is_immunebuilder else "inverse",
-                )
-                _mt2.metric("ESM-2 ΔLL", f"{_best_esm2:+.2f}" if _best_esm2 is not None else "N/A",
-                            _esm2_verdict(_best_esm2) if _best_esm2 is not None else None,
-                            delta_color="off")
-                _mt3c.metric("RMSD vs WT", f"{best_mut.rmsd_to_base:.2f} Å" if getattr(best_mut, "rmsd_to_base", None) else "N/A")
-                _mt4.metric("Liabilities", _ba["liabilities"], _ba["verdict"], delta_color="off")
-                st.markdown(
-                    f'<div style="margin:-6px 0 14px 0;"><b>Developability:</b> {_ba["verdict"]}'
-                    f'&nbsp; {_render_chips_html(_ba["chips"])}</div>',
-                    unsafe_allow_html=True,
-                )
-                # Immunologist interpretation + layered recommendations for the best candidate.
-                with st.container(border=True):
-                    st.markdown(_immunologist_brief(best_mut, res, _best_esm2, _ba))
-
-                # Integration Controls
+                # ── Actions for the recommended candidate (panel review is above) ──
+                st.markdown("### ⚙️ Take action on the recommended candidate")
                 c1, c2 = st.columns([1, 1])
                 with c1:
                     st.markdown("#### 🚀 Validation Pipeline")
