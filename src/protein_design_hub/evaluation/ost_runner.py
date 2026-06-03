@@ -460,50 +460,37 @@ except Exception as e:
         if not self.is_available():
             raise RuntimeError("OpenStructure not available in micromamba environment")
 
-        # Build command with all metric flags
-        cmd = [
-            str(self.micromamba_path), "run", "-n", self.OST_ENV_NAME,
-            "ost", "compare-structures",
-            "-m", str(model_path),
-            "-r", str(reference_path),
-            "-o", "-",  # Output to stdout
-            "-of", "json",
-        ]
-
-        # Add metric flags
+        # OST 2.x writes the JSON report to the -o FILE (there is no '-o -' /
+        # '-of json'); only the flags below exist in this version.
         if metrics is None:
-            metrics = [
-                "lddt", "bb-lddt", "ilddt",
-                "qs-score", "dockq", "ics", "ips", "patch-scores",
-                "rigid-scores", "local-lddt",
+            metrics = ["lddt", "local-lddt", "bb-lddt", "qs-score", "rigid-scores", "tm-score"]
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="ost_cs_") as td:
+            out_json = os.path.join(td, "report.json")
+            cmd = [
+                str(self.micromamba_path), "run", "-n", self.OST_ENV_NAME,
+                "ost", "compare-structures",
+                "-m", str(model_path),
+                "-r", str(reference_path),
+                "-o", out_json,
             ]
-
-        for metric in metrics:
-            cmd.append(f"--{metric}")
-
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=600,
-            )
-
-            if result.returncode != 0:
-                # Try to parse partial results or return error
-                if result.stdout:
-                    try:
-                        return json.loads(result.stdout)
-                    except json.JSONDecodeError:
-                        pass
-                raise RuntimeError(f"compare-structures failed: {result.stderr}")
-
-            return json.loads(result.stdout)
-
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("compare-structures timed out after 10 minutes")
-        except json.JSONDecodeError as e:
-            raise RuntimeError(f"Failed to parse compare-structures output: {e}")
+            for metric in metrics:
+                cmd.append(f"--{metric}")
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("compare-structures timed out after 10 minutes")
+            if not os.path.exists(out_json):
+                raise RuntimeError(
+                    f"compare-structures produced no report (rc={result.returncode}): "
+                    f"{(result.stderr or result.stdout)[:500]}"
+                )
+            try:
+                with open(out_json) as fh:
+                    return json.load(fh)
+            except (json.JSONDecodeError, OSError) as e:
+                raise RuntimeError(f"Failed to parse compare-structures output: {e}")
 
     def compute_all_metrics(
         self,

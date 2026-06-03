@@ -713,29 +713,32 @@ def _wt_structure_path(res):
     return None
 
 
-def _ensure_ost_vs_wt(mutants, wt_path) -> None:
-    """Compute+cache OST lDDT/RMSD(CA)/TM vs WT for the given mutants (skips
-    any already cached). Used to auto-populate the immunologist evaluation."""
-    if not wt_path:
-        return
-    from protein_design_hub.web.agent_helpers import score_mutant_with_ost_molprobity
-    cache = st.session_state.setdefault("ost_vs_wt_cache", {})
-    todo = [m for m in mutants if m and getattr(m, "success", True)
-            and getattr(m, "structure_path", None) and m.mutation_code not in cache]
-    if not todo:
-        return
-    with st.spinner(f"Computing OST lDDT/RMSD vs wild-type for {len(todo)} candidate(s)…"):
-        for m in todo:
-            try:
-                out = score_mutant_with_ost_molprobity(
-                    Path(m.structure_path), Path(wt_path), getattr(m, "position", 1), m.mutation_code)
-                sr = (out or {}).get("result")
-                om = getattr(sr, "ost_metrics", {}) if sr else {}
-                cache[m.mutation_code] = {"lddt": om.get("ost.lddt"),
-                                          "rmsd_ca": om.get("ost.rmsd"),
-                                          "tm_score": om.get("ost.tm_score")}
-            except Exception:
-                cache[m.mutation_code] = {"lddt": None, "rmsd_ca": None, "tm_score": None}
+def _ost_compare(mut_path, wt_path, position) -> dict:
+    """Run OST compare-structures (mutant vs WT) and return a rich metric dict.
+
+    Uses the fixed run_compare_structures (OST 2.11 CLI). Pulls most OST
+    metrics: global lDDT, backbone lDDT, per-residue site lDDT, CA-RMSD,
+    TM-score, GDT-TS/HA and QS-score.
+    """
+    from protein_design_hub.evaluation.ost_runner import get_ost_runner
+    r = get_ost_runner().run_compare_structures(
+        Path(mut_path), Path(wt_path),
+        metrics=["lddt", "local-lddt", "bb-lddt", "qs-score", "rigid-scores", "tm-score"],
+    )
+    if not isinstance(r, dict) or r.get("status") not in (None, "SUCCESS"):
+        return {}
+    ll = r.get("local_lddt") or {}
+    site = ll.get(f"A.{position}.") if isinstance(ll, dict) else None
+    return {
+        "lddt": r.get("lddt"),
+        "bb_lddt": r.get("bb_lddt"),
+        "site_lddt": site,
+        "rmsd_ca": r.get("rmsd"),
+        "tm_score": r.get("tm_score"),
+        "gdt_ts": r.get("oligo_gdtts"),
+        "gdt_ha": r.get("oligo_gdtha"),
+        "qs_score": r.get("qs_global"),
+    }
 
 
 def _ost_for(m, field: str):
@@ -752,9 +755,8 @@ def _ost_for(m, field: str):
 
 
 def _compute_ost_vs_wt(res, wt_path) -> int:
-    """Compute OST lDDT/RMSD(CA)/TM of every successful mutant vs the WT
-    structure and cache by mutation_code. Returns the count scored."""
-    from protein_design_hub.web.agent_helpers import score_mutant_with_ost_molprobity
+    """Compute OST metrics of every successful mutant vs the WT structure and
+    cache by mutation_code. Returns the count successfully scored."""
     cache = st.session_state.setdefault("ost_vs_wt_cache", {})
     muts = [m for m in res.mutations if m.success and getattr(m, "structure_path", None)]
     if not muts:
@@ -763,21 +765,12 @@ def _compute_ost_vs_wt(res, wt_path) -> int:
     done = 0
     for i, m in enumerate(muts):
         try:
-            out = score_mutant_with_ost_molprobity(
-                Path(m.structure_path), Path(wt_path),
-                getattr(m, "position", 1), m.mutation_code,
-            )
-            sr = (out or {}).get("result")
-            om = getattr(sr, "ost_metrics", {}) if sr else {}
-            cache[m.mutation_code] = {
-                "lddt": om.get("ost.lddt"),
-                "rmsd_ca": om.get("ost.rmsd"),
-                "tm_score": om.get("ost.tm_score"),
-            }
-            if om.get("ost.lddt") is not None:
+            metrics = _ost_compare(m.structure_path, wt_path, getattr(m, "position", 1))
+            cache[m.mutation_code] = metrics
+            if metrics.get("lddt") is not None:
                 done += 1
         except Exception:
-            pass
+            cache.setdefault(m.mutation_code, {})
         prog.progress((i + 1) / len(muts))
     prog.empty()
     return done
@@ -1015,6 +1008,116 @@ def _render_ds_insights(res, esm2_deltas) -> None:
     st.caption("Importance = |Pearson r| vs per-residue Δ pLDDT (no model fit; sklearn not installed). "
                "Engineered features are sequence-derived (Kyte-Doolittle hydrophobicity, MW-as-volume, "
                "formal charge, BLOSUM62).")
+
+
+def _biophysicist_verdict(m, esm2_delta, ost_lddt) -> tuple:
+    """Biophysicist call: is the variant folded + stable? Returns (verdict, info)."""
+    from protein_design_hub.analysis.mutation_scoring import substitution_risk
+    rmsd = getattr(m, "rmsd_to_base", None)
+    clash = getattr(m, "clash_score", None)
+    ddg = substitution_risk(getattr(m, "original_aa", ""), getattr(m, "mutant_aa", "")).get("ddg_kcal", 0.0)
+    fold_ok = (ost_lddt is not None and ost_lddt >= 0.9) or \
+              (ost_lddt is None and isinstance(rmsd, (int, float)) and rmsd < 2.0)
+    fold_bad = (ost_lddt is not None and ost_lddt < 0.8) or \
+               (isinstance(rmsd, (int, float)) and rmsd > 2.5)
+    destab = ddg > 1.5 or (esm2_delta is not None and esm2_delta < -5)
+    stable = ddg <= 0.5 and (esm2_delta is None or esm2_delta >= -2)
+    if fold_bad or destab:
+        v = "🔴 Destabilising/perturbed"
+    elif fold_ok and stable:
+        v = "🟢 Stable & folded"
+    else:
+        v = "🟡 Marginal"
+    return v, {"ddg": ddg, "ost_lddt": ost_lddt, "rmsd": rmsd, "clash": clash}
+
+
+def _consensus_recommendation(res, esm2_deltas):
+    """Tri-expert (Data Scientist + Immunologist + Biophysicist) ranking.
+
+    The Data Scientist ranks by a z-scored composite of the per-residue effect,
+    ESM-2 plausibility, OST fold agreement and RMSD; the Immunologist and
+    Biophysicist each cast a verdict. The recommended best mutant is the
+    highest DS-ranked candidate the other two experts also clear.
+    """
+    import numpy as np
+    muts = [m for m in getattr(res, "mutations", []) if getattr(m, "success", False)]
+    if not muts:
+        return None
+    seq = getattr(res, "sequence", "") or ""
+
+    def z(vals):
+        a = np.array([v if isinstance(v, (int, float)) else np.nan for v in vals], dtype=float)
+        mu, sd = np.nanmean(a), np.nanstd(a)
+        if not np.isfinite(sd) or sd == 0:
+            return [0.0] * len(a)
+        return [float((x - mu) / sd) if np.isfinite(x) else 0.0 for x in a]
+
+    esm = [esm2_deltas.get(getattr(m, "mutant_aa", "")) if esm2_deltas else None for m in muts]
+    lddt = [_ost_for(m, "lddt") for m in muts]
+    zs = z([getattr(m, "delta_local_plddt", None) for m in muts])
+    ze = z(esm)
+    zl = z(lddt)
+    zr = z([getattr(m, "rmsd_to_base", None) for m in muts])
+
+    rows = []
+    for i, m in enumerate(muts):
+        ds = 0.4 * zs[i] + 0.3 * ze[i] + 0.2 * zl[i] - 0.1 * zr[i]
+        immuno = _assess_candidate(m, seq, esm[i])
+        bio_v, bio = _biophysicist_verdict(m, esm[i], lddt[i])
+        rows.append({
+            "m": m, "code": getattr(m, "mutation_code", ""), "ds": ds,
+            "immuno_verdict": immuno["verdict"], "immuno_ok": "High-risk" not in immuno["verdict"],
+            "bio_verdict": bio_v, "bio_ok": "🔴" not in bio_v,
+            "esm": esm[i], "lddt": lddt[i], "chips": immuno["chips"],
+        })
+    rows.sort(key=lambda r: r["ds"], reverse=True)
+    for rank, r in enumerate(rows, 1):
+        r["ds_rank"] = rank
+        r["consensus"] = bool(r["immuno_ok"] and r["bio_ok"])
+    consensus = next((r for r in rows if r["consensus"]), None)
+    return {"rows": rows, "consensus": consensus, "ds_top": rows[0]}
+
+
+def _render_consensus(res, esm2_deltas) -> None:
+    """Render the tri-expert consensus recommendation panel (runs by default)."""
+    rec = _consensus_recommendation(res, esm2_deltas)
+    if not rec:
+        return
+    cons, ds_top = rec["consensus"], rec["ds_top"]
+    st.markdown("### 🤝 Consensus recommendation — Data Scientist · Immunologist · Biophysicist")
+    if cons is not None:
+        agree_extra = "" if cons is ds_top else (
+            f" (the Data Scientist's top pick {_mut3(ds_top['code'])} was vetoed by "
+            f"{'the immunologist' if not ds_top['immuno_ok'] else 'the biophysicist'})")
+        st.success(
+            f"**All three experts agree on `{_mut3(cons['code'])}`** as the best mutant{agree_extra}. "
+            f"DS rank #{cons['ds_rank']} (composite {cons['ds']:+.2f}); "
+            f"Immunologist: {cons['immuno_verdict']}; Biophysicist: {cons['bio_verdict']}."
+        )
+    else:
+        st.warning(
+            f"**No full consensus.** Data Scientist's top pick is `{_mut3(ds_top['code'])}` "
+            f"(composite {ds_top['ds']:+.2f}), but it's flagged by "
+            f"{'the immunologist' if not ds_top['immuno_ok'] else ''}"
+            f"{' and ' if (not ds_top['immuno_ok'] and not ds_top['bio_ok']) else ''}"
+            f"{'the biophysicist' if not ds_top['bio_ok'] else ''}. "
+            "Review the trade-off table below."
+        )
+    tbl = [{
+        "Mutation": _mut3(r["code"]),
+        "DS rank": r["ds_rank"],
+        "DS composite": round(r["ds"], 2),
+        "🧬 Immunologist": r["immuno_verdict"],
+        "🔬 Biophysicist": r["bio_verdict"],
+        "ESM-2 ΔLL": (round(r["esm"], 2) if r["esm"] is not None else None),
+        "OST lDDT": (round(r["lddt"], 3) if r["lddt"] is not None else None),
+        "Consensus": "✅" if r["consensus"] else "—",
+    } for r in rec["rows"][:8]]
+    st.dataframe(pd.DataFrame(tbl), use_container_width=True, hide_index=True,
+                 column_config={"ESM-2 ΔLL": st.column_config.NumberColumn(format="%+.2f"),
+                                "OST lDDT": st.column_config.NumberColumn(format="%.3f")})
+    st.caption("DS composite = z-scored 0.4·Δsite-pLDDT + 0.3·ESM-2 ΔLL + 0.2·OST lDDT − 0.1·RMSD. "
+               "Consensus ✅ = DS-ranked AND not High-risk (immunology) AND not destabilising/perturbed (biophysics).")
 
 
 def _render_interpretation_legend(immunebuilder: bool = False) -> None:
@@ -2963,6 +3066,10 @@ with tab_manual:
             best_mut = res.ranked_mutations[0] if res.ranked_mutations else None
             _rec_esm2 = _esm2_scan_deltas(res.sequence, res.position)
 
+            # Tri-expert consensus (Data Scientist + Immunologist + Biophysicist) — by default.
+            _render_consensus(res, _rec_esm2)
+            st.markdown("---")
+
             if best_mut:
                 _best_esm2 = _rec_esm2.get(best_mut.mutant_aa) if _rec_esm2 else None
                 _esm2_html = (
@@ -3146,17 +3253,17 @@ with tab_manual:
             )
             ost_fields = [
                 ("lddt", "OST lDDT"),
+                ("site_lddt", "OST site lDDT"),
+                ("bb_lddt", "OST bb-lDDT"),
                 ("rmsd_ca", "OST RMSD(CA, Å)"),
-                ("qs_score", "OST QS-score"),
                 ("tm_score", "OST TM-score"),
                 ("gdt_ts", "OST GDT-TS"),
                 ("gdt_ha", "OST GDT-HA"),
+                ("qs_score", "OST QS-score"),
             ]
-            # Always surface OST lDDT and RMSD(CA) columns so they're visibly
-            # present (N/A when comprehensive scoring is off); the rest stay
-            # conditional to avoid clutter.
+            # Surface the core OST columns (computed vs WT); rest stay conditional.
             include_ost = {
-                field: (field in {"lddt", "rmsd_ca"})
+                field: (field in {"lddt", "site_lddt", "bb_lddt", "rmsd_ca", "tm_score"})
                 or any(_ost_for(m, field) is not None for m in res.mutations)
                 for field, _ in ost_fields
             }
@@ -3239,9 +3346,9 @@ with tab_manual:
                 )
             if not any_ost:
                 st.caption(
-                    "ℹ️ **OST lDDT / RMSD(CA) vs WT show N/A** — OpenStructure compare-structures "
-                    "isn't returning metrics in this environment (backend/version issue). RMSD(Å), "
-                    "per-residue pLDDT and ESM-2 ΔLL are computed and shown."
+                    "ℹ️ **OST lDDT / RMSD(CA) vs WT not yet available** — they auto-compute when a "
+                    "WT/base structure is present (or click *Recompute* above). lDDT/bb-lDDT/site-lDDT/"
+                    "RMSD/TM/GDT/QS are all computed against wild-type via OpenStructure."
                 )
             with st.expander("📊 Data Science Insights — feature importance, correlations & engineered features", expanded=False):
                 _render_ds_insights(res, esm2_deltas)
