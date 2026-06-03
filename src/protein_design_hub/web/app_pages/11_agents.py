@@ -639,17 +639,49 @@ with tabs[1]:
 
             if ctx and ctx.prediction_results:
                 section_header("Prediction Results", "", "🔮")
+                # For interface-focused modes (nanobody / binding affinity) the headline
+                # metric should be interface confidence (ipTM / interface PAE), not max
+                # pLDDT — CDR-H3 / binding-loop pLDDT is routinely low and would be
+                # misread as a failed design. Fall back to pLDDT when no interface metric
+                # is produced (e.g. single-sequence predictors like ESMFold/ESM3).
+                _iface_mode = mode_str in ("nanobody_llm", "binding_affinity")
                 cols = st.columns(min(len(ctx.prediction_results), 4))
                 for i, (nm, pr) in enumerate(ctx.prediction_results.items()):
                     with cols[i % len(cols)]:
                         if pr.success:
-                            bp = "-"
-                            if pr.scores:
-                                pp = [s.plddt for s in pr.scores if s.plddt]
-                                if pp:
-                                    bp = f"{max(pp):.1f}"
-                            metric_card(bp, f"{nm} pLDDT", "success", "🔮")
-                            st.caption(f"{len(pr.structure_paths)} structures, {pr.runtime_seconds:.1f}s")
+                            _scores = pr.scores or []
+                            _iptms = [s.iptm for s in _scores if getattr(s, "iptm", None) is not None]
+                            _plddts = [s.plddt for s in _scores if getattr(s, "plddt", None) is not None]
+                            # min off-diagonal PAE as a coarse interface-PAE proxy
+                            _iface_pae = None
+                            for s in _scores:
+                                pae = getattr(s, "pae", None)
+                                if pae:
+                                    flat = [
+                                        pae[r][c]
+                                        for r in range(len(pae))
+                                        for c in range(len(pae[r]))
+                                        if r != c
+                                    ]
+                                    if flat:
+                                        m = min(flat)
+                                        _iface_pae = m if _iface_pae is None else min(_iface_pae, m)
+                            if _iface_mode and _iptms:
+                                metric_card(f"{max(_iptms):.2f}", f"{nm} ipTM", "success", "🔗")
+                                cap = f"{len(pr.structure_paths)} structures, {pr.runtime_seconds:.1f}s"
+                                if _iface_pae is not None:
+                                    cap += f" · interface PAE ≈ {_iface_pae:.1f}Å"
+                                if _plddts:
+                                    cap += f" · max pLDDT {max(_plddts):.1f}"
+                                st.caption(cap)
+                                st.caption("CDR-H3 / loop pLDDT is often <70 even for good designs — judge the interface by ipTM/PAE, not loop pLDDT.")
+                            else:
+                                bp = f"{max(_plddts):.1f}" if _plddts else "-"
+                                metric_card(bp, f"{nm} pLDDT", "success", "🔮")
+                                cap = f"{len(pr.structure_paths)} structures, {pr.runtime_seconds:.1f}s"
+                                if _iface_mode:
+                                    cap += " · interface metrics not produced by this predictor"
+                                st.caption(cap)
                         else:
                             metric_card("FAIL", nm, "error", "❌")
                             st.caption(pr.error_message or "Unknown error")
@@ -669,7 +701,28 @@ with tabs[1]:
                     st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
 
             if ctx and ctx.comparison_result and ctx.comparison_result.ranking:
-                section_header("Ranking", "", "🏆")
+                section_header("Ranking", "Composite score (0–1, higher = better)", "🏆")
+                # Without a reference structure the composite collapses to ~pLDDT/100,
+                # and predictors with different available metrics (e.g. ESMFold has no
+                # pTM) are scored over fewer components — so cross-predictor scores are
+                # not strictly comparable. Be explicit instead of implying a calibrated winner.
+                _has_ref = bool(ctx and getattr(ctx, "reference_path", None))
+                _pred_names = list(ctx.prediction_results.keys()) if ctx and ctx.prediction_results else []
+                _ptm_avail = {}
+                if ctx and ctx.prediction_results:
+                    for _nm, _pr in ctx.prediction_results.items():
+                        _ptm_avail[_nm] = bool(_pr.scores and any(getattr(s, "ptm", None) for s in _pr.scores))
+                if not _has_ref:
+                    st.caption(
+                        "No reference structure — composite is **confidence-only** "
+                        "(≈ pLDDT/100), not quality-calibrated against ground truth."
+                    )
+                if len(set(_ptm_avail.values())) > 1:
+                    st.caption(
+                        "⚠️ Predictors with differing available metrics are ranked together "
+                        "(some lack pTM, e.g. ESMFold) — scores are computed over different "
+                        "components and should not be over-interpreted as directly comparable."
+                    )
                 for rank, (nm, sc) in enumerate(ctx.comparison_result.ranking, 1):
                     ri = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"#{rank}")
                     rc1, rc2, rc3 = st.columns([1, 4, 2])
@@ -677,6 +730,13 @@ with tabs[1]:
                         st.markdown(f"### {ri}")
                     with rc2:
                         st.markdown(f"**{_esc(nm)}**")
+                        _badge = []
+                        if not _has_ref:
+                            _badge.append("pLDDT-only, no reference")
+                        if nm in _ptm_avail and not _ptm_avail[nm]:
+                            _badge.append("no pTM")
+                        if _badge:
+                            st.caption(" · ".join(_badge))
                     with rc3:
                         st.code(f"{sc:.3f}", language=None)
 

@@ -424,7 +424,11 @@ with st.expander("📖 How comparison works", expanded=False):
 - **Structural quality** — clash score, Ramachandran, energy
 - **Fold similarity** — RMSD and TM-score between predictions
 
-**The composite ranking** weighs: lDDT (40%), TM-score (30%), clash quality (15%), pTM confidence (15%).
+**How predictors are ranked** (the actual `workflow.run` logic):
+- **With a reference structure** — by **lDDT** (preferred), falling back to **TM-score** when lDDT is unavailable.
+- **Without a reference** — by **max pLDDT / 100** (confidence-only, *not* quality-calibrated; see note below).
+
+There is no fixed weighted composite — ranking uses the single best available accuracy metric, not a blended coefficient formula.
 
 **When to use this page:**
 - After running 2+ predictors on the same sequence
@@ -498,8 +502,17 @@ predictor_map = {name: info["id"] for name, info in PREDICTORS.items()}
 with st.sidebar.expander("Prediction Settings", expanded=False):
     num_models = st.number_input("Models per predictor", value=5, min_value=1, max_value=10)
     num_recycles = st.number_input("Recycles", value=3, min_value=1, max_value=10)
+    st.caption(
+        "⚠️ Models/Recycles currently apply to **ColabFold only**. "
+        "Chai-1 and Boltz-2 use their own built-in sampling defaults."
+    )
 
 with st.sidebar.expander("Evaluation Metrics", expanded=False):
+    st.caption(
+        "ℹ️ The evaluation pipeline computes a fixed metric set "
+        "(lDDT, TM-score, RMSD; plus QS-score/DockQ/ICS/IPS/iLDDT for multimers when a reference is given). "
+        "The selections below filter **which metrics are displayed**, not which are computed."
+    )
     st.markdown("**Global Metrics**")
     eval_metrics = st.multiselect(
         "Global metrics",
@@ -513,7 +526,7 @@ with st.sidebar.expander("Evaluation Metrics", expanded=False):
         "Interface metrics",
         options=["QS-score", "DockQ", "ICS", "IPS", "iLDDT", "Patch Scores"],
         default=["QS-score", "DockQ"],
-        help="Only computed for multimeric structures",
+        help="Only computed for multimeric structures when a reference is supplied",
         label_visibility="collapsed"
     )
 
@@ -680,7 +693,7 @@ with col_ref:
     if reference_file:
         st.success(f"✅ Reference loaded: {reference_file.name}")
     else:
-        st.markdown("<div style='color: #6b7280; font-size: 0.85rem; margin-top: 0.5rem;'>No reference - ranking will use pLDDT</div>", unsafe_allow_html=True)
+        st.markdown("<div style='color: #6b7280; font-size: 0.85rem; margin-top: 0.5rem;'>No reference — ranking will use pLDDT (confidence-only, not quality-calibrated)</div>", unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -741,7 +754,7 @@ with col_status:
         if reference_file:
             st.markdown(f"📏 Reference: `{reference_file.name}` — full evaluation metrics enabled")
         else:
-            st.markdown("ℹ️ No reference — ranking by pLDDT confidence")
+            st.markdown("ℹ️ No reference — ranking by pLDDT confidence (not quality-calibrated)")
 
 with col_actions:
     run_comparison = st.button(
@@ -846,6 +859,27 @@ if "compare_result" in st.session_state:
 
     with tab_ranking:
         section_header("Predictor Ranking", "Ordered by evaluation score", "🏆")
+
+        # Determine whether ranking is reference-calibrated (lDDT/TM) or pLDDT-only.
+        _eval_res = getattr(result, "evaluation_results", None) or {}
+        _ref_calibrated = any(
+            (getattr(er, "lddt", None) is not None or getattr(er, "tm_score", None) is not None)
+            for er in _eval_res.values()
+        )
+        if _ref_calibrated:
+            st.caption(
+                "Ranked by **lDDT** (or TM-score fallback) against the supplied reference — "
+                "a quality-calibrated, cross-model-comparable score."
+            )
+        else:
+            info_box(
+                "No reference supplied — ranking is by **max pLDDT / 100** (predicted confidence only). "
+                "pLDDT is not calibrated across predictor families, so this ranking is **indicative, "
+                "not a quality verdict**. For interface/multimer designs, prefer QS-score / DockQ "
+                "(or ipSAE from a PAE-emitting predictor) over confidence-only ranking.",
+                variant="warning",
+                icon="⚠️",
+            )
 
         if result.ranking:
             for i, (name, score) in enumerate(result.ranking, 1):
@@ -994,6 +1028,10 @@ if "compare_result" in st.session_state:
                 eval_data.append(row)
 
             eval_df = pd.DataFrame(eval_data)
+            # Honour the sidebar "Global metrics" selection as a display filter
+            if eval_metrics:
+                _keep = ["Predictor"] + [m for m in eval_metrics if m in eval_df.columns]
+                eval_df = eval_df[[c for c in _keep if c in eval_df.columns]]
             st.dataframe(eval_df, width='stretch', hide_index=True)
 
             # Interface metrics (for multimers)
@@ -1019,6 +1057,10 @@ if "compare_result" in st.session_state:
                     interface_data.append(row)
 
                 interface_df = pd.DataFrame(interface_data)
+                # Honour the sidebar "Interface metrics" selection as a display filter
+                if interface_metrics:
+                    _keep_i = ["Predictor"] + [m for m in interface_metrics if m in interface_df.columns]
+                    interface_df = interface_df[[c for c in _keep_i if c in interface_df.columns]]
                 st.dataframe(interface_df, width='stretch', hide_index=True)
 
             # Comparison chart
@@ -1284,8 +1326,10 @@ with st.expander("ℹ️ About Comparison", expanded=False):
 
 ### Ranking Criteria
 
-- **With reference**: Ranking by lDDT score
-- **Without reference**: Ranking by pLDDT (predicted confidence)
+- **With reference**: ranked by **lDDT** (falls back to **TM-score** if lDDT is unavailable).
+- **Without reference**: ranked by **max pLDDT / 100** — this is *confidence-only and not quality-calibrated*, and pLDDT is not directly comparable across predictor families (see the calibration note on the main page). Treat the medal ranking as indicative, not a quality verdict, when no reference is supplied.
+
+For multimer/interface ranking, use the interface metrics (QS-score / DockQ) below rather than pLDDT; a PAE-emitting predictor (Chai-1 / Boltz-2) is required for interface-quality estimates.
 
 ### Evaluation Metrics
 

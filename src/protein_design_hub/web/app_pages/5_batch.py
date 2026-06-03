@@ -3,8 +3,6 @@
 import streamlit as st
 from pathlib import Path
 import json
-import tempfile
-import time
 
 from protein_design_hub.web.ui import (
     inject_base_css,
@@ -15,7 +13,6 @@ from protein_design_hub.web.ui import (
     info_box,
     metric_card,
     workflow_breadcrumb,
-    cross_page_actions,
 )
 from protein_design_hub.web.agent_helpers import (
     render_contextual_insight,
@@ -68,10 +65,6 @@ if 'batch_jobs' not in st.session_state:
     st.session_state.batch_jobs = []
 if 'batch_running' not in st.session_state:
     st.session_state.batch_running = False
-if 'batch_history' not in st.session_state:
-    st.session_state.batch_history = []
-if 'batch_start_time' not in st.session_state:
-    st.session_state.batch_start_time = None
 
 # Page Header
 page_header(
@@ -111,6 +104,7 @@ with main_tabs[0]:
     with col_load:
         if st.button("📋 Load Example", width='stretch', type="secondary"):
             st.session_state.batch_seq_input = BATCH_EXAMPLE
+            st.rerun()
 
     sequences = []
 
@@ -123,7 +117,6 @@ with main_tabs[0]:
         text_input = st.text_area(
             "Sequences",
             height=200,
-            value=st.session_state.get("batch_seq_input", ""),
             placeholder=">protein_1\nMKFLILLFNILCLFPVLAADNHGVGPQGAS...\n>protein_2\nMGSSHHHHHHSSGLVPRGSHM...",
             key="batch_seq_input",
             label_visibility="collapsed"
@@ -239,10 +232,18 @@ with main_tabs[1]:
     if 'batch_sequences' not in st.session_state or not st.session_state.batch_sequences:
         st.warning("Please input sequences first")
     else:
-        # Job type selection
+        st.caption(
+            "Batch mode currently runs **Structure Prediction (ESMFold API)** and "
+            "**Biophysical Analysis** end-to-end. Other task types are not yet wired into "
+            "the batch runner and are disabled below."
+        )
+
+        # Job type selection — only implemented task types are selectable
+        _IMPLEMENTED_TASKS = ["Structure Prediction", "Biophysical Analysis"]
         job_type = st.selectbox(
             "Task type",
-            ["Structure Prediction", "Sequence Design (Inverse Folding)", "Structure Evaluation", "Biophysical Analysis"]
+            _IMPLEMENTED_TASKS,
+            help="Sequence Design and Structure Evaluation are not yet supported in batch mode.",
         )
 
         st.markdown("---")
@@ -250,22 +251,25 @@ with main_tabs[1]:
         if job_type == "Structure Prediction":
             st.markdown("#### Prediction Settings")
 
+            # Only ESMFold (API) is implemented in the batch runner.
             predictor = st.selectbox(
                 "Predictor",
-                ["ESMFold (API)", "ESMFold (Local)", "ColabFold", "Chai-1", "Boltz-2"]
+                ["ESMFold (API)"],
+                help="Only the ESMFold API path is implemented in batch mode "
+                     "(per-sequence ≤400 aa). ColabFold/Chai-1/Boltz-2 batch support is planned.",
+            )
+            st.caption(
+                "ESMFold (API) folds single chains up to 400 aa with no MSA. "
+                "It returns pLDDT only — no global lDDT/TM or interface (ipTM/PAE) accuracy."
             )
 
             col_opt1, col_opt2 = st.columns(2)
 
             with col_opt1:
-                num_models = st.slider("Models per sequence", 1, 5, 1)
-                if predictor == "ColabFold":
-                    use_templates = st.checkbox("Use templates")
-                    msa_mode = st.selectbox("MSA mode", ["mmseqs2_uniref_env", "mmseqs2_uniref"])
-
-            with col_opt2:
-                if predictor in ["Chai-1", "Boltz-2"]:
-                    num_recycles = st.slider("Recycles", 1, 10, 3)
+                num_models = st.slider(
+                    "Models per sequence", 1, 1, 1, disabled=True,
+                    help="ESMFold API returns a single model per sequence.",
+                )
 
             st.session_state.batch_config = {
                 'type': 'prediction',
@@ -335,16 +339,20 @@ with main_tabs[1]:
         # Execution settings
         st.markdown("---")
         st.markdown("#### Execution Settings")
+        st.caption(
+            "Batch jobs run sequentially in-process. Parallelism, retry, and output-dir "
+            "persistence are not yet implemented, so the controls below are disabled."
+        )
 
         col_exec1, col_exec2 = st.columns(2)
 
         with col_exec1:
-            parallel_jobs = st.slider("Parallel jobs", 1, 8, 2)
-            retry_failed = st.checkbox("Retry failed jobs", value=True)
+            parallel_jobs = st.slider("Parallel jobs", 1, 8, 1, disabled=True)
+            retry_failed = st.checkbox("Retry failed jobs", value=False, disabled=True)
 
         with col_exec2:
-            save_intermediate = st.checkbox("Save intermediate results", value=True)
-            output_dir = st.text_input("Output directory", value="./batch_output")
+            save_intermediate = st.checkbox("Save intermediate results", value=False, disabled=True)
+            output_dir = st.text_input("Output directory", value="./batch_output", disabled=True)
 
 
 # === RUN TAB ===
@@ -485,9 +493,10 @@ with main_tabs[2]:
                     st.warning(f"⚠️ Completed {_completed}/{n_jobs} jobs. {_failed} failed — see Results tab.")
                 st.rerun()
 
-            if st.button("⏹️ Stop", disabled=not st.session_state.batch_running):
-                st.session_state.batch_running = False
-                st.warning("Batch stopped")
+            st.caption(
+                "Batch runs synchronously and cannot be interrupted mid-run; "
+                "the page is responsive again once all jobs finish."
+            )
 
         with col_status:
             if st.session_state.batch_jobs:
@@ -538,18 +547,24 @@ with main_tabs[3]:
 
                 df = pd.DataFrame(data)
 
-                # pLDDT QC filter
+                # pLDDT QC filter — confidence axis only
                 _plddt_thresh = st.slider(
                     "Min pLDDT for downstream use",
                     min_value=30.0, max_value=95.0, value=70.0, step=5.0,
-                    help=">70 = confident; >90 = very high confidence",
+                    help=">70 = confident; >90 = very high confidence (per-residue self-confidence)",
                     key="qc_plddt_thresh",
                 )
                 _pass_plddt = [j for j in complete if j.get("result", {}).get("plddt", 0) >= _plddt_thresh]
                 if _pass_plddt:
                     st.success(f"✅ **{len(_pass_plddt)}/{len(complete)} structures pass pLDDT ≥ {_plddt_thresh:.0f}**")
                 else:
-                    st.warning(f"No structures pass pLDDT ≥ {_plddt_thresh:.0f}. Lower the threshold or re-run with more recycles.")
+                    st.warning(f"No structures pass pLDDT ≥ {_plddt_thresh:.0f}. Lower the threshold or use a different predictor.")
+                st.caption(
+                    "pLDDT is ESMFold's per-residue **self-confidence**, not measured accuracy. "
+                    "A confident-but-wrong fold can still score high, and ESMFold gives no "
+                    "global lDDT/TM-score and no interface accuracy (ipTM/PAE). For binders or "
+                    "complexes, validate interface quality with ipSAE/PAE from Chai/Boltz."
+                )
 
                 st.dataframe(df, width='stretch')
 
@@ -571,21 +586,21 @@ with main_tabs[3]:
                         mime="application/zip"
                     )
 
-                # Observed scoring for batch-predicted structures
-                # Write PDB strings to temp files so observed_scoring_section can read them
+                # Observed scoring for batch-predicted structures.
+                # Write PDB strings to a stable per-session dir (one file per job name)
+                # so reruns overwrite instead of leaking a new tempfile every render.
+                import tempfile as _tmpmod
+                import re as _re
+                _batch_dir = Path(_tmpmod.gettempdir()) / "pdhub_batch_pdb"
+                _batch_dir.mkdir(parents=True, exist_ok=True)
                 _batch_pdb_paths = []
                 for _job in complete:
                     _pdb_str = _job.get("result", {}).get("pdb")
                     if _pdb_str:
-                        import tempfile as _tmpmod
-                        _tmp = _tmpmod.NamedTemporaryFile(
-                            suffix=".pdb", delete=False,
-                            prefix=f"batch_{_job['name']}_"
-                        )
-                        _tmp.write(_pdb_str.encode())
-                        _tmp.flush()
-                        _tmp.close()
-                        _batch_pdb_paths.append(Path(_tmp.name))
+                        _safe = _re.sub(r"[^A-Za-z0-9_.-]", "_", str(_job["name"]))[:60]
+                        _ppath = _batch_dir / f"{_safe}.pdb"
+                        _ppath.write_text(_pdb_str)
+                        _batch_pdb_paths.append(_ppath)
                 if _batch_pdb_paths:
                     observed_scoring_section(
                         model_paths=_batch_pdb_paths,

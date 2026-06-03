@@ -4,7 +4,6 @@ import streamlit as st
 from pathlib import Path
 import json
 from datetime import datetime
-import time
 
 from protein_design_hub.web.ui import (
     inject_base_css,
@@ -17,7 +16,6 @@ from protein_design_hub.web.ui import (
     empty_state,
     render_badge,
     workflow_breadcrumb,
-    cross_page_actions,
 )
 from protein_design_hub.web.agent_helpers import (
     render_contextual_insight,
@@ -249,7 +247,12 @@ with main_tabs[0]:
 
     fitness_type = st.selectbox(
         "Primary fitness objective",
-        ["Stability", "Solubility", "Structure quality", "Sequence recovery", "Custom composite"]
+        ["Stability", "Solubility", "Structure quality", "Sequence recovery", "Custom composite"],
+        key="evo_fitness_type",
+    )
+    st.caption(
+        "Fitness is a dimensionless heuristic surrogate (higher = better), not ΔΔG or Tm. "
+        "It is used only to rank variants within a single run."
     )
 
     if fitness_type == "Custom composite":
@@ -290,15 +293,26 @@ with main_tabs[0]:
         if st.button("Add constraint") and restrict_pos and allowed_aa:
             try:
                 pos = int(restrict_pos)
-                st.session_state.position_constraints[pos] = list(allowed_aa.upper())
-                st.success(f"Position {pos}: allowed {allowed_aa}")
+                cleaned_aa = ''.join(c for c in allowed_aa.upper() if c in "ACDEFGHIKLMNPQRSTVWY")
+                if not cleaned_aa:
+                    st.error("No valid amino acids provided")
+                else:
+                    st.session_state.position_constraints[pos] = list(cleaned_aa)
+                    st.rerun()
             except ValueError:
                 st.error("Invalid position")
 
         if st.session_state.position_constraints:
-            st.markdown("**Current constraints:**")
-            for pos, aas in st.session_state.position_constraints.items():
-                st.text(f"Position {pos}: {''.join(aas)}")
+            st.markdown("**Current constraints (1-indexed):**")
+            for pos in sorted(st.session_state.position_constraints):
+                aas = st.session_state.position_constraints[pos]
+                _crow1, _crow2 = st.columns([4, 1])
+                with _crow1:
+                    st.text(f"Position {pos}: allowed {''.join(aas)}")
+                with _crow2:
+                    if st.button("Remove", key=f"rm_pc_{pos}"):
+                        del st.session_state.position_constraints[pos]
+                        st.rerun()
 
     with constraint_tabs[2]:
         preserve_ss = st.checkbox("Preserve secondary structure propensity")
@@ -428,6 +442,7 @@ with main_tabs[1]:
                         "best_sequence": generations[-1]["best_sequence"],
                         "best_fitness": generations[-1]["best_fitness"],
                         "starting_sequence": st.session_state.evolution_sequence,
+                        "fitness_objective": fitness_type,
                     }
 
                     # Create Job in outputs
@@ -476,6 +491,22 @@ with main_tabs[2]:
         results = st.session_state.evolution_results
         generations = results["generations"]
 
+        # Describe the active fitness surrogate so the unitless numbers are interpretable
+        _fit_obj = results.get("fitness_objective", st.session_state.get("evo_fitness_type", ""))
+        _fit_desc = {
+            "Stability": "stability surrogate (higher = more stable; from instability index / hydrophobicity heuristics)",
+            "Solubility": "solubility surrogate (higher = more soluble; from GRAVY / charge heuristics)",
+            "Structure quality": "structure-quality surrogate (higher = more confident fold; pLDDT-based proxy)",
+            "Sequence recovery": "sequence-recovery score (higher = closer to parent)",
+            "Custom composite": "weighted composite of the heuristics above",
+        }.get(_fit_obj, "heuristic fitness surrogate")
+        st.caption(
+            f"**Fitness = {_fit_desc}.** Values are a dimensionless, monotonic surrogate "
+            "(higher is better) used only to rank variants within this run — they are NOT "
+            "ΔΔG (kcal/mol) or Tm (°C) and are not comparable across runs or fitness functions. "
+            "Treat the biophysical deltas below as the primary quantitative readout."
+        )
+
         # Summary metrics
         col1, col2, col3, col4 = st.columns(4)
 
@@ -520,7 +551,12 @@ with main_tabs[2]:
         col_chart, col_data = st.columns([2, 1])
 
         with col_chart:
-            st.line_chart(df[["best_fitness", "mean_fitness"]])
+            _chart_df = df[["generation", "best_fitness", "mean_fitness"]].set_index("generation")
+            st.line_chart(
+                _chart_df,
+                x_label="Generation",
+                y_label="Fitness (dimensionless surrogate, higher = better)",
+            )
 
         with col_data:
             st.dataframe(df[["generation", "best_fitness", "diversity"]].tail(10))
@@ -773,9 +809,10 @@ with main_tabs[2]:
             from protein_design_hub.web.visualizations import show_structure_with_pymol_fallback
             import tempfile
 
-            with tempfile.NamedTemporaryFile(suffix=".pdb", delete=False, mode="w") as tmp:
-                tmp.write(st.session_state.evo_structure)
-                tmp_path = Path(tmp.name)
+            # Stable per-session path so reruns overwrite one file instead of leaking
+            # a new tempfile every render (delete=False never cleaned up otherwise).
+            tmp_path = Path(tempfile.gettempdir()) / "pdhub_evo_best_variant.pdb"
+            tmp_path.write_text(st.session_state.evo_structure)
 
             show_structure_with_pymol_fallback(tmp_path, title="Best Evolved Variant", height=400)
 

@@ -11,7 +11,6 @@ from protein_design_hub.web.ui import (
     page_header,
     section_header,
     workflow_breadcrumb,
-    cross_page_actions,
 )
 from protein_design_hub.web.agent_helpers import (
     render_contextual_insight,
@@ -334,37 +333,60 @@ with main_tabs[1]:
     else:
         alignment = st.session_state.msa_alignment
 
-        # Conservation method
+        # Conservation method — selects which per-position field is plotted/scored.
+        # The calculator computes all three fields (shannon_entropy, js_divergence,
+        # conservation_score) in one pass; this control chooses the displayed metric.
         method = st.selectbox(
-            "Conservation method",
-            ["Shannon entropy", "Jensen-Shannon divergence", "Composite score"],
-            help="Shannon entropy: raw per-position variability. JSD: accounts for background frequencies — preferred. Composite: blends both."
+            "Conservation score",
+            ["Composite score", "Shannon entropy", "Jensen-Shannon divergence"],
+            help=(
+                "Composite: normalised, gap-penalised conservation (0-1, higher = more conserved). "
+                "Shannon entropy: raw per-position variability (higher = more variable). "
+                "JSD: divergence from background amino-acid frequencies (higher = more conserved)."
+            ),
         )
+        _METHOD_FIELD = {
+            "Composite score": ("conservation_score", "Conservation", False),
+            "Shannon entropy": ("shannon_entropy", "Shannon entropy", True),
+            "Jensen-Shannon divergence": ("js_divergence", "JS divergence", False),
+        }
+        _field_attr, _field_label, _higher_is_variable = _METHOD_FIELD[method]
 
-        # Auto-calculate when MSA changes; re-run manually to change method
-        _cons_key = f"cons_{id(alignment)}_{method}"
-        if st.button("🔬 Calculate Conservation") or _cons_key not in st.session_state:
+        # Stable content-hash cache key (NOT id(), which is a memory address and
+        # unstable across reruns/GC). The displayed field is selected at render time,
+        # so the cached analysis is reused across methods without recomputation.
+        import hashlib as _hashlib
+        _aln_hash = _hashlib.sha1("\n".join(alignment).encode()).hexdigest()[:16]
+        _cons_key = f"cons_{_aln_hash}"
+
+        # Gate computation behind the button only — no auto-run on first render.
+        if st.button("🔬 Calculate Conservation"):
             try:
                 from protein_design_hub.msa.conservation import ConservationCalculator
 
                 calculator = ConservationCalculator()
                 results = calculator.analyze_alignment(alignment)
                 st.session_state.conservation_results = results
-                st.session_state[_cons_key] = True
+                st.session_state["conservation_cache_key"] = _cons_key
                 st.success("Conservation analysis complete!")
             except ImportError:
                 st.error("MSA conservation module not available — check installation.")
             except Exception as e:
                 st.error(f"Error: {e}")
 
+        # Invalidate stale results if the alignment changed since last compute.
+        if (
+            'conservation_results' in st.session_state
+            and st.session_state.get("conservation_cache_key") != _cons_key
+        ):
+            st.info("Alignment changed — click **Calculate Conservation** to recompute.")
+            del st.session_state['conservation_results']
+
         # Show results
         if 'conservation_results' in st.session_state:
             results = st.session_state.conservation_results
 
             st.markdown("---")
-
-            # Conservation plot
-            st.markdown("#### Conservation Profile")
 
             import pandas as pd
             import plotly.graph_objects as go
@@ -374,12 +396,22 @@ with main_tabs[1]:
                     'Position': r.position + 1,
                     'Conservation': r.conservation_score,
                     'Entropy': r.shannon_entropy,
+                    'JSD': r.js_divergence if r.js_divergence is not None else 0.0,
                     'Consensus': r.consensus_residue,
                     'Consensus %': r.consensus_frequency * 100,
                     'Gap %': r.gap_frequency * 100,
                 }
                 for r in results
             ])
+
+            # Selected per-position field (driven by the method selectbox above).
+            _plot_col = {
+                "conservation_score": "Conservation",
+                "shannon_entropy": "Entropy",
+                "js_divergence": "JSD",
+            }[_field_attr]
+            _plot_vals = df[_plot_col]
+            _vmax = float(_plot_vals.max()) if len(_plot_vals) else 1.0
 
             # Summary stats
             col1, col2, col3, col4 = st.columns(4)
@@ -396,19 +428,24 @@ with main_tabs[1]:
                 gapped = sum(1 for r in results if r.gap_frequency > 0.5)
                 st.metric("Gapped columns (>50%)", gapped)
 
-            st.markdown("#### Conservation Profile")
+            st.markdown(f"#### Conservation Profile — {_field_label}")
 
-            # Colour-coded bar chart: high conservation = teal, low = salmon
+            # Colour-coded bar chart. For entropy (higher = more variable) the colour
+            # scale is inverted so the teal end always marks the more conserved end.
+            def _norm(v: float) -> float:
+                s = (v / _vmax) if _vmax > 0 else 0.0
+                return (1.0 - s) if _higher_is_variable else s
+
             fig = go.Figure()
             fig.add_trace(go.Bar(
                 x=df['Position'],
-                y=df['Conservation'],
+                y=_plot_vals,
                 marker_color=[
-                    f"rgb({int(32+(0-32)*s)},{int(52+(200-52)*s)},{int(80+(180-80)*s)})"
-                    for s in df['Conservation']
+                    f"rgb({int(32+(0-32)*_norm(v))},{int(52+(200-52)*_norm(v))},{int(80+(180-80)*_norm(v))})"
+                    for v in _plot_vals
                 ],
                 hovertemplate=(
-                    "Pos %{x}<br>Conservation: %{y:.3f}"
+                    f"Pos %{{x}}<br>{_field_label}: %{{y:.3f}}"
                     "<br>Consensus: %{customdata[0]} (%{customdata[1]:.1f}%)"
                     "<extra></extra>"
                 ),
@@ -418,8 +455,7 @@ with main_tabs[1]:
                 height=260,
                 margin=dict(l=0, r=0, t=20, b=0),
                 xaxis_title="Position",
-                yaxis_title="Conservation",
-                yaxis=dict(range=[0, 1]),
+                yaxis_title=_field_label,
                 plot_bgcolor='rgba(0,0,0,0)',
                 paper_bgcolor='rgba(0,0,0,0)',
                 font=dict(color='#cbd5e1'),
@@ -460,6 +496,23 @@ with main_tabs[2]:
         This analysis uses mutual information with APC correction.
         """)
 
+        # MSA quality gate (mirrors the Input-tab guide): mutual information from a
+        # handful of sequences is dominated by sampling noise, not real coevolution.
+        _n_seqs = len(alignment)
+        _coevo_unreliable = _n_seqs < 30
+        if _coevo_unreliable:
+            st.error(
+                f"⚠️ Only {_n_seqs} sequences — below the ~30-sequence floor for "
+                "coevolution. Mutual information from this few sequences is statistically "
+                "meaningless: any 'contacts' are sampling noise, not real coevolution. "
+                "Use ≥100 sequences for reliable signal. Results below are illustrative only."
+            )
+        elif _n_seqs < 100:
+            st.warning(
+                f"Minimal MSA ({_n_seqs} sequences). Coevolution signal will be noisy; "
+                "treat ranked pairs as weak hypotheses, not confirmed contacts."
+            )
+
         col_params, col_run = st.columns([2, 1])
 
         with col_params:
@@ -495,16 +548,30 @@ with main_tabs[2]:
 
             import pandas as pd
 
-            df = pd.DataFrame([
-                {
-                    'Position i': r.position_i + 1,
-                    'Position j': r.position_j + 1,
-                    'MI (APC)': f"{r.apc_corrected_mi:.4f}",
-                    'Normalized MI': f"{r.normalized_mi:.4f}",
-                    'Contact Prob': f"{r.contact_probability:.3f}",
-                }
-                for r in results[:50]
-            ])
+            # "Contact Prob" is a heuristic MI-derived estimate, not a calibrated
+            # probability. Below the sequence-count floor it is meaningless, so we
+            # drop the column entirely rather than imply structural contacts.
+            _row = lambda r: {
+                'Position i': r.position_i + 1,
+                'Position j': r.position_j + 1,
+                'MI (APC)': f"{r.apc_corrected_mi:.4f}",
+                'Normalized MI': f"{r.normalized_mi:.4f}",
+            }
+            if _coevo_unreliable:
+                df = pd.DataFrame([_row(r) for r in results[:50]])
+                st.caption(
+                    "Contact-probability estimate suppressed: below ~30 sequences it "
+                    "carries no structural meaning."
+                )
+            else:
+                df = pd.DataFrame([
+                    {**_row(r), 'Contact Prob (heuristic)': f"{r.contact_probability:.3f}"}
+                    for r in results[:50]
+                ])
+                st.caption(
+                    "Contact Prob is a heuristic MI-derived estimate, not a calibrated "
+                    "probability — confirm against a predicted/experimental structure."
+                )
 
             st.dataframe(df, width='stretch')
 
@@ -774,6 +841,15 @@ with main_tabs[4]:
             # Suggest mutations
             st.markdown("---")
             st.markdown("#### Suggest Beneficial Mutations")
+
+            # PSSM mutation suggestions are only meaningful with enough sequences;
+            # from <30 the column frequencies are dominated by sampling noise.
+            if len(alignment) < 30:
+                st.warning(
+                    f"⚠️ Only {len(alignment)} sequences — PSSM-based mutation suggestions "
+                    "are unreliable below ~30 sequences (column frequencies are sampling "
+                    "noise). Treat any suggestions below as illustrative, not actionable."
+                )
 
             query_seq = st.text_input(
                 "Query sequence for mutation suggestions",

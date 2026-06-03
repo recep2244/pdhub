@@ -313,7 +313,7 @@ with col_gs3:
             unsafe_allow_html=True,
         )
         if st.button("Plant Biology Tools", key="h_plant", width='stretch'):
-            st.switch_page("app_pages/10_mutation_scanner.py")
+            st.switch_page("app_pages/15_plant.py")
 
 # ── Recent Activity ──────────────────────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)

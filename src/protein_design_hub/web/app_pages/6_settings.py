@@ -91,6 +91,44 @@ def _render_badges(items: Iterable[Tuple[str, str]]) -> None:
     if badges:
         st.markdown(f'<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;">{badges}</div>', unsafe_allow_html=True)
 
+
+def _install_preflight(min_free_gb: float = 5.0) -> Tuple[bool, str]:
+    """Cheap precondition checks before a blocking, multi-GB predictor install.
+
+    Returns (ok, message). Checks free disk on the home/cache volume and basic
+    outbound network reachability. Installs run synchronously on the main
+    Streamlit thread and freeze the whole app for their duration, so we fail
+    fast here rather than block on a doomed download.
+    """
+    import shutil
+    import socket
+
+    # Disk space on the volume that holds the install/cache dir.
+    try:
+        free_gb = shutil.disk_usage(Path.home()).free / (1024 ** 3)
+        if free_gb < min_free_gb:
+            return False, (
+                f"Only {free_gb:.1f} GB free on the home volume; predictor weights "
+                f"can be several GB. Free up space (≥{min_free_gb:.0f} GB recommended) before installing."
+            )
+    except Exception:
+        free_gb = None  # non-fatal — don't block on an unreadable volume
+
+    # Outbound connectivity (downloads pull from PyPI / model hubs).
+    try:
+        socket.setdefaulttimeout(4)
+        socket.create_connection(("pypi.org", 443)).close()
+    except Exception:
+        return False, (
+            "No outbound network reachable (could not connect to pypi.org:443). "
+            "Predictor installs download weights and packages — check your connection first."
+        )
+
+    note = "Disk and network look OK."
+    if free_gb is not None:
+        note = f"{free_gb:.0f} GB free, network reachable."
+    return True, note
+
 # Predictor info dictionary (shared across tabs)
 predictor_info = {
     "colabfold": {"icon": "🔬", "name": "ColabFold", "desc": "AlphaFold2 + MMseqs2"},
@@ -280,13 +318,24 @@ with tabs[1]:
                     with col2:
                         if is_installed:
                             if st.button("🔄 Update", key=f"update_{pred_id}", width='stretch'):
-                                with st.spinner(f"Updating {info['name']}..."):
-                                    success = predictor.installer.update()
+                                ok, msg = _install_preflight()
+                                if not ok:
+                                    st.error(f"Preflight check failed: {msg}")
+                                else:
+                                    with st.spinner(f"Updating {info['name']}... (app is frozen until done)"):
+                                        try:
+                                            success = predictor.installer.update()
+                                        except Exception as upd_err:
+                                            success = False
+                                            st.error(f"Update failed: {upd_err}")
+                                            import traceback
+                                            with st.expander("Show updater error detail"):
+                                                st.code(traceback.format_exc(), language="text")
                                     if success:
                                         st.success("Updated!")
                                         st.rerun()
-                                    else:
-                                        st.error("Update failed")
+                                    elif success is False:
+                                        st.error("Update failed — see error detail above.")
 
                             confirm_key = f"confirm_uninstall_{pred_id}"
                             if st.button("🗑️ Uninstall", key=f"uninstall_{pred_id}", width='stretch', type="secondary"):
@@ -305,14 +354,26 @@ with tabs[1]:
                                         st.session_state.pop(confirm_key, None)
                                         st.rerun()
                         else:
+                            st.caption("⏳ Install runs synchronously and freezes the app (all tabs) until it finishes.")
                             if st.button("📥 Install", key=f"install_{pred_id}", type="primary", width='stretch'):
-                                with st.spinner(f"Installing {info['name']}..."):
-                                    success = predictor.installer.install()
+                                ok, msg = _install_preflight()
+                                if not ok:
+                                    st.error(f"Preflight check failed: {msg}")
+                                else:
+                                    with st.spinner(f"Installing {info['name']}... (app is frozen until done)"):
+                                        try:
+                                            success = predictor.installer.install()
+                                        except Exception as inst_err:
+                                            success = False
+                                            st.error(f"Installation failed: {inst_err}")
+                                            import traceback
+                                            with st.expander("Show installer error detail"):
+                                                st.code(traceback.format_exc(), language="text")
                                     if success:
                                         st.success("Installed!")
                                         st.rerun()
-                                    else:
-                                        st.error("Installation failed")
+                                    elif success is False:
+                                        st.error("Installation failed — check the predictor's requirements and logs above.")
                 except Exception as e:
                     st.error(f"Error: {e}")
 
@@ -320,41 +381,64 @@ with tabs[1]:
 
         # Batch operations
         st.markdown("### Batch Operations")
+        st.caption("⏳ Batch install/update runs synchronously and may freeze the app (all tabs) for several minutes per predictor.")
 
         col1, col2, col3 = st.columns(3)
 
         with col1:
             if st.button("📥 Install All Missing", width='stretch', type="primary"):
-                progress = st.progress(0)
-                status_text = st.empty()
+                ok, msg = _install_preflight(min_free_gb=10.0)
+                if not ok:
+                    st.error(f"Preflight check failed: {msg}")
+                else:
+                    progress = st.progress(0)
+                    status_text = st.empty()
+                    errors = []
 
-                predictors = PredictorRegistry.list_available()
-                for i, name in enumerate(predictors):
-                    status_text.text(f"Checking {name}...")
-                    predictor = PredictorRegistry.get(name, settings)
-                    if not predictor.installer.is_installed():
-                        status_text.text(f"Installing {name}...")
-                        predictor.installer.install()
-                    progress.progress((i + 1) / len(predictors))
+                    predictors = PredictorRegistry.list_available()
+                    for i, name in enumerate(predictors):
+                        status_text.text(f"Checking {name}...")
+                        predictor = PredictorRegistry.get(name, settings)
+                        if not predictor.installer.is_installed():
+                            status_text.text(f"Installing {name}...")
+                            try:
+                                predictor.installer.install()
+                            except Exception as e:
+                                errors.append(f"{name}: {e}")
+                        progress.progress((i + 1) / len(predictors))
 
-                status_text.text("Complete!")
-                st.success("All predictors processed!")
+                    status_text.text("Complete!")
+                    if errors:
+                        st.error("Some installs failed:\n" + "\n".join(f"- {e}" for e in errors))
+                    else:
+                        st.success("All predictors processed!")
 
         with col2:
             if st.button("🔄 Update All", width='stretch'):
-                progress = st.progress(0)
-                status_text = st.empty()
+                ok, msg = _install_preflight()
+                if not ok:
+                    st.error(f"Preflight check failed: {msg}")
+                else:
+                    progress = st.progress(0)
+                    status_text = st.empty()
+                    errors = []
 
-                predictors = PredictorRegistry.list_available()
-                for i, name in enumerate(predictors):
-                    status_text.text(f"Updating {name}...")
-                    predictor = PredictorRegistry.get(name, settings)
-                    if predictor.installer.is_installed():
-                        predictor.installer.update()
-                    progress.progress((i + 1) / len(predictors))
+                    predictors = PredictorRegistry.list_available()
+                    for i, name in enumerate(predictors):
+                        status_text.text(f"Updating {name}...")
+                        predictor = PredictorRegistry.get(name, settings)
+                        if predictor.installer.is_installed():
+                            try:
+                                predictor.installer.update()
+                            except Exception as e:
+                                errors.append(f"{name}: {e}")
+                        progress.progress((i + 1) / len(predictors))
 
-                status_text.text("Complete!")
-                st.success("All predictors updated!")
+                    status_text.text("Complete!")
+                    if errors:
+                        st.error("Some updates failed:\n" + "\n".join(f"- {e}" for e in errors))
+                    else:
+                        st.success("All predictors updated!")
 
         with col3:
             if st.button("🧪 Verify All", width='stretch'):
@@ -409,6 +493,12 @@ with tabs[1]:
 with tabs[2]:
     section_header("User Preferences", "Customize display and defaults", "🎨")
 
+    st.info(
+        "These preferences are saved to `~/.pdhub/preferences.json` but are **not yet "
+        "applied** automatically — the Predict and visualization pages do not load them "
+        "back as defaults. Treat this as a saved profile for now."
+    )
+
     col1, col2 = st.columns(2)
 
     with col1:
@@ -451,19 +541,9 @@ with tabs[2]:
 
     st.markdown("---")
 
-    col3, col4 = st.columns(2)
-
-    with col3:
-        with st.container(border=True):
-            st.markdown("### Notifications")
-            notify_on_complete = st.checkbox("Browser notification on completion", value=False)
-            play_sound = st.checkbox("Play sound on completion", value=False)
-
-    with col4:
-        pass  # Reserved for future settings
-
-    st.markdown("---")
-
+    # Completion notifications (browser notification / sound) have no handler in the
+    # codebase, so the checkboxes are omitted rather than shown as no-ops that mislead
+    # users into thinking they take effect.
     if st.button("💾 Save Preferences", type="primary", width='stretch'):
         preferences = {
             "show_confidence": show_confidence,
@@ -472,8 +552,6 @@ with tabs[2]:
             "default_predictor": default_predictor,
             "default_num_models": default_num_models,
             "default_num_recycles": default_num_recycles,
-            "notify_on_complete": notify_on_complete,
-            "play_sound": play_sound,
         }
 
         prefs_path = Path.home() / ".pdhub" / "preferences.json"
@@ -651,6 +729,9 @@ with tabs[4]:
         "Model Weights": Path.home() / ".cache" / "torch" / "hub",
         "Job Database": Path.home() / ".pdhub" / "jobs.db",
     }
+    # Entries that live outside the pdhub-owned tree and are shared system-wide;
+    # clearing these can delete weights other projects rely on.
+    _SHARED_SYSTEM_CACHES = {"Model Weights"}
 
     for name, path in cache_dirs.items():
         with st.container(border=True):
@@ -659,6 +740,8 @@ with tabs[4]:
             with col1:
                 st.markdown(f"**{name}**")
                 st.caption(str(path)[:60] + "..." if len(str(path)) > 60 else str(path))
+                if name in _SHARED_SYSTEM_CACHES:
+                    st.caption("⚠️ System-wide torch hub cache — shared with other projects, not pdhub-only.")
 
             with col2:
                 if path.exists():
@@ -676,17 +759,36 @@ with tabs[4]:
 
             with col3:
                 if path.exists():
+                    _confirm_key = f"confirm_clear_{name}"
                     if st.button("🗑️ Clear", key=f"clear_{name}", width='stretch'):
-                        try:
-                            if path.is_file():
-                                path.unlink()
-                            else:
-                                import shutil
-                                shutil.rmtree(path)
-                            st.success(f"Cleared {name}")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error: {e}")
+                        st.session_state[_confirm_key] = True
+
+                    if st.session_state.get(_confirm_key):
+                        if name in _SHARED_SYSTEM_CACHES:
+                            st.warning(
+                                f"Delete **{name}**? This is a **system-wide** cache "
+                                f"(`{path}`) shared with other projects."
+                            )
+                        else:
+                            st.warning(f"Delete **{name}**? This cannot be undone.")
+                        cc_yes, cc_no = st.columns(2)
+                        with cc_yes:
+                            if st.button("✅ Confirm", key=f"confirm_yes_{name}", width='stretch'):
+                                try:
+                                    if path.is_file():
+                                        path.unlink()
+                                    else:
+                                        import shutil
+                                        shutil.rmtree(path)
+                                    st.session_state.pop(_confirm_key, None)
+                                    st.success(f"Cleared {name}")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error: {e}")
+                        with cc_no:
+                            if st.button("❌ Cancel", key=f"confirm_no_{name}", width='stretch'):
+                                st.session_state.pop(_confirm_key, None)
+                                st.rerun()
 
     st.markdown("---")
 
@@ -697,18 +799,42 @@ with tabs[4]:
 
     with col1:
         if st.button("🧹 Clear All Caches", width='stretch'):
-            import shutil
-            cache_root = Path.home() / ".pdhub" / "cache"
-            if cache_root.exists():
-                shutil.rmtree(cache_root)
-                st.success("All caches cleared!")
+            st.session_state["confirm_clear_all_caches"] = True
+        if st.session_state.get("confirm_clear_all_caches"):
+            st.warning("Delete the entire `~/.pdhub/cache` tree? This cannot be undone.")
+            ca_yes, ca_no = st.columns(2)
+            with ca_yes:
+                if st.button("✅ Confirm clear all", key="confirm_clear_all_yes", width='stretch'):
+                    import shutil
+                    cache_root = Path.home() / ".pdhub" / "cache"
+                    if cache_root.exists():
+                        shutil.rmtree(cache_root)
+                    st.session_state.pop("confirm_clear_all_caches", None)
+                    st.success("All caches cleared!")
+                    st.rerun()
+            with ca_no:
+                if st.button("❌ Cancel", key="confirm_clear_all_no", width='stretch'):
+                    st.session_state.pop("confirm_clear_all_caches", None)
+                    st.rerun()
 
     with col2:
         if st.button("🗑️ Clear Job History", width='stretch'):
-            db_path = Path.home() / ".pdhub" / "jobs.db"
-            if db_path.exists():
-                db_path.unlink()
-                st.success("Job history cleared!")
+            st.session_state["confirm_clear_jobs"] = True
+        if st.session_state.get("confirm_clear_jobs"):
+            st.warning("Delete the job history database (`~/.pdhub/jobs.db`)? This cannot be undone.")
+            cj_yes, cj_no = st.columns(2)
+            with cj_yes:
+                if st.button("✅ Confirm", key="confirm_clear_jobs_yes", width='stretch'):
+                    db_path = Path.home() / ".pdhub" / "jobs.db"
+                    if db_path.exists():
+                        db_path.unlink()
+                    st.session_state.pop("confirm_clear_jobs", None)
+                    st.success("Job history cleared!")
+                    st.rerun()
+            with cj_no:
+                if st.button("❌ Cancel", key="confirm_clear_jobs_no", width='stretch'):
+                    st.session_state.pop("confirm_clear_jobs", None)
+                    st.rerun()
 
     with col3:
         total_size = 0
@@ -745,10 +871,22 @@ with tabs[4]:
                             with col1:
                                 st.text(job_dir.name)
                             with col2:
+                                _job_confirm = f"confirm_del_job_{job_dir.name}"
                                 if st.button("🗑️", key=f"del_job_{job_dir.name}"):
-                                    import shutil
-                                    shutil.rmtree(job_dir)
-                                    st.rerun()
+                                    st.session_state[_job_confirm] = True
+                            if st.session_state.get(_job_confirm):
+                                st.warning(f"Delete job output `{job_dir.name}`? This cannot be undone.")
+                                jc_yes, jc_no = st.columns(2)
+                                with jc_yes:
+                                    if st.button("✅ Confirm", key=f"del_job_yes_{job_dir.name}", width='stretch'):
+                                        import shutil
+                                        shutil.rmtree(job_dir)
+                                        st.session_state.pop(_job_confirm, None)
+                                        st.rerun()
+                                with jc_no:
+                                    if st.button("❌ Cancel", key=f"del_job_no_{job_dir.name}", width='stretch'):
+                                        st.session_state.pop(_job_confirm, None)
+                                        st.rerun()
         else:
             st.info(f"Output directory not yet created: `{output_path}`")
 

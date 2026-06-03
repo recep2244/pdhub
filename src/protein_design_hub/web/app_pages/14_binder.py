@@ -18,8 +18,12 @@ from protein_design_hub.web.ui import (
     status_badge, sidebar_nav, sidebar_system_status,
 )
 from protein_design_hub.design.campaign import (
-    plan_campaign, assess_health, recommend_stack,
+    plan_campaign, assess_health,
 )
+
+# Project root (…/protein_design_hub), not the process CWD, so generated
+# backbones land in a predictable outputs/ dir regardless of where Streamlit runs.
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
 
 inject_base_css()
 sidebar_nav(current="Binder Design")
@@ -93,8 +97,25 @@ with st.form("campaign_plan"):
                                 help="Drives the recommended tool stack")
     with c4:
         predictor = st.selectbox("Validation predictor", ["chai", "boltz2", "colabfold", "esmfold"],
-                                 help="Chai/Boltz give PAE → enables ipSAE interface ranking")
+                                 help="Chai/Boltz2 give inter-chain PAE → enables ipSAE / interface "
+                                      "ranking. ESMFold (and single-sequence ColabFold) do not.")
     submitted = st.form_submit_button("📐 Plan campaign", type="primary", width="stretch")
+
+# Inter-chain PAE is required for ipSAE / interface ranking — the core binder metric.
+_NO_INTERFACE_PAE = {"esmfold"}
+if predictor in _NO_INTERFACE_PAE:
+    info_box(
+        f"<b>{predictor}</b> does not produce inter-chain PAE, so ipSAE and interface "
+        "ranking — the core readout for binder quality — cannot be computed. Use it only "
+        "for monomer fold sanity checks, and switch to <b>chai</b> or <b>boltz2</b> to rank "
+        "binder–target complexes.",
+        variant="warning", title="No interface ranking with this predictor",
+    )
+elif predictor == "colabfold":
+    st.caption(
+        "ColabFold gives inter-chain PAE only in multimer mode with a paired MSA; "
+        "single-sequence ColabFold cannot rank the interface — prefer chai / boltz2."
+    )
 
 if submitted or st.session_state.get("_binder_plan"):
     if submitted:
@@ -129,6 +150,28 @@ if submitted or st.session_state.get("_binder_plan"):
 
 
 # ── Backbone generation (RFdiffusion) ────────────────────────────────────────
+import re as _re
+
+_CONTIG_TOKEN = _re.compile(
+    r"^(?:[A-Za-z]?\d+-\d+|\d+|0)$"  # 'A1-100', '50-50', '100', chain break '0'
+)
+
+
+def _valid_contig(spec: str) -> bool:
+    """Lightweight validation of RFdiffusion contigmap.contigs grammar.
+
+    Accepts space- and slash-separated tokens: residue ranges (min-max),
+    chain segments (A1-100), fixed counts, and chain-break '0'. Empty/None
+    is treated as valid (generator falls back to its own default).
+    """
+    if not spec or not spec.strip():
+        return True
+    tokens = [t for t in _re.split(r"[\s/]+", spec.strip()) if t]
+    if not tokens:
+        return False
+    return all(_CONTIG_TOKEN.match(tok) for tok in tokens)
+
+
 section_header("Backbone Generation", "RFdiffusion de novo backbones", "🧱")
 if not _avail.get("RFdiffusion"):
     st.caption("⚪ RFdiffusion unavailable — install to enable. Planning above works regardless.")
@@ -143,11 +186,19 @@ else:
             target_pdb = st.text_input("Target PDB (optional, for binders)", value="",
                                        help="Path to target structure for binder design")
         go = st.form_submit_button("🧱 Generate backbones", type="primary", width="stretch")
-    if go:
+    if go and not _valid_contig(contigs):
+        info_box(
+            f"Contig map <code>{contigs}</code> is not valid RFdiffusion grammar. "
+            "Expected tokens like <code>100-100</code>, <code>A1-100/0 50-50</code> "
+            "(ranges <code>min-max</code>, chain segments <code>A1-100</code>, "
+            "chain breaks <code>/0</code>, slash-separated).",
+            variant="error", title="Invalid contig map",
+        )
+    elif go:
         try:
             from protein_design_hub.design.generators.registry import get_generator
             from protein_design_hub.design.generators.types import BackboneInput
-            out_dir = Path("outputs") / f"binder_bb_{datetime.now():%Y%m%d_%H%M%S}"
+            out_dir = PROJECT_ROOT / "outputs" / f"binder_bb_{datetime.now():%Y%m%d_%H%M%S}"
             out_dir.mkdir(parents=True, exist_ok=True)
             bi = BackboneInput(
                 job_id=out_dir.name, output_dir=out_dir,
@@ -170,6 +221,11 @@ else:
 
 # ── Campaign health ──────────────────────────────────────────────────────────
 section_header("Campaign Health", "Diagnose a running campaign from observed pass rates", "🩺")
+st.caption(
+    "What-if calculator: the verdict below is computed live from the slider values you "
+    "enter, not from a running campaign. Enter the pass fractions you observe (or expect) "
+    "to get a diagnosis."
+)
 h1, h2, h3 = st.columns(3)
 with h1:
     plddt_pass = st.slider("pLDDT pass fraction", 0.0, 1.0, 0.4, 0.01)

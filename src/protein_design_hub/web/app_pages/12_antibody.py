@@ -27,18 +27,10 @@ from protein_design_hub.web.ui import (
     page_header,
     section_header,
     metric_card,
-    metric_card_with_context,
-    card_start,
-    card_end,
     info_box,
-    workflow_breadcrumb,
-    cross_page_actions,
-    render_badge,
 )
 from protein_design_hub.web.agent_helpers import (
     render_agent_advice_panel,
-    render_contextual_insight,
-    render_ml_stats_panel,
     agent_sidebar_status,
     render_all_experts_panel,
 )
@@ -133,7 +125,7 @@ _CHAIN_COLORS = {
     "VH": "#16b89c",
     "VL_kappa": "#0891b2",
     "VL_lambda": "#0d9488",
-    "VHH": "#7c3aed",
+    "VHH": "#0e7490",
     "Unknown": "#6b7280",
 }
 
@@ -511,7 +503,8 @@ with tab_cdr:
         if ann.framework_mutations:
             st.markdown("**Framework Mutations vs. Germline:**")
             badge_html = " ".join(
-                f'<span style="background:#e0e7ff;color:#3730a3;padding:2px 8px;'
+                f'<span style="background:rgba(63,224,197,0.16);color:var(--pdhub-text-primary,#e2e8f0);'
+                f'border:1px solid rgba(63,224,197,0.4);padding:2px 8px;'
                 f'border-radius:10px;font-size:0.82em;font-family:monospace;">'
                 f"{_html.escape(m)}</span>"
                 for m in ann.framework_mutations[:20]
@@ -528,8 +521,8 @@ with tab_cdr:
             if ann.h3_kink_motif:
                 st.success(
                     "**H3 Kinked** — CDR-H3 adopts a kinked base conformation "
-                    "(W/Y at FR3 + WGXXD/N kink motif detected). Canonical in "
-                    "~80% of human VH domains; confirm by structure."
+                    "(W/Y at FR3 + WGXXD/N kink motif detected). The kinked base is the "
+                    "predominant conformation across human VH domains; confirm by structure."
                 )
             else:
                 st.info(
@@ -597,9 +590,10 @@ with tab_imm:
             )
 
         st.caption(
-            "⚠️ Heuristic scores only — MHC-II scoring uses a pan-DR PSSM "
-            "(T-cell 50%, APR 30%, B-cell 20%). Not a validated clinical predictor; "
-            "confirm high-risk epitopes with NetMHCIIpan or EpiVax."
+            "⚠️ Heuristic scores only — the 0–100 immunogenicity score is an unitless "
+            "composite (heuristic weighting: T-cell PSSM 50%, APR 30%, B-cell 20%), not a "
+            "calibrated probability. MHC-II scoring uses a pan-DR PSSM. Not a validated "
+            "clinical predictor; confirm high-risk epitopes with NetMHCIIpan or EpiVax."
         )
 
         # ── Per-residue T-cell heatmap ───────────────────────────────────────
@@ -717,7 +711,7 @@ with tab_imm:
                 y=55,
                 line_dash="dash",
                 line_color="#ef4444",
-                annotation_text="Threshold (55)",
+                annotation_text="Heuristic cutoff (55, arb. units)",
                 annotation_position="top right",
             )
             # Shade above-threshold regions
@@ -745,11 +739,15 @@ with tab_imm:
                     )
             fig_bcell.update_layout(
                 xaxis_title="Residue Position",
-                yaxis_title="B-cell Epitope Score",
+                yaxis_title="B-cell Epitope Score (arb. units)",
                 height=220,
                 margin=dict(l=20, r=20, t=30, b=30),
             )
             st.plotly_chart(fig_bcell, width='stretch')
+            st.caption(
+                "B-cell scores are a heuristic propensity (arbitrary units); the 55 line is a "
+                "heuristic cutoff, not a calibrated probability. Use for relative ranking only."
+            )
 
         # ── APR regions ──────────────────────────────────────────────────────
         section_header("Aggregation-Prone Regions (APR)", icon="⚡")
@@ -776,8 +774,12 @@ with tab_imm:
         st.markdown(
             f"**{n_high_tcell} high-risk MHC-II epitope{'s' if n_high_tcell != 1 else ''} detected. "
             f"Immunogenicity risk: {imm.risk_label}.** "
-            "For therapeutic use, regions with score >60 should be redesigned by introducing "
-            "charged or Pro residues at P1/P4/P9 anchor positions."
+            "For therapeutic use, high-scoring core 9-mers can be deimmunised by substituting "
+            "disfavoured residues at the MHC-II anchor positions P1, P4, P6 and P9 — typically "
+            "swapping a hydrophobic anchor for a charged or polar residue that disrupts the "
+            "binding register. Avoid blanket proline insertion, which is often destabilising; "
+            "make conservative, structure-aware swaps and re-score the redesigned core with "
+            "NetMHCIIpan before committing."
         )
 
 
@@ -960,33 +962,49 @@ with tab_fc:
     section_header("Fc Engineering Guide", icon="🔧")
 
     seq_len = len(sequence)
-    is_full_ab = seq_len > 200
+    seq_upper = sequence.upper()
 
-    if not is_full_ab:
+    # Gate Fc detection on actual constant-region motifs rather than length alone.
+    # CH2 N-glycosylation site (EEQYNST), CH3 C-terminus (SLSLSPGK), and the
+    # upper-hinge / CH1-hinge junctions are diagnostic of a real Fc/constant region.
+    _ch2_motif = "EEQYNST" in seq_upper          # CH2 conserved N297 sequon
+    _ch3_motif = "SLSLSPGK" in seq_upper or "SLSLSPG" in seq_upper  # CH3 C-terminus
+    _hinge_motif = (
+        "CPPCP" in seq_upper                      # IgG1/2/3 core hinge
+        or "CPSCP" in seq_upper                   # IgG4 core hinge
+        or "PKSCDKTHTCPPCP" in seq_upper          # IgG1 upper hinge
+    )
+    has_fc_region = _ch2_motif or _ch3_motif or _hinge_motif
+
+    if not has_fc_region:
         info_box(
-            "Variable domain only — Fc engineering not applicable. "
-            f"(Sequence is {seq_len} residues; full IgG typically >600 residues.)",
+            "Variable domain only — no Fc/constant-region motifs detected, so Fc "
+            f"engineering is not applicable to this sequence ({seq_len} residues; "
+            "full IgG is typically >600 residues). The reference tables below are "
+            "informational.",
             variant="info",
         )
     else:
         st.warning(
-            f"This sequence is {seq_len} residues and may contain an Fc region. "
-            "Fc engineering options are shown below."
+            f"Fc/constant-region motifs detected in this {seq_len}-residue sequence "
+            "(putative, motif-based). Fc engineering options are shown below — confirm "
+            "the constant region by alignment before relying on subclass assignment."
         )
-        # Try to detect IgG subclass
-        seq_upper = sequence.upper()
+        # Putative IgG subclass from non-overlapping core-hinge signatures.
         detected_subclass = "Unknown"
-        if "SCPAPEL" in seq_upper:
-            detected_subclass = "IgG4"
-        elif "CPAPELLGG" in seq_upper:
-            detected_subclass = "IgG1 or IgG2"
-        elif "APELLGG" in seq_upper:
-            detected_subclass = "IgG1 (likely)"
+        if "CPSCP" in seq_upper or "ESKYGPPCPSCP" in seq_upper:
+            detected_subclass = "IgG4"          # IgG4 hinge: ...CPSCP...
+        elif "ELKTPLGDTTHTCPRCP" in seq_upper or "CPRCP" in seq_upper:
+            detected_subclass = "IgG3"          # IgG3 hinge: ...CPRCP...
+        elif "ERKCCVECPPCP" in seq_upper:
+            detected_subclass = "IgG2"          # IgG2 hinge: ...VECPPCP...
+        elif "EPKSCDKTHTCPPCP" in seq_upper or "PKSCDKTHTCPPCP" in seq_upper:
+            detected_subclass = "IgG1"          # IgG1 hinge: EPKSCDKTHTCPPCP...
 
         if detected_subclass != "Unknown":
-            st.success(f"Detected subclass: **{detected_subclass}** (motif-based)")
+            st.success(f"Putative subclass: **{detected_subclass}** (hinge-motif based — confirm by alignment)")
         else:
-            st.info("IgG subclass could not be determined from sequence motifs alone.")
+            st.info("IgG subclass could not be determined from hinge motifs alone.")
 
     st.markdown("---")
 
@@ -1308,14 +1326,61 @@ elif stored is not None:
     )
 
 # ---------------------------------------------------------------------------
+# Publish results for cross-page agent context
+# ---------------------------------------------------------------------------
+
+try:
+    _pub: dict = {"sequence_length": len(sequence)}
+    if ann and not ann_error:
+        _pub["chain_type"] = ann.chain_type
+        _pub["chain_confidence"] = round(ann.chain_confidence, 3)
+        _pub["humanness_score"] = round(ann.humanness_score, 1)
+        if ann.germline:
+            _pub["germline_gene"] = ann.germline.gene
+            _pub["germline_identity_pct"] = round(ann.germline.identity, 1)
+    if imm and not imm_error:
+        _pub["immunogenicity_score"] = round(imm.immunogenicity_score, 1)
+        _pub["immunogenicity_risk"] = imm.risk_label
+        _pub["high_risk_mhcii_epitopes"] = sum(
+            1 for e in imm.t_cell_epitopes if e.risk == "High"
+        )
+    if ptm and not ptm_error:
+        _pub["ptm_risk_score"] = round(ptm.risk_score, 1)
+        _pub["ptm_risk_label"] = ptm.risk_label
+        _pub["cdr_ptm_liabilities"] = sum(1 for p in ptm.liabilities if p.in_cdr)
+    if metrics:
+        _pub["pI"] = round(metrics.isoelectric_point, 1)
+        _pub["gravy"] = round(metrics.gravy, 3)
+        _pub["instability_index"] = round(metrics.instability_index, 1)
+    set_page_results("Antibody", _pub)
+except Exception:
+    pass
+
+# ---------------------------------------------------------------------------
 # Cross-page actions
 # ---------------------------------------------------------------------------
 
-cross_page_actions(
-    [
-        {"label": "Scan Mutations", "page": "app_pages/10_mutation_scanner.py", "icon": "🧬"},
-        {"label": "Predict Structure", "page": "app_pages/1_predict.py", "icon": "🔮"},
-        {"label": "Evaluate Structure", "page": "app_pages/2_evaluate.py", "icon": "📊"},
-        {"label": "Scan PTMs", "page": "app_pages/2_evaluate.py", "icon": "⚗️"},
-    ]
-)
+# "Predict Structure" honours the cross-page handoff contract
+# (st.session_state['incoming_prediction_job']) so 1_predict picks up the sequence.
+_xp1, _xp2, _xp3 = st.columns(3)
+with _xp1:
+    if st.button("🧬 Scan Mutations", key="ab_xp_scan", width="stretch"):
+        st.switch_page("app_pages/10_mutation_scanner.py")
+with _xp2:
+    if st.button("🔮 Predict Structure", key="ab_xp_predict", width="stretch"):
+        if sequence:
+            _ab_name = (
+                f"{ann.chain_type} antibody domain"
+                if (ann and not ann_error)
+                else "antibody domain"
+            )
+            st.session_state["incoming_prediction_job"] = {
+                "sequence": sequence,
+                "name": _ab_name,
+                "source": "antibody",
+                "description": "Variable-domain sequence handed off from the Antibody Workbench.",
+            }
+        st.switch_page("app_pages/1_predict.py")
+with _xp3:
+    if st.button("📊 Evaluate Structure", key="ab_xp_eval", width="stretch"):
+        st.switch_page("app_pages/2_evaluate.py")

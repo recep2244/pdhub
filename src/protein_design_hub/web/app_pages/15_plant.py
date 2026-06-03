@@ -45,8 +45,8 @@ c1, c2 = st.columns([0.25, 0.75])
 with c1:
     use_demo = st.button("Load demo (chloroplast + NLR)", width="stretch")
 if use_demo:
-    seq = _DEMO
     st.session_state["plant_seq"] = _DEMO
+    st.rerun()
 seq = "".join(ch for ch in seq if ch.isalpha())
 
 if not seq:
@@ -60,6 +60,8 @@ tab_loc, tab_nlr, tab_codon = st.tabs(
 # ── Localisation ─────────────────────────────────────────────────────────────
 with tab_loc:
     section_header("Subcellular Targeting", "N-terminal transit/signal peptide prediction", "🧭")
+    st.caption("Heuristic N-terminal signal prediction — confidence bands are qualitative. "
+               "Confirm calls and cleavage sites with TargetP-2 / SignalP-6 before committing a construct.")
     pred = tp.predict_transit_peptide(seq)
     m1, m2, m3 = st.columns(3)
     with m1:
@@ -139,11 +141,12 @@ with tab_codon:
         nflags = len(res.cryptic_splice_sites) + len(res.poly_a_signals)
         metric_card(nflags, "Sequence liabilities", "success" if nflags == 0 else "warning", "⚠")
     insight_bar(res.cai, 0, 1, f"Codon Adaptation Index ({host})")
+    st.caption("CAI is scaled 0–1; higher = better-matched to host codon usage (≥ 0.8 is the practical target).")
 
     # cross-host comparison
     try:
         comp = co.compare_species_cai(seq)
-        st.markdown("**CAI across hosts**")
+        st.markdown("**CAI across hosts** (0–1, higher = better)")
         st.bar_chart(comp)
     except Exception:
         pass

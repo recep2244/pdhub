@@ -871,10 +871,19 @@ if seq:
             </div>
             """, unsafe_allow_html=True)
 
-            if len(seq) > 400:
-                st.warning(f"Sequence > 400 residues. Using local ESMFold (requires GPU).")
+            _too_long = len(seq) > 400
+            if _too_long:
+                st.warning(
+                    "Sequence > 400 residues — the ESM Atlas API used here is capped at 400 aa. "
+                    "Use the **Predict** page for a full local/GPU predictor on longer sequences."
+                )
 
-            if st.button("🚀 Predict Structure", type="primary", width='stretch', disabled=st.session_state.esmfold_running):
+            if st.button(
+                "🚀 Predict Structure",
+                type="primary",
+                width='stretch',
+                disabled=st.session_state.esmfold_running or _too_long,
+            ):
                 st.session_state.esmfold_running = True
 
                 with st.spinner("Running ESMFold..."):
@@ -905,7 +914,10 @@ if seq:
                             else:
                                 st.error(f"API Error: {response.status_code}")
                         else:
-                             st.error("Sequence too long for API demo. Local ESMFold not setup.")
+                             st.error(
+                                 "Sequence too long for the ESM Atlas API (>400 aa). "
+                                 "Use the Predict page for a full predictor."
+                             )
                             
                     except Exception as e:
                         st.error(f"Prediction failed: {e}")

@@ -321,25 +321,20 @@ with col_b:
             help="Apply bias to amino acid sampling"
         )
 
-        if bias_mode == "Favor hydrophilic":
-            _omit_aa_bias = "ACFILMVWY"  # omit strongly hydrophobic
-        elif bias_mode == "Avoid cysteine":
-            _omit_aa_bias = "C"
-        else:
-            _omit_aa_bias = ""
-
+        # Note: ProteinMPNN here supports *omitting* amino acids (bias toward
+        # exclusion), not positive favoring or PSSM bias — those would need
+        # backend wiring (--bias_AA_jsonl / --pssm_jsonl) not exposed by the
+        # current designer. Only the "Avoided residues" path below is applied.
         if bias_mode == "Custom":
-            st.text_input(
-                "Favored residues",
-                placeholder="e.g., A,L,V,I",
-                key="mpnn_favored_aa",
-                help="Residues to favor during design"
-            )
             st.text_input(
                 "Avoided residues",
                 placeholder="e.g., C,M,W",
                 key="mpnn_avoided_aa",
-                help="Residues to avoid during design"
+                help="Residues to avoid (omit) during design"
+            )
+            st.caption(
+                "Only residue exclusion is applied. Positive AA-favoring and PSSM bias "
+                "are not wired into this designer."
             )
 
     # Advanced Options
@@ -355,19 +350,6 @@ with col_b:
             placeholder="e.g., C,M",
             help="Never include these amino acids"
         )
-
-        pssm_mode = st.checkbox(
-            "Use PSSM bias",
-            value=False,
-            help="Apply position-specific scoring matrix bias"
-        )
-
-        if pssm_mode:
-            pssm_file = st.file_uploader(
-                "Upload PSSM file",
-                type=["txt", "pssm"],
-                help="BLAST-format PSSM file"
-            )
 
 st.markdown("---")
 

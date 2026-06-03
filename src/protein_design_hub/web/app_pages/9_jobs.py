@@ -23,19 +23,14 @@ from protein_design_hub.web.ui import (
     list_jobs,
     page_header,
     section_header,
-    info_box,
     empty_state,
     status_badge,
     set_selected_backbone,
     set_selected_model,
     sidebar_nav,
     sidebar_system_status,
-    metric_card,  # Added for new UI
-    render_badge, # Added for new UI
-    card_start,   # Added for new UI
-    card_end,     # Added for new UI
+    metric_card,
     workflow_breadcrumb,
-    cross_page_actions,
 )
 
 inject_base_css()
@@ -154,47 +149,91 @@ for i in range(0, len(jobs), cols_per_row):
                 st.markdown(f"**📁 {job_id}**")
                 st.markdown(f'<div class="pdhub-muted">⏱️ {dt}</div>', unsafe_allow_html=True)
 
-                # Artifacts
+                # Artifacts — use the design-system status_badge() (Phosphor Lab) for
+                # accessible, theme-consistent contrast instead of hand-rolled spans.
                 badge_html = []
                 if job['has_prediction']:
-                    badge_html.append('<span style="background:#22c55e;color:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Predict</span>')
+                    badge_html.append(status_badge("Predict", "ok"))
                 if job['has_design']:
-                    badge_html.append('<span style="background:#667eea;color:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Design</span>')
+                    badge_html.append(status_badge("Design", "primary"))
                 if job['has_compare']:
-                    badge_html.append('<span style="background:#60a5fa;color:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Eval</span>')
+                    badge_html.append(status_badge("Eval", "info"))
                 if job.get('has_evolution'):
-                    badge_html.append('<span style="background:#f59e0b;color:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Evo</span>')
+                    badge_html.append(status_badge("Evo", "warning"))
                 if job.get('has_scan'):
-                    badge_html.append('<span style="background:#4cc9f0;color:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-right:4px;">Scan</span>')
+                    badge_html.append(status_badge("Scan", "info"))
                 if job.get('has_meetings'):
-                    badge_html.append(
-                        f'<span style="background:#ec4899;color:#e5e7eb;padding:2px 8px;border-radius:4px;'
-                        f'font-size:0.75rem;margin-right:4px;">Meetings:{job.get("meeting_count", 0)}</span>'
-                    )
+                    badge_html.append(status_badge(f"Meetings:{job.get('meeting_count', 0)}", "primary"))
 
                 if badge_html:
-                    st.markdown(f'<div style="margin: 0.5rem 0;">{"".join(badge_html)}</div>', unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="margin: 0.5rem 0; display:flex; flex-wrap:wrap; gap:4px;">'
+                        f'{"".join(badge_html)}</div>',
+                        unsafe_allow_html=True,
+                    )
 
-                # At-a-glance stats from prediction_summary
+                # At-a-glance stats from prediction_summary.
+                # pLDDT is a per-residue, single-chain confidence — NOT a binding/quality
+                # signal and NOT comparable across predictor families (ESMFold has no PAE/
+                # pTM, so it cannot be ranked against AF2-family scores). For complexes we
+                # additionally surface interface confidence (ipTM) when present.
                 if job["has_prediction"] and job.get("prediction_summary"):
                     try:
                         _ps = json.loads(Path(job["prediction_summary"]).read_text())
                         _best_plddt = None
+                        _best_iptm = None
+                        _best_ptm = None
                         _total_runtime = 0.0
-                        for _pred in _ps.get("predictors", {}).values():
+                        _has_pae = False
+                        _esmfold_only = True
+                        for _pname, _pred in _ps.get("predictors", {}).items():
+                            if "esmfold" not in str(_pname).lower():
+                                _esmfold_only = False
                             _total_runtime += _pred.get("runtime_seconds", 0) or 0
                             for _score in _pred.get("scores", []) or []:
                                 _p = _score.get("plddt")
                                 if _p and (_best_plddt is None or _p > _best_plddt):
                                     _best_plddt = _p
+                                _it = _score.get("iptm")
+                                if _it and (_best_iptm is None or _it > _best_iptm):
+                                    _best_iptm = _it
+                                _pt = _score.get("ptm")
+                                if _pt and (_best_ptm is None or _pt > _best_ptm):
+                                    _best_ptm = _pt
+                                if _score.get("pae") is not None:
+                                    _has_pae = True
                         _stats = []
                         if _best_plddt:
                             _plddt_color = "#22c55e" if _best_plddt >= 70 else "#f59e0b" if _best_plddt >= 50 else "#ef4444"
-                            _stats.append(f'<span style="color:{_plddt_color};font-weight:600;">pLDDT {_best_plddt:.0f}</span>')
+                            # ESMFold has no PAE/pTM — show neutral (not green) so it is not
+                            # visually ranked against PAE-bearing predictors.
+                            if _esmfold_only:
+                                _plddt_color = "#a1a9b8"
+                            _stats.append(
+                                f'<span style="color:{_plddt_color};font-weight:600;" '
+                                f'title="best pLDDT — per-residue confidence, single-chain; '
+                                f'not a binding metric, not comparable across predictors">'
+                                f'pLDDT {_best_plddt:.0f}</span>'
+                            )
+                        # Interface confidence for complex/binder runs
+                        if _best_iptm:
+                            _iptm_color = "#22c55e" if _best_iptm >= 0.7 else "#f59e0b" if _best_iptm >= 0.5 else "#ef4444"
+                            _stats.append(
+                                f'<span style="color:{_iptm_color};font-weight:600;" '
+                                f'title="best ipTM — interface confidence (complex)">'
+                                f'ipTM {_best_iptm:.2f}</span>'
+                            )
+                        elif _best_ptm:
+                            _stats.append(
+                                f'<span style="color:#a1a9b8;" title="best pTM — global fold confidence">'
+                                f'pTM {_best_ptm:.2f}</span>'
+                            )
                         if _total_runtime > 0:
                             _stats.append(f'<span style="color:#a1a9b8;">{_total_runtime/60:.1f}min</span>')
                         if _stats:
                             st.markdown(f'<div style="font-size:0.8rem;margin:2px 0;">{"  ·  ".join(_stats)}</div>', unsafe_allow_html=True)
+                        if _best_plddt and _esmfold_only:
+                            st.caption("ESMFold — pLDDT only (no PAE/ipTM); not comparable to AF2-family confidence.")
                     except Exception:
                         pass
                 if inferred_model:

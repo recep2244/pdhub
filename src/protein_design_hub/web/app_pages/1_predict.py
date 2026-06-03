@@ -585,6 +585,11 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
     # Advanced settings expander
     if selected_predictors:
         with st.expander("⚙️ Model Settings", expanded=False):
+            st.caption(
+                "⚠️ Only **ColabFold** Models/Recycles are wired into the run today. "
+                "ESMFold/Chai-1/Boltz-2/ESM3 settings below are shown for reference and "
+                "currently fall back to each predictor's built-in defaults."
+            )
             settings_cols = st.columns(min(len(selected_predictors), 3))
             settings_ui = {}
 
@@ -962,6 +967,14 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                     st.markdown(f"#### 🏆 Best Result")
                     st.markdown(f"**Model:** {best_name}")
                     metric_card(f"{best_plddt:.1f}", "pLDDT Score", "success", "⭐")
+                    # "Best" here is simply the highest raw pLDDT. pLDDT is NOT calibrated
+                    # across predictor families, so when several were run this is indicative only.
+                    if len({n for n, r in res_dict.items() if r.success}) > 1:
+                        st.caption(
+                            "Selected by highest raw pLDDT. pLDDT is not directly comparable "
+                            "across predictor families — for a cross-model verdict use the "
+                            "Compare page (lDDT/TM-score vs a reference)."
+                        )
 
                     # pLDDT quality interpretation inline
                     if best_plddt >= 90:
@@ -1005,17 +1018,28 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                         st.switch_page("app_pages/10_mutation_scanner.py")
 
         with tab_metrics:
+            # ESMFold / ESM3 are single-sequence predictors: they emit pLDDT (and pTM for
+            # ESMFold) but NO inter-chain PAE and NO ipTM. Only multimer-aware predictors
+            # (ColabFold-multimer, Chai-1, Boltz-2) produce ipTM/PAE. Gate the ipTM column
+            # on capability so ipTM is never shown as 0 (which reads as "failed interface").
+            _NON_INTERFACE_PREDICTORS = {"ESMFold", "ESM3"}
             all_scores = []
+            _any_iptm_capable = False
             for name, res in res_dict.items():
                 if res.success and res.scores:
+                    _iptm_capable = name not in _NON_INTERFACE_PREDICTORS
+                    if _iptm_capable:
+                        _any_iptm_capable = True
                     for i, score in enumerate(res.scores):
-                        all_scores.append({
+                        row = {
                             "Predictor": name,
                             "Model": i + 1,
                             "pLDDT": score.plddt or 0,
                             "pTM": score.ptm or 0,
-                            "ipTM": score.iptm or 0,
-                        })
+                        }
+                        # Only attach an ipTM value when the predictor can produce one.
+                        row["ipTM"] = (score.iptm or 0) if _iptm_capable else None
+                        all_scores.append(row)
 
             if all_scores:
                 # Summary cards with scientific context
@@ -1041,9 +1065,22 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                 # Score table
                 import pandas as pd
                 df = pd.DataFrame(all_scores)
+                _fmt = {"pLDDT": "{:.1f}", "pTM": "{:.3f}"}
+                if _any_iptm_capable:
+                    # Show ipTM but render the not-applicable predictors explicitly.
+                    df["ipTM"] = df["ipTM"].map(
+                        lambda v: f"{v:.3f}" if isinstance(v, (int, float)) else "— (no PAE)"
+                    )
+                else:
+                    # No predictor in this run produces an interface metric.
+                    df = df.drop(columns=["ipTM"], errors="ignore")
+                    st.caption(
+                        "ipTM / PAE not shown — ESMFold and ESM3 are single-sequence predictors "
+                        "and do not produce inter-chain PAE or ipTM. Use ColabFold (multimer), "
+                        "Chai-1, or Boltz-2 for interface confidence."
+                    )
                 st.dataframe(
-                    df.style.format({"pLDDT": "{:.1f}", "pTM": "{:.3f}", "ipTM": "{:.3f}"})
-                    .background_gradient(subset=["pLDDT"], cmap="RdYlGn"),
+                    df.style.format(_fmt).background_gradient(subset=["pLDDT"], cmap="RdYlGn"),
                     width='stretch',
                 )
 
@@ -1060,7 +1097,8 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                 # Statistical analysis + ML expert interpretation
                 render_ml_stats_panel(
                     all_scores,
-                    numeric_keys=["pLDDT", "pTM", "ipTM"],
+                    # ipTM is only a valid numeric column when an interface-capable predictor ran.
+                    numeric_keys=["pLDDT", "pTM", "ipTM"] if _any_iptm_capable else ["pLDDT", "pTM"],
                     target_key="pLDDT",
                     page_name="Prediction",
                     key_prefix="predict_ml_stats",
@@ -1104,12 +1142,16 @@ MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
                 _ptm_vals = [s.get("pTM", 0) for s in all_scores if s.get("pTM", 0) > 0]
                 _plddt_spread = max(_plddt_vals) - min(_plddt_vals) if len(_plddt_vals) > 1 else 0
                 _best_predictor = best.get("Predictor", "unknown")
-                _seq_len = len(st.session_state.get("predict_sequence") or "")
+                # Sequence length comes from the analysed input, not the unset 'predict_sequence' key.
+                _seq_len = int(analysis.get("total_length", 0)) if "analysis" in dir() and isinstance(analysis, dict) else len(sequence_input or "")
+                # ipTM may be None for single-sequence predictors (no PAE) — treat None as absent.
+                _iptm_vals = [s.get("ipTM") for s in all_scores if isinstance(s.get("ipTM"), (int, float)) and s.get("ipTM") > 0]
                 _multimer_hint = (
-                    f"ipTM scores present (multimer mode). Best ipTM: {best.get('ipTM', 0):.3f}. "
+                    f"ipTM scores present (multimer mode). Best ipTM: {max(_iptm_vals):.3f}. "
                     "ipTM > 0.8 → strong interface; 0.6–0.8 → moderate; < 0.6 → weak/non-specific."
-                    if any(s.get("ipTM", 0) > 0 for s in all_scores) else
-                    "Monomer prediction (no ipTM scores)."
+                    if _iptm_vals else
+                    "No ipTM/PAE available — either a monomer prediction or a single-sequence "
+                    "predictor (ESMFold/ESM3) that does not produce interface metrics."
                 )
                 _enriched_ctx = "\n".join([
                     all_ctx,

@@ -200,12 +200,12 @@ steps = [
       "Optional: PTM Liability scanner, Tm prediction, OpenMM GBSA energy.",
       "Export a full PDF report."]),
     ("Step 3", "🧬 Mutagenesis", "app_pages/10_mutation_scanner.py",
-     "Select positions → scan all 19 amino acid substitutions → rank by structural impact.",
+     "Select positions → scan all 19 amino acid substitutions → rank by a consensus composite (ΔΔG + ESM-2 zero-shot ΔLL + conservation).",
      ["Load a sequence (or use the predicted one).",
       "Click 'Run Plant Biology Analysis' if working with plant proteins.",
       "Select 2–5 positions to scan (more = slower).",
       "Run Phase 1: LLM suggests positions. Run Phase 2: ESMFold predicts each variant.",
-      "The ranked table shows delta pLDDT, RMSD, and NLR impact flags (🔴/🟡/🟢)."]),
+      "Rank by the consensus composite (ΔΔG + ESM-2 ΔLL + conservation); treat Δ pLDDT / RMSD as secondary fold-consistency checks. NLR impact flags (🔴/🟡/🟢) annotate domain context."]),
     ("Step 4", "🎯 Design (MPNN)", "app_pages/8_mpnn.py",
      "Upload a backbone structure → ProteinMPNN generates new sequences that fold into it.",
      ["Upload a PDB backbone (use the predicted structure from Step 1).",
@@ -300,15 +300,19 @@ with track_tab2:
 | 1 | **Predict (1)** | Predict baseline structure for your wild-type sequence |
 | 2 | **Evaluate (2)** | Identify unstable regions: low pLDDT, high clash score, exposed hydrophobics |
 | 3 | **Mutagenesis (10)** | Select 3–5 unstable positions → run saturation scan |
-| 4 | **Mutagenesis (10)** | Look for mutations with delta pLDDT > +2 and RMSD < 1.0 Å |
-| 5 | **Evolution (4)** | Set fitness: stability 50% + pLDDT 50%; evolve for 20–50 generations |
+| 4 | **Mutagenesis (10)** | Rank by the consensus composite (ΔΔG + ESM-2 zero-shot ΔLL + conservation); use Δ pLDDT / RMSD only as secondary fold-consistency checks |
+| 5 | **Evolution (4)** | Set a stability-weighted fitness; evolve for 20–50 generations |
 | 6 | **Batch (5)** | Evaluate top variants from evolution; export for wet-lab validation |
 
 #### Key metrics to optimise
 - **Instability index** < 40 = predicted stable
 - **GRAVY score** > 0 = tends to aggregate (avoid)
-- **pLDDT** > 80 in core = good tertiary structure
+- **pLDDT** > 80 in core = good tertiary structure (local confidence only, not a stability/energy proxy)
 - **Tm prediction** (Evaluate page, expander) — target ΔTm > 5°C
+
+> **Ranking note:** Δ pLDDT from ESMFold is a weak, non-energetic proxy and ESMFold emits no PAE.
+> Rank variants by the consensus composite (ΔΔG + ESM-2 zero-shot PLL + conservation).
+> Interface / binder ranking needs a PAE-emitting predictor (Chai-1 / Boltz-2) scored via **ipSAE** — ESMFold cannot provide it.
 
 #### Multi-mutation design
 In the Mutagenesis page → **Multi-Mutation Design** tab, combine top single
@@ -749,8 +753,12 @@ for i, (name, info) in enumerate(examples.items()):
             c_pred, c_mut = st.columns(2)
             with c_pred:
                 if st.button("→ Predict", key=f"ex_pred_{i}", width='stretch'):
-                    st.session_state["predict_sequence"] = info["seq"]
-                    st.session_state["predict_name"] = name
+                    st.session_state["incoming_prediction_job"] = {
+                        "sequence": info["seq"],
+                        "name": name,
+                        "source": "guide",
+                        "description": "Guide example",
+                    }
                     st.switch_page("app_pages/1_predict.py")
             with c_mut:
                 if st.button("→ Mutagenesis", key=f"ex_mut_{i}", width='stretch'):

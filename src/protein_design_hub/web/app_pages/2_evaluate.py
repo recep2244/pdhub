@@ -580,7 +580,10 @@ with col_config:
         )
 
     with tab_refbased:
-        st.caption("Metrics requiring a reference structure for comparison")
+        st.caption(
+            "Metrics requiring a reference structure for comparison. "
+            "Without a reference uploaded below, these are automatically skipped on a Quick run."
+        )
         available_ref_based = [m for m in ref_based_metrics if m in _metric_names]
         selected_ref_based = st.multiselect(
             "Reference-based metrics",
@@ -591,7 +594,10 @@ with col_config:
         )
 
     with tab_interface:
-        st.caption("Interface quality metrics for complexes")
+        st.caption(
+            "Interface quality metrics for complexes. These require a reference structure and are "
+            "automatically skipped on a Quick run if none is uploaded below."
+        )
         available_interface = [m for m in interface_metrics if m in _metric_names]
         selected_interface = st.multiselect(
             "Interface metrics",
@@ -1037,7 +1043,17 @@ if run_quick:
                         "Reference not provided; skipping reference-required metrics: "
                         + ", ".join(sorted(set(quick_metrics) - set(filtered)))
                     )
+                if not filtered:
+                    st.error(
+                        "Every selected metric requires a reference structure, but none was provided. "
+                        "Upload a reference structure or add at least one reference-free metric "
+                        "(Reference-Free tab) before running."
+                    )
+                    st.stop()
                 evaluator = CompositeEvaluator(metrics=filtered, settings=settings)
+            elif not quick_metrics:
+                st.error("No metrics selected. Choose at least one metric before running.")
+                st.stop()
 
             with st.spinner("Computing metrics..."):
                 result = evaluator.evaluate(model_path, reference_path)
@@ -1209,13 +1225,21 @@ if run_quick:
                 _eval_domain_ctx = "\n".join([
                     eval_ctx,
                     "",
-                    "Immunology thresholds: CDR-H3 clash 5-15 = NORMAL for antibody loops (loop disorder). "
-                    "Interface BSA >1200 Å² → high-affinity binder; <600 Å² → weak/transient.",
-                    "Wet lab thresholds: Clash <5 for X-ray crystal deposition; "
-                    "lDDT >0.7 for SPR/BLI docking use; SASA 6000–12000 Å² = typical folded domain.",
-                    "Plant biology note: Low-pLDDT N-terminal regions may be transit peptides "
-                    "(disordered before organellar import/cleavage). Plant LRR domains often show "
-                    "lower VoroMQA scores due to repetitive solenoid geometry — not a quality problem.",
+                    "Metric units / interpretation (for grounding, not fabricated cutoffs):",
+                    "- Clash score is a MolProbity steric-overlap rate per 1000 atoms (global, not per-region): "
+                    "<10 is generally acceptable, <2 is excellent. There is no published 'CDR clash 5-15 = normal' "
+                    "range — interpret clash globally and treat elevated values qualitatively.",
+                    "- SASA is best read per-residue (≈ tens of Å²/residue for buried vs exposed); total SASA "
+                    "scales with chain length, so judge it relative to size rather than against a fixed absolute window.",
+                    "- Interface BSA: larger buried area generally tracks with more stable interfaces, but affinity "
+                    "depends on shape/chemistry — treat BSA qualitatively rather than as a hard affinity cutoff.",
+                    "Immunology note: antibody CDR loops are flexible, so locally elevated per-residue error / lower "
+                    "confidence in CDR-H3 can reflect genuine loop mobility rather than misfolding.",
+                    "Wet lab note: higher lDDT/TM-score and lower clash/Ramachandran-outlier rates increase confidence "
+                    "for downstream docking and structure-based work; weigh qualitatively against the intended assay.",
+                    "Plant biology note: low-confidence N-terminal regions may be transit peptides (disordered before "
+                    "organellar import/cleavage). Plant LRR/solenoid domains can show lower local quality scores due to "
+                    "repetitive geometry — not necessarily a quality problem.",
                 ])
                 render_all_experts_panel(
                     "🧠 All-Expert Investigation (evaluation results)",
@@ -1226,12 +1250,12 @@ if run_quick:
                     context=_eval_domain_ctx,
                     questions=(
                         "Are these structural metrics sufficient for the intended experimental use — "
-                        "X-ray crystallography (clash <5, Ramachandran outliers <2%), SPR/BLI kinetics "
-                        "(lDDT >0.7), or cryo-EM — and what is the single highest-priority structural issue to fix?",
+                        "X-ray crystallography (low MolProbity clash and Ramachandran outliers), SPR/BLI kinetics, "
+                        "or cryo-EM — and what is the single highest-priority structural issue to fix?",
                         "From an immunologist's perspective: if this is an antibody/nanobody structure, "
-                        "do the CDR clash scores, SASA, and interface BSA indicate a well-formed "
-                        "antigen-binding site — or is the elevated clash score in CDR loops expected "
-                        "loop disorder rather than real misfolding?",
+                        "do the SASA and interface BSA indicate a well-formed antigen-binding site — and is "
+                        "any locally lower confidence in the CDR loops better explained by genuine loop "
+                        "mobility than by real misfolding?",
                         "From a wet lab and plant biology perspective: for plant proteins, are the "
                         "low-confidence N-terminal regions transit peptides that should be excluded from "
                         "the mature protein model? What is the single most informative wet lab assay to run "
@@ -1852,7 +1876,9 @@ if run_comprehensive:
                     model_contacts
                 )
                 st.caption(
-                    f"Model has {model_contact_count // 2} contacts at {contact_threshold}Å threshold"
+                    f"Model has {model_contact_count // 2} residue–residue contacts at a "
+                    f"{contact_threshold} Å Cα–Cα distance threshold. "
+                    "Axes are residue indices (1-based); colour encodes inter-residue Cα distance (Å)."
                 )
 
             except Exception as e:
@@ -1898,13 +1924,22 @@ if run_comprehensive:
                     width='stretch',
                 )
 
-            # Save cross-page results
+            # Save cross-page results.
+            # Persist "N/A" (not 0.0000) for metrics that were not computed, so a missing
+            # value is never mistaken for a genuine zero in cross-page summaries/stats.
             _comp_global = results.get("global", {})
+
+            def _fmt_metric(_v):
+                return f"{round(_v, 4)}" if isinstance(_v, (int, float)) else "N/A"
+
+            _comp_rmsd = _comp_global.get("rmsd_ca")
+            if _comp_rmsd is None:
+                _comp_rmsd = _comp_global.get("rmsd")
             set_page_results("Evaluate", {
-                "lddt": str(round(_comp_global.get("lddt", 0), 4)),
-                "tm_score": str(round(_comp_global.get("tm_score", 0), 4)),
-                "rmsd_ca": str(round(_comp_global.get("rmsd_ca", _comp_global.get("rmsd", 0)), 4)),
-                "dockq": str(round(_comp_global.get("dockq", 0), 4)) if _comp_global.get("dockq") else "N/A",
+                "lddt": _fmt_metric(_comp_global.get("lddt")),
+                "tm_score": _fmt_metric(_comp_global.get("tm_score")),
+                "rmsd_ca": _fmt_metric(_comp_rmsd),
+                "dockq": _fmt_metric(_comp_global.get("dockq")),
                 "mode": "Comprehensive",
             })
             _comp_records = [{"metric": k, "value": round(float(v), 4)} for k, v in _comp_global.items() if isinstance(v, (int, float))]
