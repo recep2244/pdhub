@@ -35,6 +35,31 @@ def test_ipsae_low_for_no_interface():
     assert r["ipsae_min"] < 0.4 and not r["passed"]
 
 
+def test_ipsae_for_structure(tmp_path):
+    pytest.importorskip("Bio.PDB")
+    from Bio.PDB import StructureBuilder, PDBIO
+    # 2 chains × 4 CA residues → 8×8 PAE (build via Bio.PDB so columns are valid)
+    sb = StructureBuilder.StructureBuilder()
+    sb.init_structure("s"); sb.init_model(0)
+    n = 0
+    for ch in ("A", "B"):
+        sb.init_chain(ch); sb.init_seg("    ")
+        for r in range(1, 5):
+            sb.init_residue("ALA", " ", r, " ")
+            n += 1
+            sb.init_atom("CA", [n * 3.0, 0.0, 0.0], 90.0, 1.0, " ", "CA", n, "C")
+    io = PDBIO(); io.set_structure(sb.get_structure())
+    pdb = tmp_path / "c.pdb"; io.save(str(pdb))
+    cl = ipsae.chain_lengths_from_structure(pdb)
+    assert cl == [4, 4]
+    pae = _block_pae(4, 4, intra=1.0, inter=1.0)
+    val = ipsae.ipsae_for_structure(pae, tmp_path / "c.pdb")
+    assert isinstance(val, float) and 0.0 <= val <= 1.0
+    # single chain or mismatched PAE → None
+    assert ipsae.ipsae_for_structure(None, tmp_path / "c.pdb") is None
+    assert ipsae.ipsae_for_structure(_block_pae(5, 5), tmp_path / "c.pdb") is None  # dim mismatch
+
+
 def test_ipsae_single_chain_unavailable():
     pae = np.ones((10, 10))
     r = ipsae.compute_ipsae(pae, [10], pae_cutoff=10.0)

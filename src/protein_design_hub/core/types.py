@@ -343,6 +343,7 @@ class StructureScore:
     plddt_per_residue: Optional[list[float]] = None
     ptm: Optional[float] = None
     iptm: Optional[float] = None
+    ipsae: Optional[float] = None  # interprotein Score from Aligned Errors (interface confidence)
     pae: Optional[list[list[float]]] = None
     confidence: Optional[float] = None
 

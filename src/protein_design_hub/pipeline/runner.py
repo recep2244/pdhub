@@ -250,7 +250,7 @@ class SequentialPipelineRunner:
         }
 
         for name, result in results.items():
-            summary["predictors"][name] = {
+            entry = {
                 "success": result.success,
                 "runtime_seconds": result.runtime_seconds,
                 "num_structures": len(result.structure_paths),
@@ -260,7 +260,26 @@ class SequentialPipelineRunner:
                     (s.plddt for s in result.scores if s.plddt),
                     default=None
                 ) if result.scores else None,
+                "best_ptm": max((s.ptm for s in result.scores if s.ptm is not None), default=None) if result.scores else None,
+                "best_iptm": max((s.iptm for s in result.scores if s.iptm is not None), default=None) if result.scores else None,
             }
+            # Interface confidence (ipSAE): computed from the best model's PAE when it is a
+            # multi-chain complex. None for single chains / no PAE (ESMFold etc.).
+            entry["best_ipsae"] = None
+            try:
+                if result.scores and result.structure_paths:
+                    bi = max(range(len(result.scores)),
+                             key=lambda i: (result.scores[i].plddt if result.scores[i].plddt is not None else -1))
+                    best = result.scores[bi]
+                    if best.ipsae is not None:
+                        entry["best_ipsae"] = best.ipsae
+                    elif best.pae is not None:
+                        from ..evaluation.ipsae import ipsae_for_structure
+                        sp = result.structure_paths[bi] if bi < len(result.structure_paths) else result.structure_paths[0]
+                        entry["best_ipsae"] = ipsae_for_structure(best.pae, sp)
+            except Exception:
+                entry["best_ipsae"] = None
+            summary["predictors"][name] = entry
 
         summary_path = output_dir / "prediction_summary.json"
         with open(summary_path, "w") as f:

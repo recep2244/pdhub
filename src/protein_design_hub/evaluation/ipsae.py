@@ -220,6 +220,42 @@ def load_pae_from_dir(pred_dir: Path) -> Optional[np.ndarray]:
     return None
 
 
+def chain_lengths_from_structure(path) -> Optional[List[int]]:
+    """Residue count per chain from a PDB/CIF (standard residues only). None on failure."""
+    try:
+        from Bio.PDB import PDBParser, MMCIFParser
+        p = str(path)
+        parser = MMCIFParser(QUIET=True) if p.lower().endswith((".cif", ".mmcif")) else PDBParser(QUIET=True)
+        model = next(iter(parser.get_structure("s", p)))
+        lengths = []
+        for chain in model:
+            n = sum(1 for res in chain if res.id[0] == " ")
+            if n:
+                lengths.append(n)
+        return lengths or None
+    except Exception:
+        return None
+
+
+def ipsae_for_structure(pae, structure_path, pae_cutoff: float = 10.0) -> Optional[float]:
+    """Best-effort ipSAE_min for a predicted complex: needs a PAE matrix and a ≥2-chain
+    structure whose residue count matches the PAE dimension. Returns None when ipSAE is
+    not applicable (single chain, no PAE, or a residue/PAE-size mismatch)."""
+    if pae is None:
+        return None
+    cl = chain_lengths_from_structure(structure_path)
+    if not cl or len(cl) < 2:
+        return None
+    arr = np.asarray(pae, dtype=float)
+    if arr.ndim != 2 or arr.shape[0] != arr.shape[1] or arr.shape[0] != sum(cl):
+        return None
+    try:
+        r = compute_ipsae(arr, cl, pae_cutoff=pae_cutoff)
+        return r.get("ipsae_min") if r.get("status") == "SUCCESS" else None
+    except Exception:
+        return None
+
+
 def verdict(result: Dict) -> str:
     """One-line human verdict from a compute_ipsae result."""
     if result.get("status") == "unavailable":

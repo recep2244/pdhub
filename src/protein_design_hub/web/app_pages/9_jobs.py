@@ -183,25 +183,31 @@ for i in range(0, len(jobs), cols_per_row):
                         _best_plddt = None
                         _best_iptm = None
                         _best_ptm = None
+                        _best_ipsae = None
                         _total_runtime = 0.0
                         _has_pae = False
                         _esmfold_only = True
+
+                        def _mx(cur, val):
+                            return val if (val is not None and (cur is None or val > cur)) else cur
+
                         for _pname, _pred in _ps.get("predictors", {}).items():
                             if "esmfold" not in str(_pname).lower():
                                 _esmfold_only = False
                             _total_runtime += _pred.get("runtime_seconds", 0) or 0
+                            # Per-score schema (predict-page summaries)
                             for _score in _pred.get("scores", []) or []:
-                                _p = _score.get("plddt")
-                                if _p and (_best_plddt is None or _p > _best_plddt):
-                                    _best_plddt = _p
-                                _it = _score.get("iptm")
-                                if _it and (_best_iptm is None or _it > _best_iptm):
-                                    _best_iptm = _it
-                                _pt = _score.get("ptm")
-                                if _pt and (_best_ptm is None or _pt > _best_ptm):
-                                    _best_ptm = _pt
+                                _best_plddt = _mx(_best_plddt, _score.get("plddt"))
+                                _best_iptm = _mx(_best_iptm, _score.get("iptm"))
+                                _best_ptm = _mx(_best_ptm, _score.get("ptm"))
+                                _best_ipsae = _mx(_best_ipsae, _score.get("ipsae"))
                                 if _score.get("pae") is not None:
                                     _has_pae = True
+                            # Predictor-level schema (pipeline/runner summaries)
+                            _best_plddt = _mx(_best_plddt, _pred.get("best_plddt"))
+                            _best_iptm = _mx(_best_iptm, _pred.get("best_iptm"))
+                            _best_ptm = _mx(_best_ptm, _pred.get("best_ptm"))
+                            _best_ipsae = _mx(_best_ipsae, _pred.get("best_ipsae"))
                         _stats = []
                         if _best_plddt:
                             _plddt_color = "#22c55e" if _best_plddt >= 70 else "#f59e0b" if _best_plddt >= 50 else "#ef4444"
@@ -215,7 +221,15 @@ for i in range(0, len(jobs), cols_per_row):
                                 f'not a binding metric, not comparable across predictors">'
                                 f'pLDDT {_best_plddt:.0f}</span>'
                             )
-                        # Interface confidence for complex/binder runs
+                        # Interface confidence for complex/binder runs — prefer ipSAE (stronger
+                        # binder-success signal than ipTM), fall back to ipTM, then pTM.
+                        if _best_ipsae is not None:
+                            _is_color = "#22c55e" if _best_ipsae >= 0.61 else "#f59e0b" if _best_ipsae >= 0.4 else "#ef4444"
+                            _stats.append(
+                                f'<span style="color:{_is_color};font-weight:600;" '
+                                f'title="best ipSAE_min — interface confidence (≥0.61 = likely interface)">'
+                                f'ipSAE {_best_ipsae:.2f}</span>'
+                            )
                         if _best_iptm:
                             _iptm_color = "#22c55e" if _best_iptm >= 0.7 else "#f59e0b" if _best_iptm >= 0.5 else "#ef4444"
                             _stats.append(
@@ -223,7 +237,7 @@ for i in range(0, len(jobs), cols_per_row):
                                 f'title="best ipTM — interface confidence (complex)">'
                                 f'ipTM {_best_iptm:.2f}</span>'
                             )
-                        elif _best_ptm:
+                        elif _best_ptm and _best_ipsae is None:
                             _stats.append(
                                 f'<span style="color:#a1a9b8;" title="best pTM — global fold confidence">'
                                 f'pTM {_best_ptm:.2f}</span>'
