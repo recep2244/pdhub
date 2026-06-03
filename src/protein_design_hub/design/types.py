@@ -26,6 +26,7 @@ class DesignInput:
     chains_to_design: Optional[str] = None  # e.g. "A" or "A,B"
     omit_aa: Optional[str] = None          # e.g. "CM" — globally excluded residues
     use_soluble_model: bool = False
+    bias_aa: Optional[dict] = None         # global per-AA log-odds bias, e.g. {"A": 1.5, "G": 1.0}
 
     def __post_init__(self) -> None:
         self.backbone_path = Path(self.backbone_path)

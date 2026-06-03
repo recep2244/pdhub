@@ -69,6 +69,16 @@ class ProteinMPNNDesigner(BaseDesigner):
         # Globally exclude residue types, e.g. "C" to avoid free cysteines
         if getattr(input_data, "omit_aa", None):
             cmd += ["--omit_AAs", str(input_data.omit_aa)]
+        # Global per-AA bias (favoured residues): write a single-line jsonl {AA: bias}
+        bias_aa = getattr(input_data, "bias_aa", None)
+        if bias_aa:
+            import json as _json
+            bias_clean = {str(k).upper(): float(v) for k, v in bias_aa.items()
+                          if str(k).upper() in "ACDEFGHIKLMNPQRSTVWY"}
+            if bias_clean:
+                bias_path = out_folder / "bias_AA.jsonl"
+                bias_path.write_text(_json.dumps(bias_clean) + "\n")
+                cmd += ["--bias_AA_jsonl", str(bias_path)]
 
         try:
             result = subprocess.run(

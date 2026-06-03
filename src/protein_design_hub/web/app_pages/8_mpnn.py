@@ -351,6 +351,16 @@ with col_b:
             help="Never include these amino acids"
         )
 
+        favored_aa = st.text_input(
+            "Favour amino acids",
+            placeholder="e.g., DE",
+            help="Add a positive design bias toward these residues (ProteinMPNN --bias_AA_jsonl)",
+        )
+        favored_strength = st.slider(
+            "Favour strength (log-odds)", 0.5, 3.0, 1.5, 0.5,
+            help="Bias added to each favoured residue's logits before sampling",
+        )
+
 st.markdown("---")
 
 # Show active constraints summary before running
@@ -361,6 +371,8 @@ if design_chains and design_chains != "A":
     _active_constraints.append(f"⛓️ Chains: `{design_chains}`")
 if omit_aa:
     _active_constraints.append(f"🚫 Omit: `{omit_aa}`")
+if favored_aa and favored_aa.strip():
+    _active_constraints.append(f"⬆️ Favour: `{favored_aa.strip().upper()}` (+{favored_strength})")
 if use_soluble_model:
     _active_constraints.append("💧 Soluble model")
 if bias_mode != "None":
@@ -414,6 +426,13 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", width='stretch'):
                 _omit_final = (_omit_final + _custom_avoided.replace(",", "")).upper()
             _omit_final = "".join(sorted(set(_omit_final))) or None
 
+            # Favoured residues → positive global bias (ProteinMPNN --bias_AA_jsonl)
+            _bias_aa = None
+            if favored_aa and favored_aa.strip():
+                _bias_aa = {aa: float(favored_strength)
+                            for aa in favored_aa.strip().upper()
+                            if aa in "ACDEFGHIKLMNPQRSTVWY"} or None
+
             with st.spinner("Running ProteinMPNN sequence design..."):
                 result = designer.design(
                     DesignInput(
@@ -427,6 +446,7 @@ if st.button("🚀 Run ProteinMPNN Design", type="primary", width='stretch'):
                         chains_to_design=design_chains.strip() or None,
                         omit_aa=_omit_final,
                         use_soluble_model=use_soluble_model,
+                        bias_aa=_bias_aa,
                     ),
                     auto_install=auto_install,
                 )
