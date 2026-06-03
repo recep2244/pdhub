@@ -754,11 +754,13 @@ def _ost_for(m, field: str):
     return None
 
 
-def _compute_ost_vs_wt(res, wt_path) -> int:
-    """Compute OST metrics of every successful mutant vs the WT structure and
-    cache by mutation_code. Returns the count successfully scored."""
+def _compute_ost_vs_wt(res, wt_path, mutants=None) -> int:
+    """Compute OST metrics vs the WT structure for the given mutants (default:
+    all successful) and cache by mutation_code. Returns the count scored."""
     cache = st.session_state.setdefault("ost_vs_wt_cache", {})
-    muts = [m for m in res.mutations if m.success and getattr(m, "structure_path", None)]
+    pool = mutants if mutants is not None else getattr(res, "mutations", [])
+    muts = [m for m in pool if getattr(m, "success", False) and getattr(m, "structure_path", None)
+            and m.mutation_code not in cache]
     if not muts:
         return 0
     prog = st.progress(0.0, text="Scoring mutants vs wild-type with OpenStructure…")
@@ -3004,13 +3006,18 @@ with tab_manual:
             _ost_ready = bool(_wt_path) and get_ost_runner().is_available()
         except Exception:
             _ost_ready = False
+        # Performance guardrail: OST is one subprocess per mutant, so auto-score
+        # only the top-ranked candidates (what the recommendations/consensus need);
+        # the Detailed Metrics tab offers a button to score the rest.
+        _OST_AUTO_TOP_N = 12
         if _ost_ready:
-            _succ = [m for m in res.mutations if getattr(m, "success", False)
-                     and getattr(m, "structure_path", None)]
-            _uncached = [m for m in _succ
-                         if m.mutation_code not in st.session_state.get("ost_vs_wt_cache", {})]
-            if _uncached:
-                _compute_ost_vs_wt(res, _wt_path)
+            _ranked = getattr(res, "ranked_mutations", None) or [
+                m for m in res.mutations if getattr(m, "success", False)]
+            _auto = [m for m in _ranked
+                     if getattr(m, "structure_path", None)
+                     and m.mutation_code not in st.session_state.get("ost_vs_wt_cache", {})][:_OST_AUTO_TOP_N]
+            if _auto:
+                _compute_ost_vs_wt(res, _wt_path, mutants=_auto)
 
         # Auto-insight on scan results
         scan_insight_data: Dict[str, Any] = {
@@ -3271,11 +3278,15 @@ with tab_manual:
             # OST lDDT/RMSD vs WT are auto-computed at the top of the results
             # section; offer a manual recompute (e.g. after changing the WT).
             if _wt_path:
-                if st.button("🔄 Recompute OST lDDT / RMSD(CA) vs wild-type",
-                             key="compute_ost_all", help="Re-run OpenStructure compare-structures for every mutant against the WT structure"):
-                    st.session_state["ost_vs_wt_cache"] = {}
-                    n = _compute_ost_vs_wt(res, _wt_path)
-                    st.success(f"Recomputed OST metrics vs WT for {n} mutant(s).")
+                _n_cached = len(st.session_state.get("ost_vs_wt_cache", {}))
+                _n_total = sum(1 for m in res.mutations if getattr(m, "success", False))
+                cc1, cc2 = st.columns([3, 1])
+                cc1.caption(f"OST vs WT computed for {_n_cached}/{_n_total} candidates "
+                            f"(top {_n_cached} auto-scored). Compute the rest below.")
+                if cc2.button("Compute ALL vs WT", key="compute_ost_all",
+                              help="Run OpenStructure compare-structures for every remaining mutant vs WT"):
+                    n = _compute_ost_vs_wt(res, _wt_path)  # skips already-cached
+                    st.success(f"Computed OST metrics vs WT for {n} additional mutant(s).")
                     any_ost = any(_ost_for(m, "lddt") is not None for m in res.mutations)
             site_label = "Site error (Å)" if is_immunebuilder else "Site pLDDT (per-residue)"
             esm2_deltas = _esm2_scan_deltas(res.sequence, res.position)
