@@ -492,6 +492,49 @@ except Exception as e:
             except (json.JSONDecodeError, OSError) as e:
                 raise RuntimeError(f"Failed to parse compare-structures output: {e}")
 
+    def compute_multimer_metrics(
+        self,
+        model_path: Path,
+        reference_path: Path,
+    ) -> Dict[str, Any]:
+        """Interface/complex quality of a model multimer vs a reference multimer.
+
+        Runs OST compare-structures with the multimeric flags and returns a flat
+        dict: DockQ, QS-score (global/best), ICS (interface contact similarity,
+        F1), IPS (interface patch similarity, F1), interface-lDDT, plus global
+        lDDT/TM for context. Requires both structures to be multi-chain.
+        """
+        raw = self.run_compare_structures(
+            model_path, reference_path,
+            metrics=["qs-score", "dockq", "ics", "ips", "ilddt", "lddt", "tm-score"],
+        )
+        if not isinstance(raw, dict) or raw.get("status") not in (None, "SUCCESS"):
+            return {"status": raw.get("status", "FAILURE") if isinstance(raw, dict) else "FAILURE",
+                    "error": (raw or {}).get("exception")}
+
+        def _mean(key):
+            v = raw.get(key)
+            if isinstance(v, list) and v:
+                nums = [x for x in v if isinstance(x, (int, float))]
+                return sum(nums) / len(nums) if nums else None
+            return v if isinstance(v, (int, float)) else None
+
+        return {
+            "status": "SUCCESS",
+            "dockq": _mean("dockq_ave") if raw.get("dockq_ave") is not None else _mean("dockq"),
+            "qs_global": raw.get("qs_global"),
+            "qs_best": raw.get("qs_best"),
+            "ics": raw.get("ics") if isinstance(raw.get("ics"), (int, float)) else _mean("ics"),
+            "ics_precision": raw.get("ics_precision"),
+            "ics_recall": raw.get("ics_recall"),
+            "ips": raw.get("ips") if isinstance(raw.get("ips"), (int, float)) else _mean("ips"),
+            "ips_precision": raw.get("ips_precision"),
+            "ips_recall": raw.get("ips_recall"),
+            "ilddt": raw.get("ilddt"),
+            "lddt": raw.get("lddt"),
+            "tm_score": raw.get("tm_score"),
+        }
+
     def compute_all_metrics(
         self,
         model_path: Path,

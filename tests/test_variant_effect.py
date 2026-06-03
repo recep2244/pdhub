@@ -66,3 +66,19 @@ def test_composite_includes_esm2_and_am_terms():
     assert comp["am_term"] < 0                 # pathogenic AlphaMissense lowers score
     assert any("ESM-2" in f for f in comp["flags"])
     assert any("AlphaMissense" in f for f in comp["flags"])
+
+
+def test_esm_dimer_linker_split():
+    """split_linker_pdb relabels chains A/B and drops the linker (no network)."""
+    from protein_design_hub.analysis.esm_dimer import split_linker_pdb
+    # 2 res chain A, 2 linker (G), 2 res chain B → sequential resseq 1..6
+    def atom(resseq, chain=" "):
+        return f"ATOM  {resseq*4:5d}  CA  ALA {chain}{resseq:4d}      0.000   0.000   0.000  1.00  0.00           C"
+    pdb = "\n".join(atom(i) for i in range(1, 7))
+    out = split_linker_pdb(pdb, len_a=2, linker_len=2, len_b=2)
+    lines = [l for l in out.splitlines() if l.startswith("ATOM")]
+    chains = {l[21] for l in lines}
+    assert chains == {"A", "B"}                       # two chains, linker dropped
+    assert len(lines) == 4                            # 2 (A) + 2 (B), linker removed
+    b_resseqs = sorted(int(l[22:26]) for l in lines if l[21] == "B")
+    assert b_resseqs == [1, 2]                         # chain B renumbered from 1
