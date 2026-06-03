@@ -34,8 +34,10 @@ class VoronotaCADScoreMetric(BaseMetric):
         reference_path: Optional[Path] = None,
         **kwargs,
     ) -> Dict[str, Any]:
+        if not self.is_available():
+            return {"status": "unavailable", "error": self.get_requirements()}
         if reference_path is None:
-            raise ValueError("reference_path is required for CAD-score")
+            return {"status": "error", "error": "reference_path is required for CAD-score"}
 
         model_path = Path(model_path)
         reference_path = Path(reference_path)
@@ -53,11 +55,17 @@ class VoronotaCADScoreMetric(BaseMetric):
             str(residue_scores_path),
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+        except (OSError, subprocess.SubprocessError) as e:
+            return {"status": "error", "error": str(e)}
         if result.returncode != 0:
-            raise RuntimeError(
-                result.stderr.strip() or result.stdout.strip() or "voronota-cadscore failed"
-            )
+            return {
+                "status": "error",
+                "error": result.stderr.strip()
+                or result.stdout.strip()
+                or "voronota-cadscore failed",
+            }
 
         cad_score = _parse_cad_score_output(result.stdout)
         residue_scores = _parse_residue_scores(residue_scores_path)

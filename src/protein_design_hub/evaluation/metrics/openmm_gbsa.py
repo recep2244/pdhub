@@ -43,16 +43,24 @@ class OpenMMGBSAMetric(BaseMetric):
         self, model_path: Path, reference_path: Optional[Path] = None, **kwargs
     ) -> Dict[str, Any]:
         if not self.is_available():
-            raise EvaluationError(self.name, "OpenMM not available")
+            return {"status": "unavailable", "error": "OpenMM not available"}
 
+        model_path = Path(model_path)
+        if not model_path.exists():
+            return {"status": "error", "error": f"Model not found: {model_path}"}
+
+        try:
+            return self._compute(model_path)
+        except EvaluationError as e:
+            return {"status": "error", "error": str(e)}
+        except Exception as e:  # never raise — degrade gracefully
+            return {"status": "error", "error": str(e)}
+
+    def _compute(self, model_path: Path) -> Dict[str, Any]:
         import openmm
         from openmm import unit
         from openmm import LocalEnergyMinimizer
         from openmm.app import ForceField, Modeller, PDBFile, NoCutoff, HBonds, Simulation, OBC2
-
-        model_path = Path(model_path)
-        if not model_path.exists():
-            raise EvaluationError(self.name, f"Model not found: {model_path}")
 
         modeller = None
         try:

@@ -12,15 +12,15 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11"]
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    
+
     - name: Cache dependencies
       uses: actions/cache@v4
       with:
@@ -28,28 +28,43 @@ jobs:
         key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
         restore-keys: |
           ${{ runner.os }}-pip-
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
-    
-    - name: Lint with ruff
+
+    # Real gate: critical correctness rules only (syntax errors, invalid
+    # comparisons, invalid syntax in type/return contexts). Enforced hard
+    # (no "|| true"). Broaden the rule set as the codebase is cleaned up.
+    - name: Lint with ruff (critical rules)
       run: |
-        # Continue on error for now to avoid failing build on existing lint issues
-        ruff check . || true
-    
-    - name: Type check with mypy
+        ruff check --select E9,F63,F7 .
+
+    # Real gate: type-check a curated allowlist of fully clean modules with
+    # follow-imports=silent so transitive (not-yet-typed) modules don't fail
+    # the build. Enforced hard (no "|| true"). Add modules here as they pass.
+    - name: Type check with mypy (typed modules)
       run: |
-        mypy src/protein_design_hub --ignore-missing-imports || true
-    
+        mypy \
+          src/protein_design_hub/analysis/codon_optimization.py \
+          src/protein_design_hub/analysis/transit_peptide.py \
+          src/protein_design_hub/analysis/nlr_domains.py \
+          src/protein_design_hub/analysis/immunogenicity.py \
+          src/protein_design_hub/analysis/antibody_numbering.py \
+          src/protein_design_hub/analysis/wet_lab_advisor.py \
+          --ignore-missing-imports --follow-imports=silent
+
+    # Real gate: coverage floor. fail_under=20 lives in pyproject.toml,
+    # comfortably below the measured ~26-28% so it guards regressions without
+    # being unreachable. --cov-fail-under makes the threshold explicit in CI.
     - name: Test with pytest
       run: |
-        pytest -v --cov=protein_design_hub --cov-report=xml --cov-report=term
-    
+        pytest -v --cov=protein_design_hub --cov-report=xml --cov-report=term --cov-fail-under=20
+
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       if: matrix.python-version == '3.10'
       with:
         file: ./coverage.xml
-        fail_ci_if_error: false
+        fail_ci_if_error: true

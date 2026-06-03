@@ -10,10 +10,26 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from protein_design_hub.core.exceptions import EvaluationError
 from protein_design_hub.energy.paths import find_foldx_executable, get_foldx_molecules_dir
+
+_FOLDX_MISSING_MSG = "FoldX executable not found (set FOLDX_BIN or add to PATH)"
+
+
+def _foldx_unavailable(message: str = _FOLDX_MISSING_MSG) -> Dict[str, Any]:
+    """Status dict returned when the FoldX binary cannot be located.
+
+    Graceful degradation: callers receive ``{"status": "unavailable", ...}``
+    instead of an exception, so a missing binary never crashes a pipeline.
+    """
+    return {"status": "unavailable", "error": message}
+
+
+def _foldx_error(message: str) -> Dict[str, Any]:
+    """Status dict returned when FoldX ran but failed (subprocess/parse error)."""
+    return {"status": "error", "error": message}
 
 
 def _stage_molecules(out_dir: Path) -> None:
@@ -40,11 +56,16 @@ def run_foldx_repair(
     pdb_path: Path,
     out_dir: Path,
     foldx_path: Optional[Path] = None,
-) -> Path:
+):
     """Run FoldX ``RepairPDB`` and return the repaired structure path.
 
     RepairPDB resolves clashes/bad torsions so downstream ΔΔG values are
     reliable. Output is ``<stem>_Repair.pdb`` in ``out_dir``.
+
+    Returns the repaired :class:`Path` on success. If the FoldX binary is
+    absent the function degrades gracefully and returns a status dict
+    ``{"status": "unavailable"|"error", "error": ...}`` instead of raising,
+    so a missing binary never crashes the caller.
     """
     pdb_path = Path(pdb_path)
     out_dir = Path(out_dir)
@@ -52,7 +73,7 @@ def run_foldx_repair(
 
     exe = foldx_path or find_foldx_executable()
     if exe is None:
-        raise EvaluationError("foldx", "FoldX executable not found (set FOLDX_BIN or add to PATH)")
+        return _foldx_unavailable()
     _stage_molecules(out_dir)
 
     work_pdb = out_dir / pdb_path.name
@@ -60,13 +81,18 @@ def run_foldx_repair(
         work_pdb.write_bytes(pdb_path.read_bytes())
 
     cmd = [str(exe), "--command=RepairPDB", f"--pdb={work_pdb.name}"]
-    result = subprocess.run(cmd, cwd=str(out_dir), capture_output=True, text=True, timeout=3600)
+    try:
+        result = subprocess.run(
+            cmd, cwd=str(out_dir), capture_output=True, text=True, timeout=3600
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        return _foldx_error(str(e))
     if result.returncode != 0:
-        raise EvaluationError("foldx", (result.stderr or result.stdout).strip())
+        return _foldx_error((result.stderr or result.stdout).strip())
 
     repaired = out_dir / f"{work_pdb.stem}_Repair.pdb"
     if not repaired.exists():
-        raise EvaluationError("foldx", f"RepairPDB produced no output ({repaired.name})")
+        return _foldx_error(f"RepairPDB produced no output ({repaired.name})")
     return repaired
 
 
@@ -76,7 +102,7 @@ def run_foldx_buildmodel(
     out_dir: Path,
     foldx_path: Optional[Path] = None,
     repair: bool = True,
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """
     Run FoldX BuildModel. `mutant_file` should be in FoldX individual_list.txt format.
 
@@ -84,7 +110,9 @@ def run_foldx_buildmodel(
         repair: run RepairPDB on the input first (FoldX best practice; default True).
 
     Returns:
-      {"foldx_ddg_kcal_mol": <float>, "foldx_repaired": <bool>}
+      ``{"foldx_ddg_kcal_mol": <float>, "foldx_repaired": <bool>}`` on success.
+      If the FoldX binary is missing or the run fails, returns a status dict
+      ``{"status": "unavailable"|"error", "error": ...}`` rather than raising.
     """
     pdb_path = Path(pdb_path)
     mutant_file = Path(mutant_file)
@@ -93,7 +121,7 @@ def run_foldx_buildmodel(
 
     exe = foldx_path or find_foldx_executable()
     if exe is None:
-        raise EvaluationError("foldx", "FoldX executable not found (set FOLDX_BIN or add to PATH)")
+        return _foldx_unavailable()
 
     # Copy inputs into working directory
     work_pdb = out_dir / pdb_path.name
@@ -105,6 +133,8 @@ def run_foldx_buildmodel(
     pdb_for_build = work_pdb.name
     if repair:
         repaired = run_foldx_repair(work_pdb, out_dir, exe)
+        if isinstance(repaired, dict):  # degraded (unavailable/error)
+            return repaired
         pdb_for_build = repaired.name
 
     # FoldX writes outputs into the working directory.
@@ -116,13 +146,18 @@ def run_foldx_buildmodel(
         "--numberOfRuns=1",
     ]
 
-    result = subprocess.run(cmd, cwd=str(out_dir), capture_output=True, text=True, timeout=3600)
+    try:
+        result = subprocess.run(
+            cmd, cwd=str(out_dir), capture_output=True, text=True, timeout=3600
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        return _foldx_error(str(e))
     if result.returncode != 0:
-        raise EvaluationError("foldx", (result.stderr or result.stdout).strip())
+        return _foldx_error((result.stderr or result.stdout).strip())
 
     ddg = _find_ddg_from_foldx_outputs(out_dir)
     if ddg is None:
-        raise EvaluationError("foldx", "Could not parse ΔΔG from FoldX outputs")
+        return _foldx_error("Could not parse ΔΔG from FoldX outputs")
     return {"foldx_ddg_kcal_mol": float(ddg), "foldx_repaired": bool(repair)}
 
 
@@ -132,7 +167,7 @@ def run_foldx_analyse_complex(
     chains: Optional[str] = None,
     foldx_path: Optional[Path] = None,
     repair: bool = True,
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """Run FoldX ``AnalyseComplex`` for interface/binding energy.
 
     This is what was missing for antibody/binder work — BuildModel only gives
@@ -145,7 +180,9 @@ def run_foldx_analyse_complex(
         repair: RepairPDB first (recommended).
 
     Returns:
-      {"foldx_interaction_energy_kcal_mol": <float>}
+      ``{"foldx_interaction_energy_kcal_mol": <float>}`` on success. If the
+      FoldX binary is missing or the run fails, returns a status dict
+      ``{"status": "unavailable"|"error", "error": ...}`` rather than raising.
     """
     pdb_path = Path(pdb_path)
     out_dir = Path(out_dir)
@@ -153,7 +190,7 @@ def run_foldx_analyse_complex(
 
     exe = foldx_path or find_foldx_executable()
     if exe is None:
-        raise EvaluationError("foldx", "FoldX executable not found (set FOLDX_BIN or add to PATH)")
+        return _foldx_unavailable()
 
     work_pdb = out_dir / pdb_path.name
     work_pdb.write_bytes(pdb_path.read_bytes())
@@ -161,19 +198,26 @@ def run_foldx_analyse_complex(
     pdb_for_analysis = work_pdb.name
     if repair:
         repaired = run_foldx_repair(work_pdb, out_dir, exe)
+        if isinstance(repaired, dict):  # degraded (unavailable/error)
+            return repaired
         pdb_for_analysis = repaired.name
 
     cmd = [str(exe), "--command=AnalyseComplex", f"--pdb={pdb_for_analysis}"]
     if chains:
         cmd.append(f"--analyseComplexChains={chains}")
 
-    result = subprocess.run(cmd, cwd=str(out_dir), capture_output=True, text=True, timeout=3600)
+    try:
+        result = subprocess.run(
+            cmd, cwd=str(out_dir), capture_output=True, text=True, timeout=3600
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        return _foldx_error(str(e))
     if result.returncode != 0:
-        raise EvaluationError("foldx", (result.stderr or result.stdout).strip())
+        return _foldx_error((result.stderr or result.stdout).strip())
 
     energy = _find_interaction_energy(out_dir)
     if energy is None:
-        raise EvaluationError("foldx", "Could not parse interaction energy from AnalyseComplex outputs")
+        return _foldx_error("Could not parse interaction energy from AnalyseComplex outputs")
     return {"foldx_interaction_energy_kcal_mol": float(energy)}
 
 
@@ -284,13 +328,15 @@ def run_foldx_stability(
     pdb_path: Path,
     out_dir: Path,
     foldx_path: Optional[Path] = None,
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """Run FoldX ``Stability`` (monomer total folding energy) on one structure.
 
     Mirrors the reference ``foldx.sh`` workflow. Returns the total energy parsed
     from the ``<stem>_0_ST.fxout`` report (column 2). Lower = more stable.
 
-    Returns ``{"foldx_total_energy_kcal_mol": <float>}``.
+    Returns ``{"foldx_total_energy_kcal_mol": <float>}`` on success. If the
+    FoldX binary is missing or the run fails, returns a status dict
+    ``{"status": "unavailable"|"error", "error": ...}`` rather than raising.
     """
     pdb_path = Path(pdb_path)
     out_dir = Path(out_dir)
@@ -298,20 +344,24 @@ def run_foldx_stability(
 
     exe = foldx_path or find_foldx_executable()
     if exe is None:
-        raise EvaluationError("foldx", "FoldX executable not found (set FOLDX_BIN or add to PATH)")
+        return _foldx_unavailable()
     _stage_molecules(out_dir)
 
     work_pdb = out_dir / pdb_path.name
     work_pdb.write_bytes(pdb_path.read_bytes())
 
     cmd = [str(exe), "--command=Stability", f"--pdb={work_pdb.name}"]
-    result = subprocess.run(cmd, cwd=str(out_dir), capture_output=True, text=True, timeout=3600)
+    try:
+        result = subprocess.run(
+            cmd, cwd=str(out_dir), capture_output=True, text=True, timeout=3600
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        return _foldx_error(str(e))
 
     total = _find_stability_total(out_dir, work_pdb.stem)
     if total is None:
-        raise EvaluationError(
-            "foldx",
-            (result.stderr or result.stdout or "Stability produced no _ST.fxout").strip()[:400],
+        return _foldx_error(
+            (result.stderr or result.stdout or "Stability produced no _ST.fxout").strip()[:400]
         )
     return {"foldx_total_energy_kcal_mol": float(total)}
 

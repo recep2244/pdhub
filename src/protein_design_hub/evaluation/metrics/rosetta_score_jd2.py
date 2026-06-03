@@ -26,9 +26,14 @@ class RosettaScoreJd2Metric(BaseMetric):
         self, model_path: Path, reference_path: Optional[Path] = None, **kwargs
     ) -> Dict[str, Any]:
         model_path = Path(model_path)
+        if not self.is_available():
+            return {"status": "unavailable", "error": self.get_requirements()}
         if not model_path.exists():
-            raise EvaluationError(self.name, f"Model not found: {model_path}")
+            return {"status": "error", "error": f"Model not found: {model_path}"}
 
         out_dir = Path(kwargs.get("work_dir") or model_path.parent / ".pdhub_rosetta_score")
-        scores = run_score_jd2(model_path, out_dir)
+        try:
+            scores = run_score_jd2(model_path, out_dir)
+        except Exception as e:  # missing binary / subprocess / parse failure
+            return {"status": "error", "error": str(e)}
         return {"rosetta_total_score": scores.get("total_score")}

@@ -37,13 +37,22 @@ class FoldXInterfaceMetric(BaseMetric):
 
     def compute(self, model_path: Path, reference_path: Optional[Path] = None, **kwargs) -> Dict[str, Any]:
         model_path = Path(model_path)
+        if not self.is_available():
+            return {"status": "unavailable", "error": self.get_requirements()}
         if not model_path.exists():
-            raise EvaluationError(self.name, f"Model not found: {model_path}")
-        from protein_design_hub.energy.foldx import run_foldx_analyse_complex
-        out_dir = model_path.parent / f"_foldx_ac_{model_path.stem}"
-        res = run_foldx_analyse_complex(
-            model_path, out_dir, chains=self.chains, repair=self.repair,
-        )
+            return {"status": "error", "error": f"Model not found: {model_path}"}
+        try:
+            from protein_design_hub.energy.foldx import run_foldx_analyse_complex
+
+            out_dir = model_path.parent / f"_foldx_ac_{model_path.stem}"
+            res = run_foldx_analyse_complex(
+                model_path, out_dir, chains=self.chains, repair=self.repair,
+            )
+        except Exception as e:  # never raise — degrade gracefully
+            return {"status": "error", "error": str(e)}
+        # run_foldx_* returns a status dict when the binary is missing or fails.
+        if res.get("status") in ("unavailable", "error"):
+            return res
         return {
             "foldx_interface_energy_kcal_mol": res.get("foldx_interaction_energy_kcal_mol"),
         }

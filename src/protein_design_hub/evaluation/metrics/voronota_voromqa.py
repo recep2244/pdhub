@@ -34,10 +34,12 @@ class VoronotaVoroMQAMetric(BaseMetric):
         reference_path: Optional[Path] = None,
         **kwargs,
     ) -> Dict[str, Any]:
-        if self.binary is None:
-            raise RuntimeError("voronota-voromqa not available")
+        if not self.is_available():
+            return {"status": "unavailable", "error": self.get_requirements()}
 
         model_path = Path(model_path)
+        if not model_path.exists():
+            return {"status": "error", "error": f"Model not found: {model_path}"}
 
         residue_scores: List[float] = []
         cmd = [self.binary, "--input", str(model_path)]
@@ -53,11 +55,17 @@ class VoronotaVoroMQAMetric(BaseMetric):
         else:
             residue_scores_path = None
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+        except (OSError, subprocess.SubprocessError) as e:
+            return {"status": "error", "error": str(e)}
         if result.returncode != 0:
-            raise RuntimeError(
-                result.stderr.strip() or result.stdout.strip() or "voronota-voromqa failed"
-            )
+            return {
+                "status": "error",
+                "error": result.stderr.strip()
+                or result.stdout.strip()
+                or "voronota-voromqa failed",
+            }
 
         score, residue_count, atom_count = _parse_voromqa_output(result.stdout)
 

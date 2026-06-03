@@ -76,3 +76,59 @@ python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# Pytest configuration + 5-tier marker scheme
+# ---------------------------------------------------------------------------
+# The marker tiers describe how heavy / external a test is so suites can be
+# selected explicitly in CI. NOTHING is deselected by default: a bare
+# ``python -m pytest`` still collects and runs every test. Use ``-m`` to slice,
+# e.g. ``pytest -m "unit"`` (fast CI lane) or ``pytest -m "not gpu and not external"``.
+#
+#   unit         Tier 1 — pure-Python, no heavy deps, no network, no binaries.
+#                Must pass with torch/GPU/external tools ABSENT. Fast (<1s each).
+#   integration  Tier 2 — exercises multiple in-process modules wired together
+#                (pipeline/orchestrator/web glue). Still no GPU or network.
+#   gpu          Tier 3 — needs a CUDA device and/or torch model weights.
+#                Skipped in CI (no GPU runners); run locally on the RTX 4080.
+#   external     Tier 4 — needs network access or an external binary/service
+#                (FoldX, ColabFold, Ollama, remote APIs). Skipped in CI.
+#   e2e          Tier 5 — full end-to-end flows (web smoke + pipeline run).
+#                Slowest; opt-in.
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "unit: Tier 1 — pure-Python unit test, no heavy deps/network/binaries.",
+    "integration: Tier 2 — multi-module in-process integration, no GPU/network.",
+    "gpu: Tier 3 — requires a CUDA GPU and/or torch weights (skipped in CI).",
+    "external: Tier 4 — requires network or external binary/service (skipped in CI).",
+    "e2e: Tier 5 — full end-to-end flow (web smoke + pipeline).",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["protein_design_hub"]
+omit = [
+    "*/tests/*",
+    "*/__main__.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+# Floor kept just below the real measured total (~26-28%) so the gate is a
+# genuine regression guard without being an unreachable target. Raise this as
+# coverage improves; do NOT set it above the actual suite coverage or CI breaks.
+fail_under = 20
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.coverage.xml]
+output = "coverage.xml"
