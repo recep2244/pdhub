@@ -684,6 +684,60 @@ def _render_chips_html(chips) -> str:
     return "".join(pills)
 
 
+def _wt_structure_path(res):
+    """Resolve a wild-type structure file for OST-vs-WT scoring, robustly:
+    the scan result's own base path, then session state, then the cached base
+    PDB text written to a temp file. Returns a Path or None.
+    """
+    cand = getattr(res, "base_structure_path", None) or st.session_state.get("base_structure_path")
+    if cand:
+        try:
+            p = Path(cand)
+            if p.exists():
+                return p
+        except Exception:
+            pass
+    text = st.session_state.get("base_structure")
+    if text:
+        try:
+            cache_key = "_wt_tmp_pdb_path"
+            existing = st.session_state.get(cache_key)
+            if existing and Path(existing).exists():
+                return Path(existing)
+            with tempfile.NamedTemporaryFile(suffix=".pdb", mode="w", delete=False) as fh:
+                fh.write(text)
+                st.session_state[cache_key] = fh.name
+            return Path(fh.name)
+        except Exception:
+            return None
+    return None
+
+
+def _ensure_ost_vs_wt(mutants, wt_path) -> None:
+    """Compute+cache OST lDDT/RMSD(CA)/TM vs WT for the given mutants (skips
+    any already cached). Used to auto-populate the immunologist evaluation."""
+    if not wt_path:
+        return
+    from protein_design_hub.web.agent_helpers import score_mutant_with_ost_molprobity
+    cache = st.session_state.setdefault("ost_vs_wt_cache", {})
+    todo = [m for m in mutants if m and getattr(m, "success", True)
+            and getattr(m, "structure_path", None) and m.mutation_code not in cache]
+    if not todo:
+        return
+    with st.spinner(f"Computing OST lDDT/RMSD vs wild-type for {len(todo)} candidate(s)…"):
+        for m in todo:
+            try:
+                out = score_mutant_with_ost_molprobity(
+                    Path(m.structure_path), Path(wt_path), getattr(m, "position", 1), m.mutation_code)
+                sr = (out or {}).get("result")
+                om = getattr(sr, "ost_metrics", {}) if sr else {}
+                cache[m.mutation_code] = {"lddt": om.get("ost.lddt"),
+                                          "rmsd_ca": om.get("ost.rmsd"),
+                                          "tm_score": om.get("ost.tm_score")}
+            except Exception:
+                cache[m.mutation_code] = {"lddt": None, "rmsd_ca": None, "tm_score": None}
+
+
 def _ost_for(m, field: str):
     """OST metric for a mutant: from its own extra_metrics, else the on-demand
     'vs WT' cache populated by the Compute-OST button."""
@@ -829,6 +883,138 @@ def _immunologist_brief(best_mut, res, esm2_delta, assessment) -> str:
     lines.append("**Recommendations (prioritised):**")
     lines.extend(f"- {r}" for r in recs)
     return "\n".join(lines)
+
+
+def _mutation_feature_frame(res, esm2_deltas):
+    """Build a per-mutation feature DataFrame for data-science analysis.
+
+    Engineered sequence features (ΔHydrophobicity, ΔVolume, ΔCharge, BLOSUM62,
+    aromatic-introduced) + measured metrics (Δ site/mean pLDDT, RMSD, clash,
+    SASA) + ESM-2 ΔLL. One row per successful mutation.
+    """
+    import numpy as np  # noqa: F401
+    from protein_design_hub.analysis.protein_utils import AA_PROPERTIES, HYDROPHOBICITY
+    try:
+        from Bio.Align import substitution_matrices
+        _blosum = substitution_matrices.load("BLOSUM62")
+    except Exception:
+        _blosum = None
+    _arom = set("FWY")
+
+    rows = []
+    for m in getattr(res, "mutations", []):
+        if not getattr(m, "success", False):
+            continue
+        wt = (getattr(m, "original_aa", "") or "").upper()
+        mt = (getattr(m, "mutant_aa", "") or "").upper()
+        if wt not in AA_PROPERTIES or mt not in AA_PROPERTIES:
+            continue
+        try:
+            blo = float(_blosum[(wt, mt)]) if _blosum is not None else None
+        except Exception:
+            blo = None
+        e = esm2_deltas.get(mt) if esm2_deltas else None
+        rows.append({
+            "mutation": _mut3(getattr(m, "mutation_code", f"{wt}?{mt}")),
+            "Δ site pLDDT": getattr(m, "delta_local_plddt", None),
+            "Δ mean pLDDT": getattr(m, "delta_mean_plddt", None),
+            "RMSD": getattr(m, "rmsd_to_base", None),
+            "clash": getattr(m, "clash_score", None),
+            "SASA": getattr(m, "sasa_total", None),
+            "ESM-2 ΔLL": e,
+            "Δhydrophobicity": HYDROPHOBICITY.get(mt, 0) - HYDROPHOBICITY.get(wt, 0),
+            "Δvolume(MW)": AA_PROPERTIES[mt]["mw"] - AA_PROPERTIES[wt]["mw"],
+            "Δcharge": AA_PROPERTIES[mt]["charge"] - AA_PROPERTIES[wt]["charge"],
+            "BLOSUM62": blo,
+            "aromatic_intro": 1 if (mt in _arom and wt not in _arom) else 0,
+        })
+    return pd.DataFrame(rows)
+
+
+def _render_ds_insights(res, esm2_deltas) -> None:
+    """Data-scientist view: feature engineering, correlations, feature
+    importance vs the per-residue effect, and auto-generated insights."""
+    import numpy as np
+    df = _mutation_feature_frame(res, esm2_deltas)
+    if len(df) < 3:
+        st.caption("Data-science insights need ≥3 successful mutations (run a saturation scan).")
+        return
+
+    target = "Δ site pLDDT"
+    feature_cols = [c for c in df.columns if c not in ("mutation",)]
+    num = df[feature_cols].apply(pd.to_numeric, errors="coerce")
+
+    # ── feature importance: |Pearson r| of each feature vs the per-residue effect ──
+    from scipy.stats import pearsonr
+    importances = []
+    for c in feature_cols:
+        if c == target:
+            continue
+        pair = num[[c, target]].dropna()
+        if len(pair) >= 3 and pair[c].nunique() > 1 and pair[target].nunique() > 1:
+            try:
+                r, p = pearsonr(pair[c], pair[target])
+                importances.append({"feature": c, "|r|": abs(r), "r": r, "p": p})
+            except Exception:
+                pass
+    imp_df = pd.DataFrame(importances).sort_values("|r|", ascending=False) if importances else pd.DataFrame()
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"**Feature importance** — association with **{target}** (|Pearson r|)")
+        if not imp_df.empty:
+            import plotly.express as px
+            fig = px.bar(imp_df.head(10), x="|r|", y="feature", orientation="h",
+                         color="r", color_continuous_scale="RdBu", range_color=[-1, 1])
+            fig.update_layout(height=320, margin=dict(l=4, r=4, t=10, b=4), yaxis=dict(autorange="reversed"))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.caption("Not enough variation to rank features.")
+    with c2:
+        st.markdown("**Correlation matrix** (metrics + engineered features)")
+        corr = num.corr(numeric_only=True)
+        if not corr.empty:
+            import plotly.express as px
+            figc = px.imshow(corr, color_continuous_scale="RdBu", zmin=-1, zmax=1, aspect="auto")
+            figc.update_layout(height=320, margin=dict(l=4, r=4, t=10, b=4))
+            st.plotly_chart(figc, use_container_width=True)
+
+    # ── auto-generated narrative ──
+    insights = []
+    if not imp_df.empty:
+        top = imp_df.iloc[0]
+        direction = "higher" if top["r"] > 0 else "lower"
+        insights.append(
+            f"**{top['feature']}** is the strongest correlate of the per-residue effect "
+            f"(r={top['r']:+.2f}, p={top['p']:.2g}) — {direction} values track with better site pLDDT.")
+        sig = imp_df[imp_df["p"] < 0.05]
+        if len(sig) > 1:
+            insights.append("Statistically significant (p<0.05): " +
+                            ", ".join(f"{row.feature} (r={row.r:+.2f})" for _, row in sig.iterrows()) + ".")
+    # engineered-feature group effects
+    arom = num[num["aromatic_intro"] == 1][target].dropna()
+    nonarom = num[num["aromatic_intro"] == 0][target].dropna()
+    if len(arom) >= 2 and len(nonarom) >= 2:
+        insights.append(
+            f"Aromatic-introducing substitutions average Δsite pLDDT {arom.mean():+.1f} vs "
+            f"{nonarom.mean():+.1f} for others — {'a developability red flag' if arom.mean() < nonarom.mean() else 'no penalty observed'}.")
+    if num["ESM-2 ΔLL"].notna().sum() >= 3 and num["Δ site pLDDT"].notna().sum() >= 3:
+        pair = num[["ESM-2 ΔLL", target]].dropna()
+        if len(pair) >= 3 and pair["ESM-2 ΔLL"].nunique() > 1:
+            r, _ = pearsonr(pair["ESM-2 ΔLL"], pair[target])
+            insights.append(
+                f"ESM-2 (evolutionary) and the structure predictor {'agree' if r>0.3 else 'diverge'} "
+                f"(r={r:+.2f}) — {'orthogonal signals reinforce each other' if r>0.3 else 'treat them as independent evidence'}.")
+    if insights:
+        st.markdown("**Insights:**")
+        for s in insights:
+            st.markdown(f"- {s}")
+
+    with st.expander("Per-mutation engineered features (table)"):
+        st.dataframe(df, use_container_width=True, hide_index=True)
+    st.caption("Importance = |Pearson r| vs per-residue Δ pLDDT (no model fit; sklearn not installed). "
+               "Engineered features are sequence-derived (Kyte-Doolittle hydrophobicity, MW-as-volume, "
+               "formal charge, BLOSUM62).")
 
 
 def _render_interpretation_legend(immunebuilder: bool = False) -> None:
@@ -2706,6 +2892,23 @@ with tab_manual:
         if is_immunebuilder:
             delta_label = "ΔError (Å)"
 
+        # Auto-compute OST lDDT / RMSD(CA) of EVERY mutant vs the WT structure
+        # (once, cached) so they're populated in Detailed Metrics + the
+        # immunologist evaluation. Skipped gracefully if OST or WT is unavailable.
+        _wt_path = _wt_structure_path(res)
+        try:
+            from protein_design_hub.evaluation.ost_runner import get_ost_runner
+            _ost_ready = bool(_wt_path) and get_ost_runner().is_available()
+        except Exception:
+            _ost_ready = False
+        if _ost_ready:
+            _succ = [m for m in res.mutations if getattr(m, "success", False)
+                     and getattr(m, "structure_path", None)]
+            _uncached = [m for m in _succ
+                         if m.mutation_code not in st.session_state.get("ost_vs_wt_cache", {})]
+            if _uncached:
+                _compute_ost_vs_wt(res, _wt_path)
+
         # Auto-insight on scan results
         scan_insight_data: Dict[str, Any] = {
             "Position": f"{res.original_aa}{res.position}",
@@ -2958,13 +3161,14 @@ with tab_manual:
                 for field, _ in ost_fields
             }
             any_ost = any(_ost_for(m, "lddt") is not None for m in res.mutations)
-            # On-demand: compute OST lDDT / RMSD(CA) of every mutant vs the WT structure.
-            _wt_struct = st.session_state.get("base_structure_path")
-            if _wt_struct and Path(_wt_struct).exists():
-                if st.button("🔬 Compute OST lDDT / RMSD(CA) vs wild-type (all candidates)",
-                             key="compute_ost_all", help="Runs OpenStructure compare-structures for each mutant against the WT structure"):
-                    n = _compute_ost_vs_wt(res, _wt_struct)
-                    st.success(f"Computed OST metrics vs WT for {n} mutant(s).")
+            # OST lDDT/RMSD vs WT are auto-computed at the top of the results
+            # section; offer a manual recompute (e.g. after changing the WT).
+            if _wt_path:
+                if st.button("🔄 Recompute OST lDDT / RMSD(CA) vs wild-type",
+                             key="compute_ost_all", help="Re-run OpenStructure compare-structures for every mutant against the WT structure"):
+                    st.session_state["ost_vs_wt_cache"] = {}
+                    n = _compute_ost_vs_wt(res, _wt_path)
+                    st.success(f"Recomputed OST metrics vs WT for {n} mutant(s).")
                     any_ost = any(_ost_for(m, "lddt") is not None for m in res.mutations)
             site_label = "Site error (Å)" if is_immunebuilder else "Site pLDDT (per-residue)"
             esm2_deltas = _esm2_scan_deltas(res.sequence, res.position)
@@ -3035,10 +3239,12 @@ with tab_manual:
                 )
             if not any_ost:
                 st.caption(
-                    "ℹ️ **OST lDDT / RMSD(CA) vs WT show N/A** until computed. Click "
-                    "**'Compute OST lDDT / RMSD(CA) vs wild-type'** above (needs a WT/base "
-                    "structure and OpenStructure) to populate them against wild-type."
+                    "ℹ️ **OST lDDT / RMSD(CA) vs WT show N/A** — OpenStructure compare-structures "
+                    "isn't returning metrics in this environment (backend/version issue). RMSD(Å), "
+                    "per-residue pLDDT and ESM-2 ΔLL are computed and shown."
                 )
+            with st.expander("📊 Data Science Insights — feature importance, correlations & engineered features", expanded=False):
+                _render_ds_insights(res, esm2_deltas)
 
         with tab3:
             if st.session_state.comparison_mutation:
