@@ -379,123 +379,40 @@ with main_tabs[2]:
         col_run, col_status = st.columns([1, 2])
 
         with col_run:
-            if st.button("▶️ Start Batch", type="primary",
-                         width='stretch',
-                         disabled=st.session_state.batch_running):
-
+            _busy = st.session_state.batch_running
+            if st.button("▶️ Start Batch", type="primary", width='stretch', disabled=_busy):
+                st.session_state.batch_jobs = [
+                    {'name': s['name'], 'sequence': s['sequence'],
+                     'status': 'pending', 'result': None, 'error': None}
+                    for s in sequences
+                ]
+                st.session_state.batch_kind = config['type']
                 st.session_state.batch_running = True
-                st.session_state.batch_jobs = []
-
-                # Create jobs
-                for seq in sequences:
-                    st.session_state.batch_jobs.append({
-                        'name': seq['name'],
-                        'sequence': seq['sequence'],
-                        'status': 'pending',
-                        'result': None,
-                        'error': None,
-                    })
-
-                # Process jobs
-                n_jobs = len(st.session_state.batch_jobs)
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                live_table = st.empty()
-
-                _completed = 0
-                _failed = 0
-
-                for i, job in enumerate(st.session_state.batch_jobs):
-                    job['status'] = 'running'
-                    status_text.markdown(
-                        f"⚙️ **Processing** `{job['name']}` — "
-                        f"{i+1}/{n_jobs} &nbsp;|&nbsp; "
-                        f"✅ {_completed} &nbsp;❌ {_failed}"
-                    )
-
-                    try:
-                        if config['type'] == 'prediction':
-                            if config['predictor'] == "ESMFold (API)" and len(job['sequence']) <= 400:
-                                import requests
-                                response = requests.post(
-                                    "https://api.esmatlas.com/foldSequence/v1/pdb/",
-                                    data=job['sequence'],
-                                    headers={"Content-Type": "text/plain"},
-                                    timeout=120,
-                                )
-                                if response.status_code == 200:
-                                    plddt_values = []
-                                    for line in response.text.split('\n'):
-                                        if line.startswith("ATOM") and line[12:16].strip() == "CA":
-                                            try:
-                                                plddt_values.append(float(line[60:66]))
-                                            except Exception:
-                                                pass
-                                    job['result'] = {
-                                        'pdb': response.text,
-                                        'plddt': sum(plddt_values) / len(plddt_values) if plddt_values else 0,
-                                    }
-                                    job['status'] = 'complete'
-                                    _completed += 1
-                                else:
-                                    job['status'] = 'failed'
-                                    job['error'] = f"API error {response.status_code}"
-                                    _failed += 1
-                            elif len(job['sequence']) > 400 and config['predictor'] == "ESMFold (API)":
-                                job['status'] = 'failed'
-                                job['error'] = f"Sequence too long for API ({len(job['sequence'])} aa > 400 limit)"
-                                _failed += 1
-                            else:
-                                job['status'] = 'failed'
-                                job['error'] = f"Predictor '{config['predictor']}' not available in batch mode — use ESMFold (API)"
-                                _failed += 1
-
-                        elif config['type'] == 'biophysics':
-                            from protein_design_hub.biophysics import (
-                                calculate_mw, calculate_pi, calculate_gravy,
-                                calculate_instability_index,
-                            )
-                            from protein_design_hub.biophysics.solubility import SolubilityPredictor
-                            seq = job['sequence']
-                            sol_pred = SolubilityPredictor(sequence=seq)
-                            sol = sol_pred.predict()
-                            job['result'] = {
-                                'mw': calculate_mw(seq),
-                                'pi': calculate_pi(seq),
-                                'gravy': calculate_gravy(seq),
-                                'instability': calculate_instability_index(seq),
-                                'solubility_score': sol['solubility_score'],
-                                'aggregation': sol.get('aggregation_propensity', 0),
-                                'overall': sol.get('overall_assessment', ''),
-                            }
-                            job['status'] = 'complete'
-                            _completed += 1
-
-                        else:
-                            job['status'] = 'failed'
-                            job['error'] = f"Job type '{config['type']}' not implemented in batch mode"
-                            _failed += 1
-
-                    except Exception as e:
-                        job['status'] = 'failed'
-                        job['error'] = str(e)
-                        _failed += 1
-
-                    progress_bar.progress((i + 1) / n_jobs)
-
-                status_text.empty()
-                st.session_state.batch_running = False
-                if _failed == 0:
-                    st.success(f"✅ All {_completed} jobs completed successfully!")
-                elif _completed == 0:
-                    st.error(f"❌ All {_failed} jobs failed — check the Results tab for details.")
-                else:
-                    st.warning(f"⚠️ Completed {_completed}/{n_jobs} jobs. {_failed} failed — see Results tab.")
+                # Durable mirror in the Wave-1 SQLite job store (survives restarts)
+                st.session_state.batch_db = None
+                st.session_state.batch_job_ids = []
+                try:
+                    from protein_design_hub.core import job_store
+                    from protein_design_hub.core.config import get_settings
+                    _db = Path(get_settings().output.base_dir) / "batch" / "jobs.db"
+                    _db.parent.mkdir(parents=True, exist_ok=True)
+                    job_store.init_db(_db)
+                    st.session_state.batch_job_ids = [
+                        job_store.enqueue(_db, config['type'],
+                                          {'name': _j['name'], 'sequence': _j['sequence']})
+                        for _j in st.session_state.batch_jobs
+                    ]
+                    st.session_state.batch_db = str(_db)
+                except Exception:
+                    st.session_state.batch_db = None
                 st.rerun()
-
+            if _busy and st.button("⏹ Stop after current job", width='stretch'):
+                st.session_state.batch_running = False
+                st.rerun()
             st.caption(
-                "Batch runs synchronously and cannot be interrupted mid-run; "
-                "the page is responsive again once all jobs finish."
+                "Jobs run one at a time and survive page reruns; **Stop** halts after the "
+                "current job. The queue is mirrored to a local SQLite store (durable across "
+                "restarts)."
             )
 
         with col_status:
@@ -510,6 +427,40 @@ with main_tabs[2]:
                 col_s2.metric("Failed", failed)
                 col_s3.metric("Pending", pending)
                 col_s4.metric("Running", running)
+
+        # ── Durable, interruptible one-job-per-rerun processor ──
+        if st.session_state.get("batch_running"):
+            _jobs = st.session_state.batch_jobs
+            _nxt = next((j for j in _jobs if j["status"] == "pending"), None)
+            if _nxt is None:
+                st.session_state.batch_running = False
+            else:
+                from protein_design_hub.services.batch_jobs import run_one
+                _done = sum(1 for j in _jobs if j["status"] in ("complete", "failed"))
+                st.progress(_done / max(len(_jobs), 1),
+                            text=f"Processing {_nxt['name']} — {_done}/{len(_jobs)} done")
+                _nxt["status"] = "running"
+                _res = run_one(st.session_state.get("batch_kind", config["type"]),
+                               {"name": _nxt["name"], "sequence": _nxt["sequence"]})
+                _nxt["status"] = "complete" if _res["status"] == "complete" else "failed"
+                _nxt["result"] = _res.get("result")
+                _nxt["error"] = _res.get("error")
+                _db = st.session_state.get("batch_db")
+                _ids = st.session_state.get("batch_job_ids") or []
+                if _db and _ids:
+                    try:
+                        from protein_design_hub.core import job_store
+                        _ix = _jobs.index(_nxt)
+                        if _ix < len(_ids):
+                            if _nxt["status"] == "complete":
+                                job_store.complete(_db, _ids[_ix], _res.get("result") or {})
+                            else:
+                                job_store.fail(_db, _ids[_ix], _res.get("error") or "failed")
+                    except Exception:
+                        pass
+                if not any(j["status"] == "pending" for j in _jobs):
+                    st.session_state.batch_running = False
+                st.rerun()
 
 
 # === RESULTS TAB ===
