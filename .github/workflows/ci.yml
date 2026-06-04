@@ -65,6 +65,8 @@ jobs:
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       if: matrix.python-version == '3.10'
+      continue-on-error: true   # informational only — no CODECOV_TOKEN on this repo
       with:
+        token: ${{ secrets.CODECOV_TOKEN }}
         file: ./coverage.xml
-        fail_ci_if_error: true
+        fail_ci_if_error: false   # the real coverage gate is --cov-fail-under in the pytest step
