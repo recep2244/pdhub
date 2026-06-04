@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # ---------------------------------------------------------------------------
 # Standard amino acid set
@@ -328,7 +328,7 @@ def mhc2_anchor_analysis(sequence: str, position: int) -> dict:
     n, p0 = len(seq), position - 1
     if n < 9 or not (0 <= p0 < n):
         return {"applicable": False}
-    best = None
+    best: Optional[Dict[str, Any]] = None
     for start in range(max(0, p0 - 8), min(p0, n - 9) + 1):
         score = _score_mhc2_9mer(seq[start:start + 9])
         if best is None or score > best["core_score"]:
@@ -366,7 +366,7 @@ def deimmunise_alternatives(sequence: str, position: int, top_n: int = 5) -> lis
                     for i in range(max(0, p0 - 8), min(p0, n - 9) + 1)), default=0.0)
 
     wt = _local_max(seq)
-    out = []
+    out: List[Dict[str, Any]] = []
     for aa in "ACDEFGHIKLMNPQRSTVWY":
         if aa == seq[p0]:
             continue
