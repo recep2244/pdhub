@@ -18,7 +18,10 @@ import tempfile
 from pathlib import Path
 import json
 import time
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:  # forward-ref only; avoids importing heavy agent deps at page load
+    from protein_design_hub.agents.context import WorkflowContext
 import pandas as pd
 import plotly.graph_objects as go
 from fpdf import FPDF
