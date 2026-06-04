@@ -1089,13 +1089,16 @@ def _render_ds_insights(res, esm2_deltas) -> None:
         insights.append(
             f"Aromatic-introducing substitutions average {target} {arom.mean():+.2f} vs "
             f"{nonarom.mean():+.2f} for others — {'a developability red flag' if arom.mean() < nonarom.mean() else 'no penalty observed'}.")
-    if num["ESM-2 ΔLL"].notna().sum() >= 3 and num["Δ site pLDDT"].notna().sum() >= 3:
-        pair = num[["ESM-2 ΔLL", target]].dropna()
-        if len(pair) >= 3 and pair["ESM-2 ΔLL"].nunique() > 1:
-            r, _ = pearsonr(pair["ESM-2 ΔLL"], pair[target])
+    # ESM-2 (evolutionary) vs the structure predictor (pLDDT) — always those two fixed,
+    # orthogonal signals, regardless of which is the importance target above.
+    _evo, _struct = "ESM-2 ΔLL", "Δ site pLDDT"
+    if _evo in num.columns and _struct in num.columns:
+        pair = num[[_evo, _struct]].dropna()
+        if len(pair) >= 3 and pair[_evo].nunique() > 1 and pair[_struct].nunique() > 1:
+            r, _ = pearsonr(pair[_evo], pair[_struct])
             insights.append(
-                f"ESM-2 (evolutionary) and the structure predictor {'agree' if r>0.3 else 'diverge'} "
-                f"(r={r:+.2f}) — {'orthogonal signals reinforce each other' if r>0.3 else 'treat them as independent evidence'}.")
+                f"ESM-2 (evolutionary) and the structure predictor {'agree' if r > 0.3 else 'diverge'} "
+                f"(r={r:+.2f}) — {'orthogonal signals reinforce each other' if r > 0.3 else 'treat them as independent evidence'}.")
     if insights:
         st.markdown("**Insights:**")
         for s in insights:
