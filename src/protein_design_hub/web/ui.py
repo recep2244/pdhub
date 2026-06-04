@@ -1938,6 +1938,78 @@ def progress_steps(
     )
 
 
+# =============================================================================
+# Guided wizard (stepper) + Workbench run-context
+# =============================================================================
+
+def wizard(steps: List[str], key: str = "wiz") -> int:
+    """Render the step indicator for a guided flow and return the current step
+    index (0-based). State persists in ``session_state[f'{key}__step']``.
+    Pair with :func:`wizard_nav` for Back/Next controls."""
+    sk = f"{key}__step"
+    cur = max(0, min(int(st.session_state.get(sk, 0)), len(steps) - 1))
+    st.session_state[sk] = cur
+    progress_steps(steps, current_step=cur)
+    return cur
+
+
+def wizard_nav(steps: List[str], key: str = "wiz", *, can_advance: bool = True,
+               next_label: str = "Next →", finish_label: str = "✓ Finish",
+               advance_hint: str = "") -> Optional[str]:
+    """Back/Next controls for a :func:`wizard`. Returns ``"finish"`` when the
+    final step's button is pressed, else None (navigation triggers a rerun)."""
+    sk = f"{key}__step"
+    cur = int(st.session_state.get(sk, 0))
+    last = cur >= len(steps) - 1
+    c_back, c_next, c_hint = st.columns([1, 1, 4])
+    with c_back:
+        if cur > 0 and st.button("← Back", key=f"{key}_back", width="stretch"):
+            st.session_state[sk] = cur - 1
+            st.rerun()
+    with c_next:
+        if st.button(finish_label if last else next_label, key=f"{key}_next",
+                     type="primary", width="stretch", disabled=not can_advance):
+            if last:
+                return "finish"
+            st.session_state[sk] = cur + 1
+            st.rerun()
+    with c_hint:
+        if not can_advance and advance_hint:
+            st.caption(advance_hint)
+    return None
+
+
+def wizard_reset(key: str = "wiz") -> None:
+    st.session_state[f"{key}__step"] = 0
+
+
+class Workbench:
+    """A tiny per-track run context backed by ``session_state`` — carries
+    artifacts (plan, structures, results) across wizard steps. Namespaced by
+    track so multiple tracks don't collide."""
+
+    def __init__(self, track: str):
+        self.key = f"wb__{track}"
+        if self.key not in st.session_state:
+            st.session_state[self.key] = {}
+
+    @property
+    def data(self) -> Dict[str, Any]:
+        return st.session_state.setdefault(self.key, {})
+
+    def get(self, k: str, default: Any = None) -> Any:
+        return self.data.get(k, default)
+
+    def set(self, k: str, v: Any) -> None:
+        self.data[k] = v
+
+    def has(self, k: str) -> bool:
+        return self.data.get(k) is not None
+
+    def clear(self) -> None:
+        st.session_state[self.key] = {}
+
+
 def show_loading(message: str = "Loading...") -> None:
     """Display a loading spinner with message."""
     st.markdown(
