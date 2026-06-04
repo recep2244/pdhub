@@ -316,6 +316,66 @@ def _predict_tcell_epitopes(
     return all_epitopes[:top_k], per_residue
 
 
+# MHC-II 9-mer anchor positions (1-indexed P1/P4/P6/P9) — dominate binding.
+MHC2_ANCHORS = {1, 4, 6, 9}
+
+
+def mhc2_anchor_analysis(sequence: str, position: int) -> dict:
+    """Is residue *position* (1-indexed) an MHC-II anchor (P1/P4/P6/P9) within the
+    best 9-mer register covering it? A mutation at an anchor of a high-scoring core
+    is the most likely to create or abolish a T-cell epitope."""
+    seq = (sequence or "").upper()
+    n, p0 = len(seq), position - 1
+    if n < 9 or not (0 <= p0 < n):
+        return {"applicable": False}
+    best = None
+    for start in range(max(0, p0 - 8), min(p0, n - 9) + 1):
+        score = _score_mhc2_9mer(seq[start:start + 9])
+        if best is None or score > best["core_score"]:
+            best = {"core": seq[start:start + 9], "register": p0 - start + 1,
+                    "core_score": round(score, 1)}
+    if best is None:
+        return {"applicable": False}
+    best["applicable"] = True
+    best["is_anchor"] = best["register"] in MHC2_ANCHORS
+    high = best["core_score"] >= TCELL_MEDIUM_THRESHOLD
+    if best["is_anchor"] and high:
+        best["verdict"] = (f"P{best['register']} anchor of a predicted MHC-II core "
+                           f"(score {best['core_score']}) — a substitution here strongly modulates "
+                           "T-cell epitope risk.")
+    elif best["is_anchor"]:
+        best["verdict"] = (f"P{best['register']} anchor, but the local core is weak "
+                           f"(score {best['core_score']}) — limited epitope impact.")
+    else:
+        best["verdict"] = (f"Non-anchor (P{best['register']}) — limited direct effect on the "
+                           "MHC-II binding register.")
+    return best
+
+
+def deimmunise_alternatives(sequence: str, position: int, top_n: int = 5) -> list:
+    """Rank substitutions at *position* by how much they LOWER the local MHC-II
+    T-cell signal (max 9-mer core score over windows covering the position).
+    Returns ``[{aa, max_core, delta_vs_wt}]`` most-deimmunising first."""
+    seq = (sequence or "").upper()
+    n, p0 = len(seq), position - 1
+    if n < 9 or not (0 <= p0 < n):
+        return []
+
+    def _local_max(s: str) -> float:
+        return max((_score_mhc2_9mer(s[i:i + 9])
+                    for i in range(max(0, p0 - 8), min(p0, n - 9) + 1)), default=0.0)
+
+    wt = _local_max(seq)
+    out = []
+    for aa in "ACDEFGHIKLMNPQRSTVWY":
+        if aa == seq[p0]:
+            continue
+        m = _local_max(seq[:p0] + aa + seq[p0 + 1:])
+        out.append({"aa": aa, "max_core": round(m, 1), "delta_vs_wt": round(m - wt, 1)})
+    out.sort(key=lambda d: d["max_core"])
+    return out[:top_n]
+
+
 # ---------------------------------------------------------------------------
 # B-cell linear epitope prediction (Parker scale)
 # ---------------------------------------------------------------------------

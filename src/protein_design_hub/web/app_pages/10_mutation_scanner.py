@@ -634,7 +634,20 @@ def _assess_candidate(m, sequence: str, esm2_delta=None) -> dict:
             chips.append((f, "warn"))
         if sequence and isinstance(pos, int) and 1 <= pos <= len(sequence) and mt in "ACDEFGHIKLMNPQRSTVWY":
             mutseq = sequence[: pos - 1] + mt + sequence[pos:]
-            if introduces_ptm_liability(sequence, mutseq) > 0:
+            # Site-specific PTM liabilities introduced by this mutation (local window)
+            import re as _re_l
+            _lo, _hi = max(0, pos - 3), min(len(sequence), pos + 2)
+            _wtw, _mtw = sequence[_lo:_hi].upper(), mutseq[_lo:_hi].upper()
+            _cnt = lambda pat, s: len(_re_l.findall(pat, s))
+            _specific = False
+            if _cnt(r"N[^P][STst]", _mtw) > _cnt(r"N[^P][STst]", _wtw):
+                chips.append(("new N-glyc sequon (N-x-S/T)", "bad")); _specific = True
+            if _cnt(r"N[GSgs]", _mtw) > _cnt(r"N[GSgs]", _wtw):
+                chips.append(("new deamidation site (NG/NS)", "warn")); _specific = True
+            if mt == "C" and (sequence.upper().count("C") % 2 == 0):
+                chips.append(("free thiol (odd Cys)", "bad")); _specific = True
+            # Broader scan (oxidation, isomerisation, proteolysis…) only if no specific hit
+            if not _specific and introduces_ptm_liability(sequence, mutseq) > 0:
                 chips.append(("new PTM liability", "bad"))
     except Exception:
         pass
@@ -864,15 +877,28 @@ def _immunologist_brief(best_mut, res, esm2_delta, assessment) -> str:
         pass
     try:
         if seq and isinstance(pos, int) and 1 <= pos <= len(seq) and mt in "ACDEFGHIKLMNPQRSTVWY":
-            from protein_design_hub.analysis.immunogenicity import analyze_immunogenicity
+            from protein_design_hub.analysis.immunogenicity import (
+                analyze_immunogenicity, mhc2_anchor_analysis, deimmunise_alternatives,
+            )
             mutseq = seq[: pos - 1] + mt + seq[pos:]
             wt_im = analyze_immunogenicity(seq).immunogenicity_score
             mt_im = analyze_immunogenicity(mutseq).immunogenicity_score
             d = mt_im - wt_im
+            parts = []
             if abs(d) >= 1:
-                immuno_note = (f"MHC-II immunogenicity score {wt_im:.0f}→{mt_im:.0f} "
-                               f"({'+' if d>=0 else ''}{d:.0f}) — "
-                               f"{'⚠️ introduces/strengthens a T-cell epitope; consider a deimmunising alternative' if d>0 else 'reduces predicted T-cell epitope risk'}.")
+                parts.append(f"MHC-II immunogenicity {wt_im:.0f}→{mt_im:.0f} ({'+' if d>=0 else ''}{d:.0f}) — "
+                             f"{'⚠️ strengthens a T-cell epitope' if d>0 else 'reduces predicted T-cell epitope risk'}.")
+            # Anchor-residue context (P1/P4/P6/P9 dominate MHC-II binding)
+            anc = mhc2_anchor_analysis(seq, pos)
+            if anc.get("applicable"):
+                parts.append(anc["verdict"])
+            # When risk rises, suggest deimmunising substitutions at this site
+            if d > 0:
+                alts = [a for a in deimmunise_alternatives(seq, pos, top_n=4) if a["delta_vs_wt"] < 0]
+                if alts:
+                    parts.append("Lower-epitope substitutions here: "
+                                 + ", ".join(f"{wt}{pos}{a['aa']} ({a['delta_vs_wt']:+.0f})" for a in alts) + ".")
+            immuno_note = " ".join(parts)
     except Exception:
         pass
 
@@ -985,11 +1011,21 @@ def _render_ds_insights(res, esm2_deltas) -> None:
         st.caption("Data-science insights need ≥3 successful mutations (run a saturation scan).")
         return
 
-    target = "Δ site pLDDT"
     feature_cols = [c for c in df.columns if c not in ("mutation",)]
     num = df[feature_cols].apply(pd.to_numeric, errors="coerce")
 
-    # ── feature importance: |Pearson r| of each feature vs the per-residue effect ──
+    # Target the RANKING signal (ESM-2 ΔLL variant effect), not the pLDDT gate.
+    # Fall back to pLDDT only if ESM-2 has too few values to correlate.
+    if "ESM-2 ΔLL" in num and num["ESM-2 ΔLL"].notna().sum() >= 3 and num["ESM-2 ΔLL"].nunique() > 1:
+        target = "ESM-2 ΔLL"
+        target_note = "ESM-2 ΔLL — evolutionary variant effect (a ranking signal)"
+    else:
+        target = "Δ site pLDDT"
+        target_note = "Δ site pLDDT — ⚠ a confidence *gate*, used only because ESM-2 is unavailable"
+
+    n_used = int(num[target].notna().sum())
+
+    # ── feature importance: |Pearson r| vs the target, with significance (n is small!) ──
     from scipy.stats import pearsonr
     importances = []
     for c in feature_cols:
@@ -999,19 +1035,25 @@ def _render_ds_insights(res, esm2_deltas) -> None:
         if len(pair) >= 3 and pair[c].nunique() > 1 and pair[target].nunique() > 1:
             try:
                 r, p = pearsonr(pair[c], pair[target])
-                importances.append({"feature": c, "|r|": abs(r), "r": r, "p": p})
+                importances.append({"feature": c, "|r|": abs(r), "r": r, "p": p, "n": len(pair),
+                                    "sig": "✔" if p < 0.05 else ""})
             except Exception:
                 pass
     imp_df = pd.DataFrame(importances).sort_values("|r|", ascending=False) if importances else pd.DataFrame()
 
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown(f"**Feature importance** — association with **{target}** (|Pearson r|)")
+        st.markdown(f"**Feature importance** vs **{target}** (|Pearson r|)")
+        st.caption(f"Target: {target_note}. Univariate correlation on **n = {n_used}** mutations — "
+                   "small n + collinear features (volume↔BLOSUM↔hydrophobicity); treat as exploratory, "
+                   "not causal. ✔ = p < 0.05 (uncorrected).")
         if not imp_df.empty:
             import plotly.express as px
-            fig = px.bar(imp_df.head(10), x="|r|", y="feature", orientation="h",
+            _top = imp_df.head(10).copy()
+            _top["label"] = _top["feature"] + _top["sig"].map(lambda s: "  ✔" if s else "")
+            fig = px.bar(_top, x="|r|", y="label", orientation="h",
                          color="r", color_continuous_scale="RdBu", range_color=[-1, 1])
-            fig.update_layout(height=320, margin=dict(l=4, r=4, t=10, b=4), yaxis=dict(autorange="reversed"))
+            fig.update_layout(height=320, margin=dict(l=4, r=4, t=10, b=4), yaxis=dict(autorange="reversed", title=""))
             st.plotly_chart(fig, width='stretch')
         else:
             st.caption("Not enough variation to rank features.")
@@ -1030,8 +1072,9 @@ def _render_ds_insights(res, esm2_deltas) -> None:
         top = imp_df.iloc[0]
         direction = "higher" if top["r"] > 0 else "lower"
         insights.append(
-            f"**{top['feature']}** is the strongest correlate of the per-residue effect "
-            f"(r={top['r']:+.2f}, p={top['p']:.2g}) — {direction} values track with better site pLDDT.")
+            f"**{top['feature']}** is the strongest correlate of **{target}** "
+            f"(r={top['r']:+.2f}, p={top['p']:.2g}, n={int(top['n'])}) — {direction} values track with "
+            f"a more favourable effect{'' if top['p'] < 0.05 else ' (NOT significant at p<0.05 — weak evidence)'}.")
         sig = imp_df[imp_df["p"] < 0.05]
         if len(sig) > 1:
             insights.append("Statistically significant (p<0.05): " +
@@ -1041,8 +1084,8 @@ def _render_ds_insights(res, esm2_deltas) -> None:
     nonarom = num[num["aromatic_intro"] == 0][target].dropna()
     if len(arom) >= 2 and len(nonarom) >= 2:
         insights.append(
-            f"Aromatic-introducing substitutions average Δsite pLDDT {arom.mean():+.1f} vs "
-            f"{nonarom.mean():+.1f} for others — {'a developability red flag' if arom.mean() < nonarom.mean() else 'no penalty observed'}.")
+            f"Aromatic-introducing substitutions average {target} {arom.mean():+.2f} vs "
+            f"{nonarom.mean():+.2f} for others — {'a developability red flag' if arom.mean() < nonarom.mean() else 'no penalty observed'}.")
     if num["ESM-2 ΔLL"].notna().sum() >= 3 and num["Δ site pLDDT"].notna().sum() >= 3:
         pair = num[["ESM-2 ΔLL", target]].dropna()
         if len(pair) >= 3 and pair["ESM-2 ΔLL"].nunique() > 1:
@@ -1057,9 +1100,13 @@ def _render_ds_insights(res, esm2_deltas) -> None:
 
     with st.expander("Per-mutation engineered features (table)"):
         st.dataframe(df, width='stretch', hide_index=True)
-    st.caption("Importance = |Pearson r| vs per-residue Δ pLDDT (no model fit; sklearn not installed). "
+        st.download_button(
+            "⬇ Download feature table (CSV)", df.to_csv(index=False),
+            file_name=f"mutation_features_{getattr(res, 'original_aa', '')}{getattr(res, 'position', '')}.csv",
+            mime="text/csv", width="stretch", key="ds_feat_csv")
+    st.caption(f"Importance = univariate |Pearson r| vs **{target}** (no multivariate model fit). "
                "Engineered features are sequence-derived (Kyte-Doolittle hydrophobicity, MW-as-volume, "
-               "formal charge, BLOSUM62).")
+               "formal charge, BLOSUM62). Small n + collinearity → exploratory, not causal.")
 
 
 def _biophysicist_verdict(m, esm2_delta, ost_lddt, foldx_ddg=None) -> tuple:
@@ -1774,52 +1821,82 @@ def run_multi_mutation_pipeline(sequence, positions, top_k, max_variants, only_b
             status.update(label="Multi-scan failed", state="error", expanded=True)
             return None, str(exc)
 
-def render_heatmap(results):
+def render_heatmap(results, esm2_deltas=None):
+    """Saturation heatmap for the scanned position: a 1×20 effect strip keyed on
+    the variant-effect signal (ESM-2 ΔLL when available — a ranking term — not the
+    pLDDT gate), with a continuous diverging magnitude scale. Accumulates scanned
+    positions in session_state so a multi-position matrix appears once ≥2 sites are
+    scanned.
+    """
     mutations = results.mutations
     aa_order = list("ACDEFGHIKLMNPQRSTVWY")
     original_aa = results.original_aa
-    is_immunebuilder = getattr(results, "predictor", "") == "immunebuilder"
-    
-    values = []
-    hover_texts = []
-    colors = []
-    
+    esm2_deltas = esm2_deltas or {}
+    using_esm2 = any(v is not None for v in esm2_deltas.values())
+
+    z, hover = [], []
     for aa in aa_order:
         if aa == original_aa:
-            values.append(0)
-            colors.append('#9ca3af')
-            hover_texts.append(f"{aa} (WT)")
+            z.append(0.0)
+            hover.append(f"{aa}{results.position} (wild-type)")
+            continue
+        mut = next((m for m in mutations if m.mutant_aa == aa), None)
+        e = esm2_deltas.get(aa)
+        if using_esm2 and e is not None:
+            z.append(float(e))
+            stab = "tolerated/likely" if e >= -2 else "ambiguous" if e >= -5 else "deleterious"
+            hover.append(f"<b>{original_aa}{results.position}{aa}</b><br>ESM-2 ΔLL: {e:+.2f} ({stab})"
+                         + (f"<br>ΔpLDDT: {mut.delta_mean_plddt:+.2f}" if mut and mut.success else ""))
+        elif mut and mut.success:
+            z.append(float(mut.delta_mean_plddt))
+            hover.append(f"<b>{mut.mutation_code}</b><br>ΔpLDDT: {mut.delta_mean_plddt:+.2f}"
+                         + (f"<br>RMSD: {mut.rmsd_to_base:.2f} Å" if mut.rmsd_to_base else ""))
         else:
-            mut = next((m for m in mutations if m.mutant_aa == aa), None)
-            if mut and mut.success:
-                delta = mut.delta_mean_plddt
-                values.append(delta)
-                colors.append('#22c55e' if delta > 0 else '#ef4444')
-                delta_label = "ΔpLDDT"
-                if is_immunebuilder:
-                    delta_label = "ΔError"
-                hover_texts.append(
-                    f"<b>{mut.mutation_code}</b><br>"
-                    f"{delta_label}: {delta:+.2f}"
-                    + (f"<br>RMSD: {mut.rmsd_to_base:.2f} Å" if mut.rmsd_to_base else "")
-                )
-            else:
-                values.append(None)
-                colors.append('#6b7280')
-                hover_texts.append("Failed")
-                
-    fig = go.Figure(data=go.Bar(
-        x=aa_order, y=values, marker_color=colors,
-        hovertext=hover_texts, hoverinfo='text'
+            z.append(None)
+            hover.append("failed / not scored")
+
+    # Diverging scale: ESM-2 ΔLL is "higher = more tolerated"; pLDDT delta likewise.
+    signal = "ESM-2 ΔLL (variant effect)" if using_esm2 else "ΔpLDDT (gate proxy — ESM-2 unavailable)"
+    vals = [v for v in z if isinstance(v, (int, float))]
+    cmax = max(1.0, max(abs(v) for v in vals)) if vals else 1.0
+    fig = go.Figure(data=go.Heatmap(
+        z=[z], x=aa_order, y=[f"{original_aa}{results.position}"],
+        text=[hover], hoverinfo="text",
+        colorscale="RdBu", zmid=0, zmin=-cmax, zmax=cmax,
+        colorbar=dict(title=dict(text="effect", side="right")),
+        xgap=2, ygap=2,
     ))
-    y_title = "ΔpLDDT"
-    if is_immunebuilder:
-        y_title = "ΔError (Å)"
     fig.update_layout(
-        title=f"Mutation Stability ({y_title}) at {results.original_aa}{results.position}",
-        yaxis_title=y_title, height=350
+        title=f"Saturation map at {original_aa}{results.position} — coloured by {signal}",
+        height=170, margin=dict(l=8, r=8, t=44, b=8),
+        xaxis=dict(title="Substituted residue", side="top"),
     )
-    st.plotly_chart(fig, width='stretch')
+    st.plotly_chart(fig, width="stretch")
+    st.caption(("🟦 favourable / tolerated · 🟥 destabilising/deleterious · grey = WT or not scored. "
+                "Coloured by **ESM-2 ΔLL** (a ranking signal), not pLDDT.") if using_esm2 else
+               ("Coloured by ΔpLDDT (ESM-2 unavailable) — a confidence *gate*, not a ranking signal; "
+                "interpret magnitude cautiously."))
+
+    # ── accumulate a multi-position saturation matrix across scans ──
+    try:
+        matrix = st.session_state.setdefault("_sat_matrix", {})
+        if using_esm2:
+            matrix[f"{original_aa}{results.position}"] = {aa: esm2_deltas.get(aa) for aa in aa_order}
+        if len(matrix) >= 2:
+            ys = list(matrix.keys())
+            zz = [[matrix[y].get(aa) for aa in aa_order] for y in ys]
+            fm = go.Figure(data=go.Heatmap(
+                z=zz, x=aa_order, y=ys, colorscale="RdBu", zmid=0,
+                colorbar=dict(title=dict(text="ESM-2 ΔLL", side="right")), xgap=1, ygap=1,
+                hovertemplate="%{y}%{x}: ΔLL %{z:+.2f}<extra></extra>"))
+            fm.update_layout(title="Saturation matrix — all scanned positions (ESM-2 ΔLL)",
+                             height=max(180, 26 * len(ys) + 80),
+                             margin=dict(l=8, r=8, t=44, b=8),
+                             xaxis=dict(title="Substituted residue", side="top"))
+            with st.expander(f"🗺 Saturation matrix — {len(ys)} positions scanned", expanded=False):
+                st.plotly_chart(fm, width="stretch")
+    except Exception:
+        pass
 
 def run_baseline_comparison(
     sequence: str,
@@ -3443,15 +3520,15 @@ with tab_manual:
         tab1, tab2, tab3 = st.tabs(["🏆 Recommendations", "📈 Detailed Metrics", "🔬 3D Comparison"])
     
         with tab1:
-            render_heatmap(res)
-        
-            st.markdown("### Top Variants")
-        
             best_mut = res.ranked_mutations[0] if res.ranked_mutations else None
             _rec_esm2 = _esm2_scan_deltas(res.sequence, res.position)
 
-            # Tri-expert consensus (Data Scientist + Immunologist + Biophysicist) — by default.
+            # Lead with the decision: PI synthesis + expert consensus + why-it-wins.
             _render_consensus(res, _rec_esm2)
+            st.markdown("---")
+
+            # Then the saturation map (effect-coloured) for the scanned position.
+            render_heatmap(res, _rec_esm2)
             st.markdown("---")
 
             if best_mut:
